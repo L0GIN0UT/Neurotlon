@@ -24,9 +24,14 @@ members = ["server", "launcher", "bci-bridge", "games"]
 [dependency-groups]
 dev = [
     "httpx2>=2.16.2",
+    "jsonschema>=4.26.0",
     "mypy>=1.13",
+    "openapi-spec-validator>=0.9.0",
     "pytest>=8.3",
+    "pyyaml>=6.0.3",
     "ruff>=0.8",
+    "types-jsonschema>=4.26.0.20261006",
+    "types-pyyaml>=6.0.12.20261113",
 ]
 
 [tool.ruff]
@@ -43,9 +48,9 @@ known-first-party = ["neurotlon_server", "neurotlon_launcher", "neurotlon_bridge
 python_version = "3.12"
 strict = true
 mypy_path = ["server/src", "launcher/src", "bci-bridge/src", "games/src"]
-files = ["server", "launcher", "bci-bridge", "games"]
+files = ["shared/tests", "server", "launcher", "bci-bridge", "games"]
 explicit_package_bases = true
 
 [tool.pytest.ini_options]
-testpaths = ["server/tests", "launcher/tests", "bci-bridge/tests", "games/tests"]
+testpaths = ["shared/tests", "server/tests", "launcher/tests", "bci-bridge/tests", "games/tests"]
 addopts = "--import-mode=importlib"
