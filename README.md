@@ -4,8 +4,19 @@
 
 ## Начало работы
 
+Нужны [uv](https://docs.astral.sh/uv/) и Node.js 24.
+
 ```
 git config core.hooksPath .githooks
+uv sync
+cd web && npm ci
+```
+
+Проверки (то же, что в CI):
+
+```
+uv run ruff check . && uv run ruff format --check . && uv run mypy && uv run pytest
+cd web && npm run lint && npm run typecheck && npm test
 ```
 
 Хук `commit-msg` запрещает коммиты с соавторством Claude / Anthropic. Правила для разработки и для Claude Code — в [CLAUDE.md](CLAUDE.md).
