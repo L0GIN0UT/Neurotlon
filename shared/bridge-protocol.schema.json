@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "neurotlon/bridge-protocol/1",
+  "title": "BCI bridge <-> game message",
+  "oneOf": [
+    { "$ref": "#/$defs/Hello" },
+    { "$ref": "#/$defs/Sample" },
+    { "$ref": "#/$defs/Sensor" },
+    { "$ref": "#/$defs/Calibration" },
+    { "$ref": "#/$defs/Calibrate" },
+    { "$ref": "#/$defs/Reset" }
+  ],
+  "$defs": {
+    "SignalName": {
+      "enum": ["eeg", "emg", "emg_left", "emg_right"]
+    },
+    "SensorState": {
+      "enum": ["connecting", "connected", "disconnected", "emulated"]
+    },
+    "InvalidReason": {
+      "enum": ["artifact", "no_contact", "disconnected", "stale", "not_calibrated"]
+    },
+    "CalibrationStep": {
+      "enum": ["rest", "contract", "baseline"]
+    },
+    "Hello": {
+      "type": "object",
+      "required": ["type", "protocol", "signals"],
+      "properties": {
+        "type": { "const": "hello" },
+        "protocol": { "const": 1 },
+        "signals": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["name", "state"],
+            "properties": {
+              "name": { "$ref": "#/$defs/SignalName" },
+              "state": { "$ref": "#/$defs/SensorState" }
+            }
+          }
+        }
+      }
+    },
+    "Reading": {
+      "type": "object",
+      "required": ["value", "valid"],
+      "properties": {
+        "value": { "type": "number", "minimum": 0, "maximum": 1 },
+        "valid": { "type": "boolean" },
+        "reason": { "$ref": "#/$defs/InvalidReason" }
+      },
+      "if": { "properties": { "valid": { "const": false } } },
+      "then": { "required": ["reason"] },
+      "else": { "not": { "required": ["reason"] } }
+    },
+    "Sample": {
+      "type": "object",
+      "required": ["type", "t_ms", "signals"],
+      "properties": {
+        "type": { "const": "sample" },
+        "t_ms": { "type": "integer", "minimum": 0 },
+        "signals": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": { "$ref": "#/$defs/SignalName" },
+          "additionalProperties": { "$ref": "#/$defs/Reading" }
+        }
+      }
+    },
+    "Sensor": {
+      "type": "object",
+      "required": ["type", "signal", "state"],
+      "properties": {
+        "type": { "const": "sensor" },
+        "signal": { "$ref": "#/$defs/SignalName" },
+        "state": { "$ref": "#/$defs/SensorState" },
+        "battery": { "type": "integer", "minimum": 0, "maximum": 100 }
+      }
+    },
+    "Calibration": {
+      "type": "object",
+      "required": ["type", "signal", "step", "status"],
+      "properties": {
+        "type": { "const": "calibration" },
+        "signal": { "$ref": "#/$defs/SignalName" },
+        "step": { "$ref": "#/$defs/CalibrationStep" },
+        "status": { "enum": ["running", "done", "failed"] },
+        "progress": { "type": "number", "minimum": 0, "maximum": 1 },
+        "reason": { "type": "string", "maxLength": 200 }
+      },
+      "if": { "properties": { "status": { "const": "failed" } } },
+      "then": { "required": ["reason"] }
+    },
+    "Calibrate": {
+      "type": "object",
+      "required": ["type", "signal", "step"],
+      "properties": {
+        "type": { "const": "calibrate" },
+        "signal": { "$ref": "#/$defs/SignalName" },
+        "step": { "$ref": "#/$defs/CalibrationStep" }
+      }
+    },
+    "Reset": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "const": "reset" }
+      }
+    }
+  }
+}
