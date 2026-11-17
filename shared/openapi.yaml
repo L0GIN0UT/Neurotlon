@@ -1,0 +1,445 @@
+openapi: 3.1.0
+info:
+  title: Neurotlon station API
+  version: 0.1.0
+  description: |
+    Контракт «лаунчер стенда / планшет волонтёра → сервер».
+
+    - Лаунчер авторизуется токеном станции, планшет — сессией волонтёра.
+      Дисциплина и секция берутся из учётки станции или волонтёра; если в теле
+      они не совпадают — `403 wrong_discipline`.
+    - Сервер ничего не назначает, только проверяет.
+    - Результат принимается идемпотентно по `session_id`: повтор того же тела
+      возвращает тот же ответ, другое тело с тем же `session_id` — `409`.
+    - Категория участника (с ОВЗ / без) в этом API не передаётся никогда.
+    - Ошибки — `application/problem+json` (RFC 9457) с машинным полем `code`.
+
+servers:
+  - url: /api/v1
+
+security:
+  - stationToken: []
+  - volunteerSession: []
+
+paths:
+  /participants/{code}/eligibility:
+    get:
+      operationId: getEligibility
+      summary: Проверка участника перед окном «Это я»
+      description: |
+        Не блокирует: возвращает данные для окна «Это я» и список проблем.
+        Окно жёлтое, если `issues` не пуст.
+      parameters:
+        - $ref: "#/components/parameters/ParticipantCodePath"
+        - name: discipline
+          in: query
+          required: true
+          schema:
+            $ref: "#/components/schemas/Discipline"
+        - name: section
+          in: query
+          required: true
+          schema:
+            $ref: "#/components/schemas/Section"
+      responses:
+        "200":
+          description: Участник найден
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Eligibility"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/Problem"
+
+  /sessions:
+    post:
+      operationId: startSession
+      summary: Участники подтвердили «Это я», игра начинается
+      description: |
+        Помечает участников занятыми на этой станции до прихода результата или
+        до потери heartbeat. Без связи лаунчер начинает игру без этого вызова и
+        передаёт результат позже. Повтор с тем же `session_id` безопасен.
+      security:
+        - stationToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SessionStart"
+      responses:
+        "201":
+          description: Сессия открыта
+        "200":
+          description: Сессия с этим `session_id` уже открыта
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "409":
+          $ref: "#/components/responses/Problem"
+        "422":
+          $ref: "#/components/responses/Problem"
+
+  /results:
+    post:
+      operationId: submitResult
+      summary: Результат сессии (одна игра или одна запись волонтёра)
+      description: |
+        Одна сессия — один запрос со всеми её участниками: на понге оба игрока
+        одного матча приходят вместе. Результат из офлайн-буфера с прошедшими
+        проверками всё равно принимается; найденные проблемы сервер помечает в
+        `warnings`, разбирает судья.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResultSubmission"
+            examples:
+              darts:
+                value:
+                  session_id: 0f8c7a52-3c1e-4c5e-9a57-2d6a3b1f9e10
+                  discipline: darts
+                  section: bci
+                  finished_at: "2027-04-12T11:05:00+04:00"
+                  entries:
+                    - participant_code: NT07
+                      outcome: completed
+                      points: 42.5
+              pong:
+                value:
+                  session_id: 7b1d3e00-5a4f-4c2b-8e7a-91c0d2f3a4b5
+                  discipline: pong
+                  section: bci
+                  finished_at: "2027-04-12T11:20:00+04:00"
+                  entries:
+                    - participant_code: NT03
+                      outcome: completed
+                      points: 11
+                      wins: 1
+                    - participant_code: NT14
+                      outcome: completed
+                      points: 7
+                      wins: 0
+              not_completed:
+                value:
+                  session_id: 2c9e4f61-8d0a-4b3c-a1e2-f3d4c5b6a7e8
+                  discipline: football
+                  section: physical
+                  finished_at: "2027-04-12T11:40:00+04:00"
+                  entries:
+                    - participant_code: NT11
+                      outcome: not_completed
+                      reason: equipment
+      responses:
+        "201":
+          description: Результат записан
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResultReceipt"
+        "200":
+          description: Повтор того же `session_id` с тем же телом, ответ как при записи
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResultReceipt"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "409":
+          $ref: "#/components/responses/Problem"
+        "422":
+          $ref: "#/components/responses/Problem"
+
+  /stations/me/heartbeat:
+    post:
+      operationId: heartbeat
+      summary: Состояние стенда, раз в 5 с
+      description: Нет heartbeat 30 с — станция считается отключённой, её сессии закрываются.
+      security:
+        - stationToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Heartbeat"
+      responses:
+        "204":
+          description: Принято
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+components:
+  securitySchemes:
+    stationToken:
+      type: http
+      scheme: bearer
+      description: Токен станции, выдаётся в админке; одна станция — один токен.
+    volunteerSession:
+      type: apiKey
+      in: cookie
+      name: neurotlon_session
+
+  parameters:
+    ParticipantCodePath:
+      name: code
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/ParticipantCode"
+
+  responses:
+    Unauthorized:
+      description: Нет или неверный токен / сессия
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Problem:
+      description: Ошибка с машинным кодом
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+
+  schemas:
+    ParticipantCode:
+      type: string
+      pattern: "^NT[0-9]{2}$"
+      examples: [NT07]
+
+    Discipline:
+      type: string
+      enum: [darts, football, pong]
+
+    Section:
+      type: string
+      enum: [bci, physical]
+      description: bci — игра на стенде, physical — физическая секция у волонтёра.
+
+    Team:
+      type: object
+      required: [number, name, color]
+      additionalProperties: false
+      properties:
+        number:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+        color:
+          type: string
+          pattern: "^#[0-9a-fA-F]{6}$"
+
+    IssueCode:
+      type: string
+      enum:
+        - not_checked_in
+        - already_completed
+        - busy_on_other_station
+        - no_pair_assigned
+
+    Eligibility:
+      type: object
+      required: [code, team, issues]
+      additionalProperties: false
+      properties:
+        code:
+          $ref: "#/components/schemas/ParticipantCode"
+        display_name:
+          type: [string, "null"]
+          description: Имя для табло, необязательно.
+        team:
+          oneOf:
+            - $ref: "#/components/schemas/Team"
+            - type: "null"
+          description: null до жеребьёвки.
+        issues:
+          type: array
+          items:
+            $ref: "#/components/schemas/IssueCode"
+
+    SessionId:
+      type: string
+      format: uuid
+      description: UUID v4, генерирует лаунчер или планшет до начала игры / ввода.
+
+    SessionStart:
+      type: object
+      required: [session_id, discipline, participant_codes]
+      additionalProperties: false
+      properties:
+        session_id:
+          $ref: "#/components/schemas/SessionId"
+        discipline:
+          $ref: "#/components/schemas/Discipline"
+        participant_codes:
+          type: array
+          minItems: 1
+          maxItems: 2
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/ParticipantCode"
+
+    Outcome:
+      type: string
+      enum: [completed, not_completed]
+
+    NotCompletedReason:
+      type: string
+      enum: [participant_refused, health, equipment, no_show, other]
+
+    ResultEntry:
+      type: object
+      required: [participant_code, outcome]
+      additionalProperties: false
+      properties:
+        participant_code:
+          $ref: "#/components/schemas/ParticipantCode"
+        outcome:
+          $ref: "#/components/schemas/Outcome"
+        points:
+          type: number
+          minimum: 0
+          description: Очки по методике; шкалы задаются в настройках сервера.
+        wins:
+          type: integer
+          minimum: 0
+          description: Победы в сессии; для понга — 1 у победителя матча.
+        reason:
+          $ref: "#/components/schemas/NotCompletedReason"
+        comment:
+          type: string
+          maxLength: 200
+      allOf:
+        - if:
+            properties:
+              outcome:
+                const: completed
+          then:
+            required: [points]
+            not:
+              required: [reason]
+          else:
+            required: [reason]
+            not:
+              anyOf:
+                - required: [points]
+                - required: [wins]
+
+    ResultSubmission:
+      type: object
+      required: [session_id, discipline, section, finished_at, entries]
+      additionalProperties: false
+      properties:
+        session_id:
+          $ref: "#/components/schemas/SessionId"
+        discipline:
+          $ref: "#/components/schemas/Discipline"
+        section:
+          $ref: "#/components/schemas/Section"
+        finished_at:
+          type: string
+          format: date-time
+          description: Время окончания по часам стенда / планшета.
+        entries:
+          type: array
+          minItems: 1
+          maxItems: 2
+          items:
+            $ref: "#/components/schemas/ResultEntry"
+
+    ResultStatus:
+      type: string
+      enum: [entered, confirmed, locked]
+      description: введён → подтверждён → заблокирован.
+
+    ResultReceipt:
+      type: object
+      required: [session_id, results, warnings]
+      additionalProperties: false
+      properties:
+        session_id:
+          $ref: "#/components/schemas/SessionId"
+        results:
+          type: array
+          items:
+            type: object
+            required: [id, participant_code, status]
+            additionalProperties: false
+            properties:
+              id:
+                type: integer
+              participant_code:
+                $ref: "#/components/schemas/ParticipantCode"
+              status:
+                $ref: "#/components/schemas/ResultStatus"
+        warnings:
+          type: array
+          items:
+            type: object
+            required: [participant_code, code]
+            additionalProperties: false
+            properties:
+              participant_code:
+                $ref: "#/components/schemas/ParticipantCode"
+              code:
+                $ref: "#/components/schemas/IssueCode"
+
+    StationState:
+      type: string
+      enum: [idle, confirming, calibrating, playing, sending]
+
+    SensorState:
+      type: string
+      enum: [connected, connecting, disconnected, emulated]
+
+    Heartbeat:
+      type: object
+      required: [state, queue_length, sensors]
+      additionalProperties: false
+      properties:
+        state:
+          $ref: "#/components/schemas/StationState"
+        session_id:
+          $ref: "#/components/schemas/SessionId"
+        queue_length:
+          type: integer
+          minimum: 0
+          description: Результатов в офлайн-буфере.
+        sensors:
+          type: object
+          description: Ключ — имя датчика (eeg, emg, emg_left, emg_right).
+          additionalProperties:
+            $ref: "#/components/schemas/SensorState"
+
+    ProblemCode:
+      type: string
+      enum:
+        - unauthorized
+        - unknown_participant
+        - wrong_discipline
+        - session_conflict
+        - busy_on_other_station
+        - invalid_entries
+
+    Problem:
+      type: object
+      required: [type, title, status, code]
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        code:
+          $ref: "#/components/schemas/ProblemCode"
