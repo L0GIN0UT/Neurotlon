@@ -1,0 +1,51 @@
+[project]
+name = "neurotlon"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "neurotlon_server",
+    "neurotlon_launcher",
+    "neurotlon_bridge",
+    "neurotlon_games",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+neurotlon_server = { workspace = true }
+neurotlon_launcher = { workspace = true }
+neurotlon_bridge = { workspace = true }
+neurotlon_games = { workspace = true }
+
+[tool.uv.workspace]
+members = ["server", "launcher", "bci-bridge", "games"]
+
+[dependency-groups]
+dev = [
+    "httpx2>=2.16.2",
+    "mypy>=1.13",
+    "pytest>=8.3",
+    "ruff>=0.8",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["neurotlon_server", "neurotlon_launcher", "neurotlon_bridge", "neurotlon_games"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = ["server/src", "launcher/src", "bci-bridge/src", "games/src"]
+files = ["server", "launcher", "bci-bridge", "games"]
+explicit_package_bases = true
+
+[tool.pytest.ini_options]
+testpaths = ["server/tests", "launcher/tests", "bci-bridge/tests", "games/tests"]
+addopts = "--import-mode=importlib"
