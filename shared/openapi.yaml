@@ -211,7 +211,7 @@ components:
   schemas:
     ParticipantCode:
       type: string
-      pattern: "^NT[0-9]{2}$"
+      pattern: "^NT(0[1-9]|[1-9][0-9])$"
       examples: [NT07]
 
     Discipline:
