@@ -54,3 +54,7 @@ explicit_package_bases = true
 [tool.pytest.ini_options]
 testpaths = ["shared/tests", "server/tests", "launcher/tests", "bci-bridge/tests", "games/tests"]
 addopts = "--import-mode=importlib"
+
+[[tool.mypy.overrides]]
+module = ["reportlab", "reportlab.*"]
+ignore_missing_imports = true
