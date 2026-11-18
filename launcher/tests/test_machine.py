@@ -487,3 +487,28 @@ def test_max_points_from_config_reaches_game_and_active_session() -> None:
     active = rig.queue.active
     assert active is not None
     assert active.max_points == 10
+
+
+def test_unknown_limit_offline_uses_default_10_and_warns(caplog: pytest.LogCaptureFixture) -> None:
+    rig = Rig("darts", DARTS_DONE)
+    rig.api.config = Offline("down")
+    rig.api.people["NT07"] = eligibility("NT07")
+    rig.machine.enter_code("7")
+    rig.machine.tick()
+    rig.machine.confirm()
+    with caplog.at_level("WARNING"):
+        rig.machine.tick()
+    assert rig.runner.requests[0].max_points == 10
+    assert isinstance(rig.state, Playing)
+    assert rig.state.default_limit
+    assert texts.LIMIT_DEFAULT == "Лимит очков не получен с сервера, используется 10"
+    assert "limit unknown" in caplog.text
+
+
+def test_unknown_limit_offline_for_pong_stays_unlimited() -> None:
+    rig = Rig("pong", PONG_DONE)
+    rig.api.config = Offline("down")
+    rig.confirm_through("NT03")
+    rig.confirm_through("NT14")
+    rig.machine.tick()
+    assert rig.runner.requests[0].max_points is None

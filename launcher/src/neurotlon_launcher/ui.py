@@ -165,6 +165,8 @@ class Ui:
             self._center(texts.PLAYING, "big", GREEN, 0.4)
             if state.offline:
                 self._center(texts.PLAYING_OFFLINE, "mid", YELLOW, 0.55)
+            if state.default_limit:
+                self._center(texts.LIMIT_DEFAULT, "mid", YELLOW, 0.65)
         elif isinstance(state, Done):
             self._draw_done(state)
         elif isinstance(state, Blocked):
