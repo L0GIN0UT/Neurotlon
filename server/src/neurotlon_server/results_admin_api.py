@@ -12,8 +12,14 @@ from neurotlon_server.audit import write_audit
 from neurotlon_server.auth import Db, require_role
 from neurotlon_server.codes import normalize_code
 from neurotlon_server.errors import ProblemError, conflict, forbidden, not_found
-from neurotlon_server.models import CorrectionRequest, Participant, SectionResult, User
-from neurotlon_server.results import DisciplineName, Reason, SectionName
+from neurotlon_server.models import (
+    CorrectionRequest,
+    Discipline,
+    Participant,
+    SectionResult,
+    User,
+)
+from neurotlon_server.results import DisciplineName, Reason, SectionName, points_over_limit
 from neurotlon_server.scoring import COUNTED_STATUSES
 
 router = APIRouter(prefix="/api/v1/results", tags=["results"])
@@ -89,7 +95,7 @@ def _invalid(detail: str) -> ProblemError:
     return ProblemError(422, "invalid_entries", "Invalid entries", detail)
 
 
-def _apply(row: SectionResult, patch: ResultPatch) -> dict[str, Any]:
+def _apply(db: Db, row: SectionResult, patch: ResultPatch) -> dict[str, Any]:
     """New field values for the row, validated by the same rules as a submission."""
     changes = patch.model_dump(exclude_unset=True, exclude={"change_reason"})
     if not changes:
@@ -115,6 +121,11 @@ def _apply(row: SectionResult, patch: ResultPatch) -> dict[str, Any]:
         raise _invalid("not_completed needs reason and no points or wins")
     if row.discipline != "pong" and new["wins"] is not None:
         raise _invalid("wins are only for pong")
+    discipline = db.get(Discipline, row.discipline)
+    assert discipline is not None
+    message = points_over_limit(row.discipline, new["points"], discipline.max_section_points)
+    if message:
+        raise _invalid(message)
     return new
 
 
@@ -303,7 +314,7 @@ def patch_result(result_id: int, body: ResultPatch, db: Db, user: Judge) -> Resu
         raise forbidden()
     if row.status not in ("confirmed", "locked"):
         raise conflict("Only confirmed or locked results can be corrected")
-    new = _apply(row, body)
+    new = _apply(db, row, body)
     siblings = _pong_siblings(db, row, new, user)
     before = _snapshot(row) | {"version": row.version}
     version, status = row.version, row.status

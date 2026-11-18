@@ -81,6 +81,6 @@ def test_staff_endpoints_match_schema(
     assert found
     for row in found:
         validate(spec, "StoredResult", row)
-    patch = {"points": 40, "change_reason": "recount"}
+    patch = {"points": 4, "change_reason": "recount"}
     validate(spec, "ResultPatch", patch)
     validate(spec, "StoredResult", root.patch(f"{API}/results/{found[0]['id']}", json=patch).json())

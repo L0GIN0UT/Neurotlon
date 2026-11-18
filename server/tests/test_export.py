@@ -84,11 +84,11 @@ def test_export_matches_the_scoreboard(
         assert row[:3] == [team["rank"], team["name"], team["total"]]
         assert row[3:6] == [team["by_discipline"][d] for d in ("darts", "football", "pong")]
         assert row[6] == team["sections_passed"]
-    assert summary[0][:3] == [1, "Alpha", 42.5]
+    assert summary[0][:3] == [1, "Alpha", 4.5]
     member = book["Участники"][1]
-    assert member[:3] == ["Alpha", "Name 1", 42.5]  # label and darts BCI points
+    assert member[:3] == ["Alpha", "Name 1", 4.5]  # label and darts BCI points
     assert member[3:8] == [None, None, None, None, None]  # nothing entered there
-    assert member[8:10] == [42.5, 1]
+    assert member[8:10] == [4.5, 1]
     assert member[10] is None
 
 

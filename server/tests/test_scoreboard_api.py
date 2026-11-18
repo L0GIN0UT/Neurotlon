@@ -58,12 +58,12 @@ def test_scoreboard_is_public_and_has_no_category(client: TestClient, db: Sessio
     body = response.json()
     assert [t["number"] for t in body["teams"]] == [1, 2]
     first = body["teams"][0]
-    assert (first["rank"], first["total"], first["sections_passed"]) == (1, 42.5, 1)
-    assert first["by_discipline"] == {"darts": 42.5, "football": 0, "pong": 0}
+    assert (first["rank"], first["total"], first["sections_passed"]) == (1, 4.5, 1)
+    assert first["by_discipline"] == {"darts": 4.5, "football": 0, "pong": 0}
     assert first["finished"] is False
     assert first["duel_score"] == 0
     assert first["top"]["darts"] == [
-        {"rank": 1, "number": 1, "label": "Name 1", "points": 42.5, "pending": False}
+        {"rank": 1, "number": 1, "label": "Name 1", "points": 4.5, "pending": False}
     ]
     assert first["top"]["football"] == first["top"]["pong"] == []
     assert list(first["top"]) == ["darts", "football", "pong"]
@@ -88,7 +88,7 @@ def test_conflict_appears_and_counts_nothing(app: FastAPI, client: TestClient, d
         "darts",
         "bci",
     )
-    assert [r["points"] for r in item["results"]] == [42.5, 10]
+    assert [r["points"] for r in item["results"]] == [4.5, 10]
     assert set(item["results"][0]) == {
         "id",
         "points",
@@ -147,7 +147,7 @@ def test_volunteer_resolves_only_own_discipline(
     own = login_as(app, "vd")
     assert len(own.get(f"{API}/conflicts").json()) == 1
     assert own.post(f"{API}/conflicts/resolve", json=body).status_code == 200
-    assert alpha(client)["total"] == 42.5
+    assert alpha(client)["total"] == 4.5
 
 
 def test_resolve_validation(app: FastAPI, client: TestClient, db: Session) -> None:
@@ -212,6 +212,7 @@ def test_discipline_patch_roles_bounds_and_audit(
         "game_duration_s": 90,
         "physical_duration_s": 200,
         "win_points": 10,
+        "max_section_points": 10,
     }
     assert login_as(app, "judge").patch(url, json={"win_points": 0}).status_code == 200
     for bad in (
@@ -219,6 +220,8 @@ def test_discipline_patch_roles_bounds_and_audit(
         {"physical_duration_s": 3601},
         {"win_points": -1},
         {"win_points": 1001},
+        {"max_section_points": 0},
+        {"max_section_points": 1001},
         {"unknown": 1},
         {},
     ):
