@@ -84,3 +84,17 @@ def test_build_result_is_valid_for_any_seed(seed: int) -> None:
         "participants": [{"code": "NT01"}, {"code": "NT02"}],
     }
     _validator("Result").validate(stub.build_result(launch, random.Random(seed), abort=False))
+
+
+def test_spawn_child_writes_pid_of_running_process(tmp_path: Path) -> None:
+    import os
+    import signal
+
+    path = _write_launch(tmp_path, "darts", ["NT01"])
+    assert stub.main(["--launch", str(path), "--seconds", "0", "--spawn-child"]) == 0
+    pid = int((tmp_path / "child.pid").read_text(encoding="utf-8"))
+    assert pid > 0
+    if os.name == "nt":
+        os.kill(pid, signal.SIGTERM)  # на Windows это TerminateProcess
+    else:
+        os.kill(pid, signal.SIGKILL)

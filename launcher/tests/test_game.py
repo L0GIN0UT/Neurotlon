@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 import time
 import uuid
@@ -6,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from neurotlon_launcher import proc
 from neurotlon_launcher.game import (
     Aborted,
     Crashed,
@@ -94,23 +96,90 @@ def test_crash_exit_code(tmp_path: Path) -> None:
     assert "1" in outcome.detail
 
 
-def test_timeout_kills_process(tmp_path: Path) -> None:
-    now = [0.0]
-    game = SubprocessGameRunner(
-        (*STUB, "--seconds", "60"),
+def pid_alive(pid: int) -> bool:
+    if sys.platform == "win32":
+        import ctypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.restype = ctypes.c_void_p
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # QUERY_LIMITED_INFORMATION
+        if not handle:
+            return False
+        code = ctypes.c_ulong()
+        kernel32.GetExitCodeProcess(ctypes.c_void_p(handle), ctypes.byref(code))
+        kernel32.CloseHandle(ctypes.c_void_p(handle))
+        return code.value == 259  # STILL_ACTIVE
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def wait_dead(pid: int, timeout: float = 10.0) -> bool:
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        if not pid_alive(pid):
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def wait_child_pid(folder: Path, timeout: float = 20.0) -> int:
+    end = time.monotonic() + timeout
+    pid_file = folder / "child.pid"
+    while time.monotonic() < end:
+        if pid_file.exists() and pid_file.read_text(encoding="utf-8"):
+            return int(pid_file.read_text(encoding="utf-8"))
+        time.sleep(0.05)
+    raise AssertionError("child pid was not written")
+
+
+def timeout_game(tmp_path: Path, now: list[float]) -> SubprocessGameRunner:
+    return SubprocessGameRunner(
+        (*STUB, "--seconds", "60", "--spawn-child"),
         None,
         tmp_path,
         "127.0.0.1",
         8765,
         monotonic=lambda: now[0],
     )
-    game.start(request())
+
+
+def test_timeout_kills_process_and_its_child(tmp_path: Path) -> None:
+    now = [0.0]
+    game = timeout_game(tmp_path, now)
+    req = request()
+    game.start(req)
+    child = wait_child_pid(tmp_path / "sessions" / str(req.session_id))
+    parent = game._proc
+    assert parent is not None
+    assert pid_alive(child)
     assert game.poll() is None
     now[0] = 10 + 120 + 1  # duration_s + 120
     outcome = game.poll()
     assert isinstance(outcome, Crashed)
     assert "вовремя" in outcome.detail
     assert game.poll() is None
+    assert parent.poll() is not None
+    assert wait_dead(parent.pid)
+    assert wait_dead(child)
+
+
+def test_taskkill_fallback_when_job_is_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if sys.platform != "win32":
+        pytest.skip("taskkill fallback is Windows-only")
+    monkeypatch.setattr(proc, "_create_kill_on_close_job", lambda process: None)
+    now = [0.0]
+    game = timeout_game(tmp_path, now)
+    req = request()
+    game.start(req)
+    child = wait_child_pid(tmp_path / "sessions" / str(req.session_id))
+    now[0] = 1000.0
+    assert isinstance(game.poll(), Crashed)
+    assert wait_dead(child)
 
 
 def test_missing_executable(tmp_path: Path) -> None:

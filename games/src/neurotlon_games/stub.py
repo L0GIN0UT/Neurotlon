@@ -10,6 +10,7 @@ import argparse
 import json
 import os
 import random
+import subprocess
 import sys
 import time
 from collections.abc import Sequence
@@ -52,16 +53,28 @@ def write_atomic(path: Path, data: dict[str, Any]) -> None:
     os.replace(tmp, path)
 
 
+def spawn_child(pid_file: Path) -> None:
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(300)"])
+    pid_file.write_text(str(child.pid), encoding="utf-8")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="neurotlon_games.stub", description=__doc__)
     parser.add_argument("--launch", type=Path, required=True)
     parser.add_argument("--seconds", type=float, default=2.0)
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--abort", action="store_true", help="записать status=aborted")
+    parser.add_argument(
+        "--spawn-child",
+        action="store_true",
+        help="запустить долгоживущий дочерний процесс, его pid — в child.pid рядом с result.json",
+    )
     parser.add_argument("--crash", action="store_true", help="выйти с кодом 1 без результата")
     args = parser.parse_args(argv)
 
     launch = json.loads(args.launch.read_text(encoding="utf-8"))
+    if args.spawn_child:
+        spawn_child(Path(launch["result_path"]).parent / "child.pid")
     time.sleep(max(args.seconds, 0.0))
     if args.crash:
         print("stub: simulated crash", file=sys.stderr)

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import subprocess
 import time
 import uuid
 from collections.abc import Callable
@@ -14,6 +13,7 @@ from typing import IO, Any, Protocol
 
 from jsonschema import ValidationError
 
+from .proc import ManagedProcess
 from .schema import launch_validator
 
 log = logging.getLogger(__name__)
@@ -172,7 +172,7 @@ class SubprocessGameRunner:
         self._grace_s = grace_s
         self._monotonic = monotonic
         self._request: GameRequest | None = None
-        self._proc: subprocess.Popen[bytes] | None = None
+        self._proc: ManagedProcess | None = None
         self._log: IO[bytes] | None = None
         self._result_path: Path | None = None
         self._deadline = 0.0
@@ -198,12 +198,8 @@ class SubprocessGameRunner:
         launch_path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
         self._log = (folder / "game.log").open("wb")
         try:
-            self._proc = subprocess.Popen(
-                [*self._command, "--launch", str(launch_path)],
-                cwd=self._workdir,
-                stdout=self._log,
-                stderr=subprocess.STDOUT,
-                stdin=subprocess.DEVNULL,
+            self._proc = ManagedProcess(
+                [*self._command, "--launch", str(launch_path)], self._workdir, self._log
             )
         except OSError as exc:
             self._close_log()
@@ -231,13 +227,11 @@ class SubprocessGameRunner:
         return parse_result(result_path, request)
 
     def stop(self) -> None:
-        proc = self._proc
-        if proc is not None and proc.poll() is None:
-            proc.kill()
-            proc.wait()
         self._finish_process()
 
     def _finish_process(self) -> None:
+        if self._proc is not None:
+            self._proc.kill()  # и живую игру, и потомков, оставшихся после выхода
         self._proc = None
         self._close_log()
 
