@@ -18,6 +18,7 @@ from neurotlon_server.draw_api import router as draw_router
 from neurotlon_server.errors import PROBLEM_JSON, forbidden, install_error_handlers
 from neurotlon_server.models import utcnow
 from neurotlon_server.participants import router as participants_router
+from neurotlon_server.results_admin_api import router as results_admin_router
 from neurotlon_server.scoreboard_api import PUSH_INTERVAL_S, ScoreboardCache
 from neurotlon_server.scoreboard_api import router as scoreboard_router
 from neurotlon_server.scoring import PlaceholderScoring
@@ -82,6 +83,7 @@ def create_app(
     app.include_router(conflicts_router)
     app.include_router(corrections_router)
     app.include_router(disciplines_router)
+    app.include_router(results_admin_router)
 
     @app.get("/health")
     def health() -> dict[str, str]:
