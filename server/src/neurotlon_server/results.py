@@ -173,6 +173,7 @@ def participant_issues(
             SectionResult.participant_id == participant.id,
             SectionResult.discipline == discipline,
             SectionResult.section == section,
+            SectionResult.voided_at.is_(None),
         )
     ).first()
     if done is not None:
