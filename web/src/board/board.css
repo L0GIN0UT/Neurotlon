@@ -1,0 +1,161 @@
+/* Табло: читается с 5 м, без прокрутки (2 команды × 10 участников), шрифт системный. */
+body.board-body {
+  margin: 0;
+  overflow: hidden;
+  background: #0b0f1a;
+}
+
+.board {
+  --gap: 1.6vh;
+  height: 100vh;
+  box-sizing: border-box;
+  padding: var(--gap);
+  display: flex;
+  flex-direction: column;
+  color: #fff;
+  font-family: system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+}
+
+.board .teams {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(min(var(--count), 2), minmax(0, 1fr));
+  grid-auto-rows: minmax(0, 1fr);
+  gap: calc(var(--gap) * 2);
+}
+
+.board .team {
+  --row: calc(60vh / var(--rows));
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 0.5vh solid var(--team);
+  border-radius: 1.5vh;
+  overflow: hidden;
+  background: #151b2c;
+}
+
+.board .team header {
+  display: flex;
+  align-items: center;
+  gap: 2vh;
+  padding: 1vh 2vh;
+  background: var(--team);
+  color: var(--on-team);
+}
+
+.board .team h2 {
+  flex: 1;
+  margin: 0;
+  font-size: 6vh;
+  line-height: 1.1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board .rank {
+  font-size: 8vh;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.board .total {
+  font-size: 9vh;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.board .disciplines {
+  display: flex;
+  justify-content: space-around;
+  list-style: none;
+  margin: 0;
+  padding: 1vh 2vh;
+  font-size: 3.4vh;
+  color: #c9d3ea;
+}
+
+.board .disciplines li {
+  display: flex;
+  gap: 1.2vh;
+  align-items: baseline;
+}
+
+.board .disciplines strong {
+  color: #fff;
+  font-size: 4.2vh;
+}
+
+.board .members {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  list-style: none;
+  margin: 0;
+  padding: 0 2vh 1vh;
+}
+
+.board .member {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  gap: 2vh;
+  border-top: 1px solid #2a3350;
+  font-size: min(4vh, calc(var(--row) * 0.62));
+  line-height: 1.05;
+}
+
+.board .member .label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board .member .passed {
+  color: #9fb0d6;
+}
+
+.board .member .points {
+  min-width: 5ch;
+  text-align: right;
+  font-weight: 700;
+}
+
+.board .member.pending {
+  background: #3b2f08;
+}
+
+.board .flag {
+  background: #f2b705;
+  color: #111;
+  font-size: 0.6em;
+  font-weight: 700;
+  padding: 0.1em 0.6em;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.board .empty {
+  margin: auto;
+  font-size: 8vh;
+  text-align: center;
+}
+
+.board .status {
+  position: fixed;
+  right: 2vh;
+  bottom: 1vh;
+  margin: 0;
+  padding: 0.5vh 1.5vh;
+  background: #b3261e;
+  border-radius: 1vh;
+  font-size: 2.4vh;
+}
