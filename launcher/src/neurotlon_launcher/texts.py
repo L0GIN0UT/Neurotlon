@@ -25,7 +25,6 @@ CHECKING = "Проверяем ID…"
 OFFLINE_WARNING = "Нет связи с сервером: проверка не выполнена, результат отправится позже"
 CONFIRM_BUTTON = "Это я — начать"
 CANCEL_BUTTON = "Отмена"
-CONFIRM_HINT = "Enter — начать, Esc — отмена"
 TEAM_NONE = "Команда ещё не назначена"
 BUSY = "Участник сейчас играет на другом стенде"
 ISSUES = {
@@ -65,7 +64,6 @@ def points_line(code: str, points: float | None, outcome: str) -> str:
 PROBLEM_TITLE = "Техническая проблема"
 RETRY_BUTTON = "Повторить"
 GIVE_UP_BUTTON = "Не пройдено"
-PROBLEM_HINT = "Enter — повторить, Esc — не пройдено"
 
 # Подвал
 QUEUE_LINE = "Не отправлено: {n}"
