@@ -1,4 +1,6 @@
-/* Табло 16:9: шапка со счётом дуэли и три полосы дисциплин. Без прокрутки, системные шрифты. */
+/* Табло 16:9: шапка со счётом дуэли и три полосы дисциплин. Без прокрутки, системные шрифты.
+   Все размеры — в --u: 1% высоты экрана 16:9, вписанного в окно. На 4:3 и узких окнах всё
+   пропорционально уменьшается, а не наезжает друг на друга. */
 body.board-body {
   margin: 0;
   overflow: hidden;
@@ -13,10 +15,11 @@ body.board-body {
 }
 
 .board {
-  --gap: 1.2vh;
+  --u: min(1vh, 0.5625vw);
+  --gap: calc(var(--u) * 1.4);
   height: 100vh;
   box-sizing: border-box;
-  padding: var(--gap) 2vw;
+  padding: var(--gap) calc(var(--u) * 3) calc(var(--gap) * 1.5);
   display: flex;
   flex-direction: column;
   gap: var(--gap);
@@ -25,17 +28,18 @@ body.board-body {
 
 /* Шапка: «название A [счёт] VS [счёт] название B» */
 .duel {
-  flex: 0 0 15vh;
+  flex: 0 0 auto;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto auto minmax(0, 1fr);
   align-items: center;
-  gap: 2vw;
+  gap: calc(var(--u) * 3);
+  padding: calc(var(--u) * 0.5) 0;
 }
 
 .team-name {
   margin: 0;
   color: var(--team);
-  font-size: 8vh;
+  font-size: calc(var(--u) * 8);
   line-height: 1.1;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -46,22 +50,33 @@ body.board-body {
   text-align: right;
 }
 
+/* Цифры строго по центру рамки: обрезаем межстрочные поля шрифта и центрируем сеткой. */
 .duel-score {
-  min-width: 1.4ch;
-  padding: 0 1.2vh;
-  border: 0.6vh solid var(--team);
-  border-radius: 1.5vh;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  height: calc(var(--u) * 14);
+  min-width: calc(var(--u) * 14);
+  padding: 0 calc(var(--u) * 2);
+  border: calc(var(--u) * 0.6) solid var(--team);
+  border-radius: calc(var(--u) * 1.8);
   background: #151b2c;
   color: #fff;
-  font-size: 11vh;
+  font-size: calc(var(--u) * 10);
   font-weight: 800;
-  line-height: 1.15;
-  text-align: center;
+  line-height: 1;
+}
+
+/* Обрезаем поля шрифта до высоты заглавных букв и цифр, чтобы центр рамки совпал с центром цифр. */
+.duel .digits {
+  display: block;
+  text-box: trim-both cap alphabetic;
 }
 
 .vs {
-  font-size: 5vh;
+  font-size: calc(var(--u) * 5);
   font-weight: 700;
+  line-height: 1;
   color: #9fb0d6;
 }
 
@@ -75,11 +90,11 @@ body.board-body {
 
 .band {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 26vw minmax(0, 1fr);
-  gap: 1.5vw;
+  grid-template-columns: minmax(0, 1fr) calc(var(--u) * 52) minmax(0, 1fr);
+  gap: calc(var(--u) * 2);
   min-height: 0;
-  padding: 0.8vh 1vw;
-  border-radius: 1.5vh;
+  padding: calc(var(--u) * 0.8) calc(var(--u) * 1.6);
+  border-radius: calc(var(--u) * 1.6);
   background: #151b2c;
 }
 
@@ -88,12 +103,13 @@ body.board-body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  min-width: 0;
   min-height: 0;
-  gap: 0.4vh;
+  gap: calc(var(--u) * 0.6);
 }
 
 .centre .icon {
-  height: 8vh;
+  height: calc(var(--u) * 7);
   aspect-ratio: 1;
   color: #c9d3ea;
 }
@@ -104,17 +120,21 @@ body.board-body {
 }
 
 .band-name {
-  font-size: 3vh;
+  font-size: calc(var(--u) * 2.8);
   color: #c9d3ea;
   line-height: 1;
 }
 
+/* Суммы команд: числа и «vs» на одной средней линии, фиксированная ширина под числа. */
 .versus {
-  display: flex;
-  align-items: baseline;
-  gap: 1.5vw;
-  font-size: 8vh;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  width: 100%;
+  gap: calc(var(--u) * 1.6);
+  font-size: calc(var(--u) * 6.4);
   line-height: 1;
+  white-space: nowrap;
 }
 
 .versus b {
@@ -122,14 +142,23 @@ body.board-body {
   font-weight: 800;
 }
 
+.versus .score-a {
+  text-align: right;
+}
+
+.versus .score-b {
+  text-align: left;
+}
+
 .versus i {
   font-style: normal;
-  font-size: 0.45em;
+  font-size: 0.42em;
   color: #9fb0d6;
 }
 
 /* Топ-5 игроков: пять равных строк на всю высоту полосы */
 .top {
+  min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -143,10 +172,10 @@ body.board-body {
   min-height: 0;
   display: flex;
   align-items: center;
-  gap: 1.2vw;
-  padding: 0 1vw;
+  gap: calc(var(--u) * 1.6);
+  padding: 0 calc(var(--u) * 1.2);
   border-top: 1px solid #2a3350;
-  font-size: 3.6vh;
+  font-size: calc(var(--u) * 3.4);
   line-height: 1;
 }
 
@@ -159,6 +188,7 @@ body.board-body {
 }
 
 .player .place {
+  flex: none;
   min-width: 1.2ch;
   color: #9fb0d6;
   text-align: center;
@@ -177,6 +207,7 @@ body.board-body {
 }
 
 .player .points {
+  flex: none;
   min-width: 4ch;
   text-align: right;
   font-weight: 700;
@@ -191,6 +222,7 @@ body.board-body {
 }
 
 .flag {
+  flex: none;
   background: #f2b705;
   color: #111;
   font-size: 0.6em;
@@ -202,28 +234,28 @@ body.board-body {
 
 .board .empty {
   margin: auto;
-  font-size: 8vh;
+  font-size: calc(var(--u) * 8);
   text-align: center;
 }
 
 .board .notice {
   position: fixed;
-  left: 2vw;
-  bottom: 0.4vh;
+  left: calc(var(--u) * 3);
+  bottom: calc(var(--u) * 0.2);
   margin: 0;
-  font-size: 2vh;
+  font-size: calc(var(--u) * 1.8);
   color: #9fb0d6;
 }
 
 .board .status {
   position: fixed;
-  right: 2vh;
-  bottom: 1vh;
+  right: calc(var(--u) * 2);
+  bottom: calc(var(--u) * 1);
   margin: 0;
-  padding: 0.5vh 1.5vh;
+  padding: calc(var(--u) * 0.5) calc(var(--u) * 1.5);
   background: #b3261e;
-  border-radius: 1vh;
-  font-size: 2.4vh;
+  border-radius: calc(var(--u) * 1);
+  font-size: calc(var(--u) * 2.4);
 }
 
 /* Оверлей OBS: прозрачный фон, плашка у нижнего края. Размер задаёт ?scale= (--scale). */
@@ -258,7 +290,10 @@ body.board-body {
 }
 
 .overlay .duel-score {
-  font-size: calc(56px * var(--scale));
+  height: calc(72px * var(--scale));
+  min-width: calc(72px * var(--scale));
+  padding: 0 calc(12px * var(--scale));
+  font-size: calc(52px * var(--scale));
   border-width: calc(4px * var(--scale));
   border-radius: calc(10px * var(--scale));
 }
@@ -275,7 +310,7 @@ body.board-body {
 
 .overlay .row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) calc(400px * var(--scale)) minmax(0, 1fr);
   align-items: center;
   gap: calc(16px * var(--scale));
 }
@@ -294,7 +329,8 @@ body.board-body {
 }
 
 .overlay .row .mid {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: calc(10px * var(--scale));
 }
