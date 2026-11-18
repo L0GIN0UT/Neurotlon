@@ -30,6 +30,7 @@ dev = [
     "pytest>=8.3",
     "pyyaml>=6.0.3",
     "ruff>=0.8",
+    "scipy-stubs>=1.18.1.1",
     "types-jsonschema>=4.26.0.20261006",
     "types-pyyaml>=6.0.12.20261113",
 ]
@@ -40,6 +41,8 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+# проект русскоязычный: однобуквенные слова («с», «о») не считаем путаницей с латиницей
+allowed-confusables = ["а", "с", "е", "о", "р", "х", "у", "г", "Н"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["neurotlon_server", "neurotlon_launcher", "neurotlon_bridge", "neurotlon_games"]
@@ -56,5 +59,5 @@ testpaths = ["shared/tests", "server/tests", "launcher/tests", "bci-bridge/tests
 addopts = "--import-mode=importlib"
 
 [[tool.mypy.overrides]]
-module = ["reportlab", "reportlab.*"]
+module = ["reportlab", "reportlab.*", "neurosdk", "neurosdk.*", "em_st_artifacts", "em_st_artifacts.*"]
 ignore_missing_imports = true

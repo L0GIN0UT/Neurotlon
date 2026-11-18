@@ -19,7 +19,7 @@ EMG_RISE_TAU_S = 0.15
 EMG_DECAY_TAU_S = 0.25
 CALIBRATION_DURATION_S: dict[CalibrationStep, float] = {
     "rest": 5.0,
-    "contract": 3.0,
+    "contract": 12.0,
     "baseline": 8.0,
 }
 _EEG_STEPS: frozenset[CalibrationStep] = frozenset({"baseline"})
@@ -78,6 +78,10 @@ class EmulatedSource:
     def state(self, signal: str) -> SensorState:
         self._check(signal)
         return "emulated"
+
+    def battery(self, signal: str) -> int | None:
+        self._check(signal)
+        return None
 
     def start_calibration(self, signal: str, step: CalibrationStep) -> None:
         self._check(signal)
