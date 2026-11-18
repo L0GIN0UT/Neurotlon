@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { DisciplineIcon } from '../shared/icons/DisciplineIcon.tsx'
-import { BOARD_DISCIPLINES, disciplineName, duelTeams, teamStyle } from './model.ts'
+import { BOARD_DISCIPLINES, bandMax, disciplineName, duelTeams, teamStyle } from './model.ts'
 import { Top, Versus } from './parts.tsx'
 import { useScoreboard } from './useScoreboard.ts'
 import type { BoardTeam, SourceFactory } from './useScoreboard.ts'
@@ -16,9 +16,10 @@ function Band({
   b: BoardTeam | undefined
 }) {
   const name = disciplineName(discipline)
+  const max = bandMax(a, b, discipline)
   return (
     <section className="band" aria-label={name} data-discipline={discipline}>
-      <Top rows={a?.top[discipline] ?? []} side="a" />
+      <Top rows={a?.top[discipline] ?? []} side="a" team={a} max={max} />
       <div className="centre">
         <span className="icon">
           <DisciplineIcon discipline={discipline} />
@@ -26,7 +27,7 @@ function Band({
         <span className="band-name">{name}</span>
         <Versus a={a} b={b} discipline={discipline} />
       </div>
-      <Top rows={b?.top[discipline] ?? []} side="b" />
+      <Top rows={b?.top[discipline] ?? []} side="b" team={b} max={max} />
     </section>
   )
 }
