@@ -1,4 +1,5 @@
 import json
+import ssl
 import uuid
 from collections.abc import Callable
 from pathlib import Path
@@ -16,6 +17,7 @@ from neurotlon_launcher.api import (
     SessionConflict,
     Unauthorized,
     UnknownParticipant,
+    build_verify,
 )
 
 SESSION = uuid.UUID("0f8c7a52-3c1e-4c5e-9a57-2d6a3b1f9e10")
@@ -183,3 +185,30 @@ def test_network_error_is_offline() -> None:
 
     with pytest.raises(Offline):
         make_api(handler).heartbeat("idle", None, 0, {})
+
+
+def test_build_verify_without_ca_uses_system_store() -> None:
+    assert build_verify(None) is True
+
+
+def test_build_verify_loads_hall_ca() -> None:
+    context = build_verify(Path(__file__).parent / "data" / "test-ca.crt")
+    assert isinstance(context, ssl.SSLContext)
+    assert context.verify_mode == ssl.CERT_REQUIRED
+    assert context.check_hostname
+
+
+def test_build_verify_rejects_missing_or_broken_ca(tmp_path: Path) -> None:
+    with pytest.raises(OSError):
+        build_verify(tmp_path / "none.crt")
+    broken = tmp_path / "broken.crt"
+    broken.write_text("not a certificate", encoding="utf-8")
+    with pytest.raises(ssl.SSLError):
+        build_verify(broken)
+
+
+def test_default_client_gets_hall_ca() -> None:
+    api = HttpStationApi(
+        "https://srv", "tok", ca_file=Path(__file__).parent / "data" / "test-ca.crt"
+    )
+    api.close()

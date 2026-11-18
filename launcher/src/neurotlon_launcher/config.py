@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,6 +11,9 @@ from typing import Any
 DISCIPLINES = ("darts", "football", "pong")
 DEFAULT_BRIDGE_HOST = "127.0.0.1"
 DEFAULT_BRIDGE_PORT = 8765
+DEFAULT_FALLBACK_DURATION_S = 240
+
+log = logging.getLogger(__name__)
 
 
 class ConfigError(Exception):
@@ -27,6 +31,9 @@ class LauncherConfig:
     bridge_port: int
     data_dir: Path
     camera_index: int
+    ca_file: Path | None = None
+    allow_insecure_http: bool = False
+    fallback_duration_s: int = DEFAULT_FALLBACK_DURATION_S
 
     def read_token(self) -> str:
         try:
@@ -96,8 +103,28 @@ def parse_config(data: dict[str, Any], base_dir: Path) -> LauncherConfig:
     camera = data.get("camera_index", 0)
     if not isinstance(camera, int) or isinstance(camera, bool) or camera < 0:
         raise ConfigError("camera_index должен быть целым числом, не меньше 0")
+    server_url = _string(data, "server_url").rstrip("/")
+    insecure = data.get("allow_insecure_http", False)
+    if not isinstance(insecure, bool):
+        raise ConfigError("allow_insecure_http должен быть true или false")
+    if server_url.startswith("http://"):
+        if not insecure:
+            raise ConfigError(
+                "server_url начинается с http://: токен станции пойдёт по сети открыто. "
+                "Используйте https:// (и ca_file для локального сертификата); "
+                "для разработки можно allow_insecure_http = true"
+            )
+        log.warning("server_url uses plain http: the station token is sent unencrypted")
+    elif not server_url.startswith("https://"):
+        raise ConfigError("server_url должен начинаться с https://")
+    ca_file = data.get("ca_file")
+    if ca_file is not None and not isinstance(ca_file, str):
+        raise ConfigError("ca_file должен быть строкой — путём к сертификату")
+    fallback = data.get("fallback_duration_s", DEFAULT_FALLBACK_DURATION_S)
+    if not isinstance(fallback, int) or isinstance(fallback, bool) or not 10 <= fallback <= 3600:
+        raise ConfigError("fallback_duration_s должен быть целым числом 10…3600")
     return LauncherConfig(
-        server_url=_string(data, "server_url").rstrip("/"),
+        server_url=server_url,
         token_file=path_of(_string(data, "token_file")),
         discipline=discipline,
         game_command=tuple(command),
@@ -106,4 +133,7 @@ def parse_config(data: dict[str, Any], base_dir: Path) -> LauncherConfig:
         bridge_port=port,
         data_dir=path_of(_string(data, "data_dir", "data")),
         camera_index=camera,
+        ca_file=path_of(ca_file) if ca_file else None,
+        allow_insecure_http=insecure,
+        fallback_duration_s=fallback,
     )

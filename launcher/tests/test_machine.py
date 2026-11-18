@@ -167,7 +167,7 @@ def test_offline_everywhere_still_plays_and_queues() -> None:
     rig.machine.tick()
     assert isinstance(rig.state, Playing)
     assert rig.state.offline
-    assert rig.runner.requests[0].duration_s == DEFAULT_DURATION_S
+    assert rig.runner.requests[0].duration_s == DEFAULT_DURATION_S == 240
     rig.machine.tick()
     assert isinstance(rig.state, Done)
     assert len(rig.queue.items) == 1
@@ -384,3 +384,15 @@ def test_recover_without_result_shows_technical_problem() -> None:
     rig.machine.retry()
     rig.machine.tick()
     assert rig.runner.requests[0].session_id == uuid.UUID(int=5)
+
+
+def test_fallback_duration_is_configurable() -> None:
+    rig = Rig("darts")
+    rig.machine = StationMachine(
+        "darts", rig.api, rig.queue, rig.runner, fallback_duration_s=150, new_session_id=Ids()
+    )
+    rig.api.config = Offline("down")
+    rig.scan("NT07")
+    rig.machine.confirm()
+    rig.machine.tick()
+    assert rig.runner.requests[0].duration_s == 150

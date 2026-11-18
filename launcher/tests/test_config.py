@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -6,7 +7,7 @@ import pytest
 from neurotlon_launcher.config import ConfigError, load_config, parse_config
 
 VALID: dict[str, Any] = {
-    "server_url": "http://10.0.0.5:8000/",
+    "server_url": "https://10.0.0.5:8443/",
     "token_file": "station.token",
     "discipline": "pong",
     "game": {"command": ["python", "-m", "game"], "workdir": "games"},
@@ -15,7 +16,7 @@ VALID: dict[str, Any] = {
 
 def test_parse_defaults_and_relative_paths(tmp_path: Path) -> None:
     config = parse_config(VALID, tmp_path)
-    assert config.server_url == "http://10.0.0.5:8000"
+    assert config.server_url == "https://10.0.0.5:8443"
     assert config.token_file == tmp_path / "station.token"
     assert config.game_workdir == tmp_path / "games"
     assert config.data_dir == tmp_path / "data"
@@ -25,7 +26,7 @@ def test_parse_defaults_and_relative_paths(tmp_path: Path) -> None:
 def test_load_from_toml_and_read_token(tmp_path: Path) -> None:
     (tmp_path / "station.token").write_text("  secret-token\n", encoding="utf-8")
     (tmp_path / "launcher.toml").write_text(
-        'server_url = "http://x"\ntoken_file = "station.token"\ndiscipline = "darts"\n'
+        'server_url = "https://x"\ntoken_file = "station.token"\ndiscipline = "darts"\n'
         'camera_index = 2\n[game]\ncommand = ["a.exe"]\n[bridge]\nport = 9000\n',
         encoding="utf-8",
     )
@@ -53,6 +54,12 @@ def test_missing_and_empty_token_file(tmp_path: Path) -> None:
         {"bridge": {"port": 70000}},
         {"bridge": {"port": True}},
         {"camera_index": -1},
+        {"server_url": "http://10.0.0.5:8000"},
+        {"server_url": "ftp://x"},
+        {"allow_insecure_http": "yes"},
+        {"ca_file": 5},
+        {"fallback_duration_s": 5},
+        {"fallback_duration_s": True},
         {"token_file": 5},
     ],
 )
@@ -70,3 +77,28 @@ def test_load_errors(tmp_path: Path) -> None:
     (tmp_path / "bad.toml").write_text("= not toml", encoding="utf-8")
     with pytest.raises(ConfigError):
         load_config(tmp_path / "bad.toml")
+
+
+def test_tls_and_fallback_defaults(tmp_path: Path) -> None:
+    config = parse_config(VALID, tmp_path)
+    assert config.ca_file is None
+    assert config.allow_insecure_http is False
+    assert config.fallback_duration_s == 240
+
+
+def test_ca_file_and_fallback_from_config(tmp_path: Path) -> None:
+    config = parse_config({**VALID, "ca_file": "hall.crt", "fallback_duration_s": 150}, tmp_path)
+    assert config.ca_file == tmp_path / "hall.crt"
+    assert config.fallback_duration_s == 150
+
+
+def test_plain_http_needs_explicit_opt_in_and_warns(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    data = {**VALID, "server_url": "http://10.0.0.5:8000"}
+    with pytest.raises(ConfigError, match="https"):
+        parse_config(data, tmp_path)
+    with caplog.at_level(logging.WARNING):
+        config = parse_config({**data, "allow_insecure_http": True}, tmp_path)
+    assert config.allow_insecure_http
+    assert "unencrypted" in caplog.text

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import ssl
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -121,6 +122,13 @@ class StationApi(Protocol):
     ) -> None: ...
 
 
+def build_verify(ca_file: Path | None) -> ssl.SSLContext | bool:
+    """Проверка сертификата сервера: свой корневой сертификат зала или системные."""
+    if ca_file is None:
+        return True
+    return ssl.create_default_context(cafile=str(ca_file))
+
+
 class HttpStationApi:
     """HTTP-реализация `StationApi`; `get_config` кэширует ответ для старта без связи."""
 
@@ -131,9 +139,12 @@ class HttpStationApi:
         *,
         client: httpx2.Client | None = None,
         cache_path: Path | None = None,
+        ca_file: Path | None = None,
         timeout_s: float = TIMEOUT_S,
     ) -> None:
-        self._client = client or httpx2.Client(base_url=base_url, timeout=timeout_s)
+        self._client = client or httpx2.Client(
+            base_url=base_url, timeout=timeout_s, verify=build_verify(ca_file)
+        )
         self._headers = {"Authorization": f"Bearer {token}"}
         self._cache_path = cache_path
 

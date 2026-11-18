@@ -94,7 +94,4 @@ def test_spawn_child_writes_pid_of_running_process(tmp_path: Path) -> None:
     assert stub.main(["--launch", str(path), "--seconds", "0", "--spawn-child"]) == 0
     pid = int((tmp_path / "child.pid").read_text(encoding="utf-8"))
     assert pid > 0
-    if os.name == "nt":
-        os.kill(pid, signal.SIGTERM)  # на Windows это TerminateProcess
-    else:
-        os.kill(pid, signal.SIGKILL)
+    os.kill(pid, signal.SIGTERM)  # на Windows это TerminateProcess

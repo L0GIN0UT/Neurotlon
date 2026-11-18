@@ -17,7 +17,7 @@ def test_missing_token_file_exits_with_message(
 ) -> None:
     config = tmp_path / "launcher.toml"
     config.write_text(
-        'server_url = "http://x"\ntoken_file = "none.token"\ndiscipline = "darts"\n'
+        'server_url = "https://x"\ntoken_file = "none.token"\ndiscipline = "darts"\n'
         '[game]\ncommand = ["g"]\n',
         encoding="utf-8",
     )

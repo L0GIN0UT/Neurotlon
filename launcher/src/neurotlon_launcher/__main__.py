@@ -47,7 +47,12 @@ def run(config: LauncherConfig, token: str, *, camera: bool, windowed: bool) -> 
     from .ui import Ui  # pygame подключаем только здесь
 
     data_dir = config.data_dir
-    api = HttpStationApi(config.server_url, token, cache_path=data_dir / "config-cache.json")
+    api = HttpStationApi(
+        config.server_url,
+        token,
+        cache_path=data_dir / "config-cache.json",
+        ca_file=config.ca_file,
+    )
     outbox = Outbox(data_dir / "outbox.db")
     sender = Sender(outbox, api)
     runner = SubprocessGameRunner(
@@ -58,7 +63,14 @@ def run(config: LauncherConfig, token: str, *, camera: bool, windowed: bool) -> 
         config.bridge_port,
         fullscreen=not windowed,
     )
-    machine = StationMachine(config.discipline, api, outbox, runner, on_enqueue=sender.kick)
+    machine = StationMachine(
+        config.discipline,
+        api,
+        outbox,
+        runner,
+        on_enqueue=sender.kick,
+        fallback_duration_s=config.fallback_duration_s,
+    )
     heartbeat = HeartbeatLoop(api, machine.heartbeat_view, outbox.pending_count)
     recover_active(machine, outbox, data_dir)
     scanner = create_scanner(config.camera_index, enabled=camera)

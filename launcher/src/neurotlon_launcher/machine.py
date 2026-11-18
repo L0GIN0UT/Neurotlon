@@ -39,7 +39,7 @@ from .outbox import ActiveSession, ResultQueue
 
 SECTION = "bci"
 # Если конфиг дисциплины ни разу не получен (нет связи и нет кэша).
-DEFAULT_DURATION_S = 120
+DEFAULT_DURATION_S = 240
 DONE_SECONDS = 5.0
 INPUT_MAX = 12
 GIVE_UP_REASON = "equipment"
@@ -139,6 +139,7 @@ class StationMachine:
         monotonic: Callable[[], float] = time.monotonic,
         new_session_id: Callable[[], uuid.UUID] = uuid.uuid4,
         on_enqueue: Callable[[], None] | None = None,
+        fallback_duration_s: int = DEFAULT_DURATION_S,
     ) -> None:
         self.discipline = discipline
         self.state: State = Idle()
@@ -149,6 +150,7 @@ class StationMachine:
         self._monotonic = monotonic
         self._new_session_id = new_session_id
         self._on_enqueue = on_enqueue
+        self._fallback_duration_s = fallback_duration_s
 
     @property
     def players_needed(self) -> int:
@@ -290,7 +292,7 @@ class StationMachine:
         try:
             duration = self._api.get_config().duration_s
         except Offline:
-            duration, offline = DEFAULT_DURATION_S, True
+            duration, offline = self._fallback_duration_s, True
         except Unauthorized:
             self._back_to_confirm(state, texts.UNAUTHORIZED)
             return
