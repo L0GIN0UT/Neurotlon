@@ -1,14 +1,34 @@
+import { BoardApp } from './board/BoardApp.tsx'
+import { AdminApp } from './staff/AdminApp.tsx'
+import { JudgeApp } from './staff/JudgeApp.tsx'
+import { matches } from './routes.ts'
 import { TabletApp } from './tablet/TabletApp.tsx'
 
+const ROUTES: { path: string; label: string }[] = [
+  { path: '/tablet', label: 'Планшет волонтёра' },
+  { path: '/admin', label: 'Админка' },
+  { path: '/judge', label: 'Судья' },
+  { path: '/board', label: 'Табло' },
+]
+
 export function App() {
-  // Маршрутов мало: пока достаточно сравнить путь.
-  if (window.location.pathname.startsWith('/tablet')) return <TabletApp />
+  // Страниц мало, вкладки внутри страниц — состояние, поэтому роутер не нужен:
+  // сервер отдаёт index.html для каждого из этих путей.
+  const { pathname } = window.location
+  if (matches(pathname, '/tablet')) return <TabletApp />
+  if (matches(pathname, '/admin')) return <AdminApp />
+  if (matches(pathname, '/judge')) return <JudgeApp />
+  if (matches(pathname, '/board')) return <BoardApp />
   return (
     <>
       <h1>Нейротлон</h1>
-      <p>
-        <a href="/tablet">Планшет волонтёра</a>
-      </p>
+      <ul>
+        {ROUTES.map((route) => (
+          <li key={route.path}>
+            <a href={route.path}>{route.label}</a>
+          </li>
+        ))}
+      </ul>
     </>
   )
 }
