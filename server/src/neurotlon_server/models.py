@@ -66,6 +66,7 @@ class Discipline(Base):
         CheckConstraint("code IN ('darts', 'football', 'pong')", name="code"),
         CheckConstraint("game_duration_s BETWEEN 10 AND 3600", name="game_duration"),
         CheckConstraint("physical_duration_s BETWEEN 10 AND 3600", name="physical_duration"),
+        CheckConstraint("win_points BETWEEN 0 AND 1000", name="win_points"),
     )
 
     code: Mapped[str] = mapped_column(String, primary_key=True)
@@ -73,6 +74,7 @@ class Discipline(Base):
     modalities: Mapped[list[str]] = mapped_column(JSON)
     game_duration_s: Mapped[int] = mapped_column(Integer)
     physical_duration_s: Mapped[int] = mapped_column(Integer)
+    win_points: Mapped[int] = mapped_column(Integer, default=10, server_default="10")
 
 
 class Team(Base):
@@ -220,6 +222,9 @@ class SectionResult(Base):
     finished_at: Mapped[datetime]
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    voided_at: Mapped[datetime | None]
+    voided_by: Mapped[int | None] = mapped_column(ForeignKey("user.id"))
+    void_reason: Mapped[str | None] = mapped_column(Text)
 
 
 class User(Base):
