@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
+from concurrent.futures import Executor, Future
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 from neurotlon_launcher.api import DisciplineConfig, Eligibility, Team
 from neurotlon_launcher.game import GameOutcome, GameRequest
 from neurotlon_launcher.outbox import ActiveSession, OutboxItem
+
+_T = TypeVar("_T")
 
 
 def eligibility(code: str, *issues: str, name: str | None = None) -> Eligibility:
@@ -129,3 +133,15 @@ class Ids:
     def __call__(self) -> uuid.UUID:
         self.n += 1
         return uuid.UUID(int=self.n)
+
+
+class SyncExecutor(Executor):
+    """Исполнитель без потоков: задача выполняется сразу, в вызывающем потоке."""
+
+    def submit(self, fn: Callable[..., _T], /, *args: Any, **kwargs: Any) -> Future[_T]:
+        future: Future[_T] = Future()
+        try:
+            future.set_result(fn(*args, **kwargs))
+        except Exception as exc:
+            future.set_exception(exc)
+        return future

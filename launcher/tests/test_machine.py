@@ -1,9 +1,18 @@
+import threading
+import time
 import uuid
 
 import pytest
 
 from neurotlon_launcher import texts
-from neurotlon_launcher.api import ApiProblem, Busy, Offline, Unauthorized, UnknownParticipant
+from neurotlon_launcher.api import (
+    ApiProblem,
+    Busy,
+    Eligibility,
+    Offline,
+    Unauthorized,
+    UnknownParticipant,
+)
 from neurotlon_launcher.game import Aborted, Crashed, Finished, GameEntry
 from neurotlon_launcher.machine import (
     DEFAULT_DURATION_S,
@@ -19,7 +28,15 @@ from neurotlon_launcher.machine import (
     TechnicalProblem,
 )
 from neurotlon_launcher.outbox import ActiveSession
-from neurotlon_launcher.testing import FakeApi, FakeQueue, FakeRunner, Ids, Time, eligibility
+from neurotlon_launcher.testing import (
+    FakeApi,
+    FakeQueue,
+    FakeRunner,
+    Ids,
+    SyncExecutor,
+    Time,
+    eligibility,
+)
 
 DARTS_DONE = Finished((GameEntry("NT07", "completed", 42.5),))
 PONG_DONE = Finished(
@@ -43,6 +60,7 @@ class Rig:
             monotonic=self.time.monotonic,
             new_session_id=Ids(),
             on_enqueue=self._kick,
+            executor=SyncExecutor(),
         )
 
     def _kick(self) -> None:
@@ -389,10 +407,68 @@ def test_recover_without_result_shows_technical_problem() -> None:
 def test_fallback_duration_is_configurable() -> None:
     rig = Rig("darts")
     rig.machine = StationMachine(
-        "darts", rig.api, rig.queue, rig.runner, fallback_duration_s=150, new_session_id=Ids()
+        "darts",
+        rig.api,
+        rig.queue,
+        rig.runner,
+        fallback_duration_s=150,
+        new_session_id=Ids(),
+        executor=SyncExecutor(),
     )
     rig.api.config = Offline("down")
     rig.scan("NT07")
     rig.machine.confirm()
     rig.machine.tick()
     assert rig.runner.requests[0].duration_s == 150
+
+
+class BlockingApi(FakeApi):
+    """Проверка участника зависает, пока тест не отпустит."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.release = threading.Event()
+        self.entered = threading.Event()
+        self.thread: int | None = None
+
+    def eligibility(self, code: str, discipline: str, section: str) -> Eligibility:
+        self.thread = threading.get_ident()
+        self.entered.set()
+        assert self.release.wait(10)
+        return super().eligibility(code, discipline, section)
+
+
+def test_network_calls_run_off_the_calling_thread() -> None:
+    api = BlockingApi()
+    machine = StationMachine("darts", api, FakeQueue(), FakeRunner())
+    try:
+        machine.enter_code("7")
+        machine.tick()  # не блокируется, хотя сервер «молчит»
+        assert api.entered.wait(5)
+        assert isinstance(machine.state, Checking)
+        machine.tick()
+        assert isinstance(machine.state, Checking)
+        assert api.thread != threading.get_ident()
+        api.release.set()
+        end = time.monotonic() + 5
+        while isinstance(machine.state, Checking) and time.monotonic() < end:
+            machine.tick()
+            time.sleep(0.01)
+        assert isinstance(machine.state, Confirm)
+        assert machine.state.candidate.code == "NT07"
+    finally:
+        api.release.set()
+        machine.close()
+
+
+def test_unexpected_error_in_worker_does_not_crash_the_machine() -> None:
+    rig = Rig("darts")
+    rig.api.people["NT07"] = RuntimeError("boom")
+    rig.scan("NT07")
+    assert rig.snap() == Idle("", texts.server_error("RuntimeError"), ())
+    rig.api.start_error = ValueError("bad")
+    rig.scan("NT08")
+    rig.machine.confirm()
+    rig.machine.tick()
+    assert isinstance(rig.state, Confirm)
+    assert rig.state.notice == texts.server_error("ValueError")

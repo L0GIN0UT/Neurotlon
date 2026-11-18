@@ -6,12 +6,14 @@
 
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 from collections.abc import Callable
+from concurrent.futures import Executor, Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, TypeVar
 
 from . import texts
 from .api import (
@@ -36,6 +38,9 @@ from .game import (
     Player,
 )
 from .outbox import ActiveSession, ResultQueue
+
+log = logging.getLogger(__name__)
+_T = TypeVar("_T")
 
 SECTION = "bci"
 # Если конфиг дисциплины ни разу не получен (нет связи и нет кэша).
@@ -153,6 +158,10 @@ State = (
 )
 
 
+def _error_name(exc: Exception) -> str:
+    return exc.code if isinstance(exc, ApiProblem) else type(exc).__name__
+
+
 def _now() -> datetime:
     return datetime.now().astimezone()
 
@@ -170,6 +179,7 @@ class StationMachine:
         new_session_id: Callable[[], uuid.UUID] = uuid.uuid4,
         on_enqueue: Callable[[], None] | None = None,
         fallback_duration_s: int = DEFAULT_DURATION_S,
+        executor: Executor | None = None,
     ) -> None:
         self.discipline = discipline
         self.state: State = Idle()
@@ -181,6 +191,11 @@ class StationMachine:
         self._new_session_id = new_session_id
         self._on_enqueue = on_enqueue
         self._fallback_duration_s = fallback_duration_s
+        self._owns_executor = executor is None
+        self._executor: Executor = executor or ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="machine-io"
+        )
+        self._pending: Future[Any] | None = None
 
     @property
     def players_needed(self) -> int:
@@ -304,6 +319,8 @@ class StationMachine:
 
     def close(self) -> None:
         self._runner.stop()
+        if self._owns_executor:
+            self._executor.shutdown(wait=False, cancel_futures=True)
 
     # --- шаги по времени и сети --------------------------------------------------------
 
@@ -322,53 +339,72 @@ class StationMachine:
             case _:
                 pass
 
-    def _check(self, state: Checking) -> None:
+    def _await(self, job: Callable[[], _T]) -> Future[_T] | None:
+        """Запустить сетевой шаг в рабочем потоке; вернуть его, когда он готов."""
+        if self._pending is None:
+            self._pending = self._executor.submit(job)
+        if not self._pending.done():
+            return None
+        future, self._pending = self._pending, None
+        return future
+
+    def _check_job(self, code: str) -> Eligibility | None:
         try:
-            eligibility: Eligibility | None = self._api.eligibility(
-                state.code, self.discipline, SECTION
-            )
+            return self._api.eligibility(code, self.discipline, SECTION)
         except Offline:
-            eligibility = None
+            return None
+
+    def _check(self, state: Checking) -> None:
+        future = self._await(lambda: self._check_job(state.code))
+        if future is None:
+            return
+        try:
+            eligibility = future.result()
         except UnknownParticipant:
             self.state = Idle("", texts.UNKNOWN_PARTICIPANT, state.taken)
             return
         except Unauthorized:
             self.state = Idle("", texts.UNAUTHORIZED, state.taken)
             return
-        except ApiProblem as exc:
-            self.state = Idle("", texts.server_error(exc.code), state.taken)
+        except Exception as exc:
+            log.warning("eligibility check failed: %s", exc)
+            self.state = Idle("", texts.server_error(_error_name(exc)), state.taken)
             return
         self.state = Confirm(Candidate(state.code, eligibility), state.taken)
 
     def _back_to_confirm(self, state: Starting, notice: str) -> None:
         self.state = Confirm(state.players[-1], state.players[:-1], notice)
 
-    def _start(self, state: Starting) -> None:
+    def _start_job(self, state: Starting) -> tuple[int, bool]:
+        """Настройки и startSession; результат — (время игры, не было связи)."""
         offline = False
         try:
             duration = self._api.get_config().duration_s
         except Offline:
             duration, offline = self._fallback_duration_s, True
-        except Unauthorized:
-            self._back_to_confirm(state, texts.UNAUTHORIZED)
-            return
-        except ApiProblem as exc:
-            self._back_to_confirm(state, texts.server_error(exc.code))
-            return
         try:
             self._api.start_session(
                 state.session_id, self.discipline, [p.code for p in state.players]
             )
         except Offline:
             offline = True
+        return duration, offline
+
+    def _start(self, state: Starting) -> None:
+        future = self._await(lambda: self._start_job(state))
+        if future is None:
+            return
+        try:
+            duration, offline = future.result()
         except Busy:
             self._back_to_confirm(state, texts.BUSY)
             return
         except Unauthorized:
             self._back_to_confirm(state, texts.UNAUTHORIZED)
             return
-        except ApiProblem as exc:
-            self._back_to_confirm(state, texts.server_error(exc.code))
+        except Exception as exc:
+            log.warning("session start failed: %s", exc)
+            self._back_to_confirm(state, texts.server_error(_error_name(exc)))
             return
         request = GameRequest(
             state.session_id,

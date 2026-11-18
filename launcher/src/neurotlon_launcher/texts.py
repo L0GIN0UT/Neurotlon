@@ -21,7 +21,7 @@ def server_error(detail: str) -> str:
 
 
 # Проверка и подтверждение
-CHECKING = "Проверяем ID…"
+CHECKING = "Проверка…"
 OFFLINE_WARNING = "Нет связи с сервером: проверка не выполнена, результат отправится позже"
 CONFIRM_BUTTON = "Это я — начать"
 CANCEL_BUTTON = "Отмена"
