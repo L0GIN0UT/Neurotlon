@@ -59,11 +59,13 @@ export function BoardApp({ createSource }: Props) {
               {a.name}
             </h2>
             <span className="duel-score score-a" style={teamStyle(a)} aria-label="Победы команды A">
-              {a.duel_score}
+              <span className="digits">{a.duel_score}</span>
             </span>
-            <span className="vs">VS</span>
+            <span className="vs">
+              <span className="digits">VS</span>
+            </span>
             <span className="duel-score score-b" style={teamStyle(b)} aria-label="Победы команды B">
-              {b?.duel_score ?? 0}
+              <span className="digits">{b?.duel_score ?? 0}</span>
             </span>
             <h2 className="team-name name-b" style={teamStyle(b)}>
               {b?.name ?? ''}

@@ -48,3 +48,7 @@ deploy/certs/
 deploy/bundle/
 deploy/data/
 deploy/backup/
+
+# Local browser check artefacts
+.playwright-mcp/
+web/vite.preview-local.config.ts
