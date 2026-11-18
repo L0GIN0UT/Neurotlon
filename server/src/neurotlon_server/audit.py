@@ -10,7 +10,7 @@ def write_audit(
     *,
     action: str,
     object_type: str,
-    object_id: int,
+    object_id: int | str,
     user_id: int | None,
     after: dict[str, Any] | None = None,
 ) -> None:
