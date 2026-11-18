@@ -1,0 +1,50 @@
+# Контракт «лаунчер → игра»
+
+Версия 1. Схема — [`game-launch.schema.json`](game-launch.schema.json).
+
+Игра — любой исполняемый файл: pygame-ce, Unity или другой движок. Лаунчер знает только команду запуска из настроек стенда и обменивается с игрой двумя JSON-файлами. Сигнал датчиков игра берёт у BCI-моста по [протоколу моста](bridge-protocol.md) (TCP + NDJSON, доступен из любого языка).
+
+## Запуск
+
+1. Лаунчер создаёт для сессии папку и пишет в неё `launch.json` (схема `Launch`).
+2. Запускает игру: `<команда из настроек> --launch <полный путь к launch.json>`.
+   Примеры команд: `games/darts/Darts.exe` (Unity), `python -m neurotlon_games.darts` (pygame).
+3. Игра читает `launch.json`, подключается к мосту, проводит калибровку и игру. Время игры — `duration_s`; по истечении игра завершается с текущими очками.
+
+## Результат
+
+1. Перед выходом игра пишет результат (схема `Result`) в `result_path`: сначала во временный файл рядом, затем переименовывает. Так лаунчер не прочитает недописанный файл.
+2. Выходит с кодом 0.
+3. `status`:
+   - `finished` — игра прошла, в `entries` по записи на каждого участника, правила записей те же, что у `ResultEntry` в [`openapi.yaml`](openapi.yaml);
+   - `aborted` — игру прервали (оператор, датчик отвалился и не вернулся); `entries` пустой, причина в `reason`.
+4. `finished_at` ставит лаунчер по своим часам, когда игра вышла; игра время не передаёт.
+
+## Ошибки
+
+| Что случилось | Что делает лаунчер |
+|---|---|
+| Код выхода не 0, нет файла или файл не проходит схему | «Техническая проблема»: повторить игру или отметить «не пройдено» с причиной `equipment` |
+| Игра не вышла за `duration_s + 120` с | Завершает процесс, дальше как при технической проблеме |
+| `status: aborted` | То же, что техническая проблема, но с причиной из `reason` |
+
+## Заметки для Unity
+
+- Аргументы: `System.Environment.GetCommandLineArgs()`, найти `--launch` и следующий за ним путь.
+- JSON: `JsonUtility` или Newtonsoft; поля в `snake_case`, как в схеме.
+- Мост: `System.Net.Sockets.TcpClient` на `bridge.host:bridge.port`, читать строки до `\n`, каждая строка — JSON-сообщение. Чтение — в отдельном потоке, в игровой цикл передавать последнее значение.
+- Сборка — Windows Standalone, путь к `.exe` указывается в настройках стенда.
+
+## Пример
+
+`launch.json`:
+
+```json
+{"protocol":1,"session_id":"7b1d3e00-5a4f-4c2b-8e7a-91c0d2f3a4b5","discipline":"pong","duration_s":120,"participants":[{"code":"NT03","display_name":"Аня","side":"left"},{"code":"NT14","display_name":null,"side":"right"}],"bridge":{"host":"127.0.0.1","port":8765},"result_path":"C:\\neurotlon\\sessions\\7b1d3e00\\result.json","language":"ru","fullscreen":true}
+```
+
+`result.json`:
+
+```json
+{"protocol":1,"session_id":"7b1d3e00-5a4f-4c2b-8e7a-91c0d2f3a4b5","status":"finished","entries":[{"participant_code":"NT03","outcome":"completed","points":11,"wins":1},{"participant_code":"NT14","outcome":"completed","points":7,"wins":0}]}
+```
