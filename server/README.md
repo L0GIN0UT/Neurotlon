@@ -86,6 +86,21 @@ uv run neurotlon-server create-superuser --login root
 - `PATCH /api/v1/disciplines/{code}` — `game_duration_s`, `physical_duration_s`, `win_points`
   (админ, судья, суперпользователь).
 
+## Админка, судья, экспорт
+
+- `GET /api/v1/stations` (админ, суперпользователь) — станции: `online` (heartbeat не старше 30 с),
+  `last_heartbeat_at`, `last_state`, `queue_length`; токены не возвращаются.
+- `GET /api/v1/users` (суперпользователь) — аккаунты без паролей.
+- `GET /api/v1/results?participant=&discipline=&section=&session_id=` (судья, админ, суперпользователь) —
+  поиск строк результата, в том числе аннулированных (`voided`).
+- `PATCH /api/v1/results/{id}` — исправление с обязательным `change_reason`: судья правит `confirmed`,
+  `locked` только админ и суперпользователь; проверки как при приёме; `version` +1; в аудит идут значения
+  до и после. На понге победителя меняют двумя правками (сумма `wins` не больше 1).
+- `POST /api/v1/results/lock` (судья, админ, суперпользователь) — подтверждённые результаты → `locked`
+  (решение 22).
+- `GET /api/v1/export.xlsx` (судья, админ, суперпользователь) — листы «Итоги» и «Участники», считаются
+  тем же кодом, что и табло; категории в файле нет.
+
 ## Проверки
 
 ```bash
