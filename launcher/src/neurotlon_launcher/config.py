@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import stat
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,6 +20,18 @@ log = logging.getLogger(__name__)
 
 class ConfigError(Exception):
     """Ошибка настроек; сообщение по-русски, для оператора."""
+
+
+def warn_if_token_is_shared(path: Path) -> None:
+    """Предупреждение в журнал: токен читают другие пользователи ПК (на Windows пропуск)."""
+    if os.name == "nt":
+        return
+    try:
+        mode = path.stat().st_mode
+    except OSError:
+        return
+    if mode & (stat.S_IRGRP | stat.S_IROTH):
+        log.warning("token file %s is readable by other users, run chmod 600", path)
 
 
 @dataclass(frozen=True)
@@ -42,6 +56,7 @@ class LauncherConfig:
             raise ConfigError(f"не удалось прочитать файл токена {self.token_file}: {exc}") from exc
         if not token:
             raise ConfigError(f"файл токена пуст: {self.token_file}")
+        warn_if_token_is_shared(self.token_file)
         return token
 
 
