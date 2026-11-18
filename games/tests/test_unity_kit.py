@@ -144,7 +144,6 @@ def test_every_protocol_constant_is_checked() -> None:
 
 def test_numeric_limits_match_schema() -> None:
     ints = consts(source("NeurotlonProtocol.cs"), "int")
-    floats = consts(source("NeurotlonProtocol.cs"), "float")
     assert int(ints["ProtocolVersion"]) == LD["Launch"]["properties"]["protocol"]["const"] == 1
     assert int(ints["ResultReasonMaxLength"]) == LD["Result"]["properties"]["reason"]["maxLength"]
     assert int(ints["ResultPointsMax"]) == LD["Entry"]["properties"]["points"]["maximum"]

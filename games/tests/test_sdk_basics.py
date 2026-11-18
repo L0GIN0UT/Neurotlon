@@ -437,5 +437,5 @@ def test_completed_requires_whole_points(tmp_path: Path) -> None:
     for bad in (4.5, 0.1, True):
         with pytest.raises(ResultError, match="целым"):
             completed("NT07", bad)  # type: ignore[arg-type]
-    assert completed("NT07", 7.0).points == 7
-    assert isinstance(completed("NT07", 7.0).points, int)
+    assert completed("NT07", 7.0).points == 7  # type: ignore[arg-type]
+    assert isinstance(completed("NT07", 7.0).points, int)  # type: ignore[arg-type]

@@ -306,6 +306,7 @@ def completed(code: str, points: float, **extra: object) -> dict[str, object]:
             ],
         ),
         ("pong", ("NT03", "NT04"), [completed("NT03", 5, wins=1)]),  # не хватает игрока
+        ("darts", ("NT01",), [completed("NT01", 4.5)]),  # дробные очки (решение 28)
     ],
 )
 def test_locally_invalid_results_are_crashes(
@@ -350,3 +351,12 @@ def test_result_above_max_points_is_a_crash(tmp_path: Path) -> None:
     assert isinstance(parse_result(over, req), Crashed)
     ok = write_result(tmp_path, req, status="finished", entries=[completed("NT01", 10)])
     assert isinstance(parse_result(ok, req), Finished)
+
+
+def test_whole_float_points_are_stored_as_int(tmp_path: Path) -> None:
+    req = request()
+    path = write_result(tmp_path, req, status="finished", entries=[completed("NT07", 7.0)])
+    outcome = parse_result(path, req)
+    assert isinstance(outcome, Finished)
+    assert outcome.entries[0].points == 7
+    assert isinstance(outcome.entries[0].points, int)

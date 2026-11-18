@@ -53,7 +53,7 @@ class GameRequest:
 class GameEntry:
     participant_code: str
     outcome: str  # completed | not_completed
-    points: float | None = None
+    points: int | None = None
     wins: int | None = None
     reason: str | None = None
 
@@ -148,9 +148,7 @@ def parse_result(path: Path, request: GameRequest) -> GameOutcome:
     for code in codes:
         raw = by_code[code]
         if raw["outcome"] == "completed":
-            entries.append(
-                GameEntry(code, "completed", float(raw["points"]), raw.get("wins"), None)
-            )
+            entries.append(GameEntry(code, "completed", int(raw["points"]), raw.get("wins"), None))
         else:
             entries.append(GameEntry(code, "not_completed", None, None, raw.get("reason", "other")))
     return Finished(tuple(entries))
