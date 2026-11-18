@@ -192,8 +192,7 @@ def list_stations(db: Db, now: Now, actor: StationManager) -> list[StationListIt
             id=s.id,
             name=s.name,
             discipline=s.discipline,
-            online=s.last_heartbeat_at is not None
-            and now - s.last_heartbeat_at <= HEARTBEAT_WINDOW,
+            online=_is_online(s, now),
             last_heartbeat_at=s.last_heartbeat_at,
             last_state=s.last_state,
             queue_length=s.queue_length,

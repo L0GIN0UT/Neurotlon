@@ -71,13 +71,19 @@ def test_search_requires_login(client: TestClient) -> None:
 
 def test_search_filters(app: FastAPI, db: Session, seeded: Seeded) -> None:
     judge = staff(app, db, "judge")
-    assert len(judge.get(f"{API}/results").json()) == 3
-    rows = judge.get(f"{API}/results", params={"participant": "1"}).json()
+    assert judge.get(f"{API}/results").json()["total"] == 3
+    rows = judge.get(f"{API}/results", params={"participant": "1"}).json()["items"]
     assert [(r["participant_code"], r["discipline"]) for r in rows] == [("NT01", "darts")]
-    assert len(judge.get(f"{API}/results", params={"discipline": "pong"}).json()) == 2
-    assert judge.get(f"{API}/results", params={"section": "physical"}).json() == []
-    assert judge.get(f"{API}/results", params={"participant": "zzz"}).json() == []
-    by_session = judge.get(f"{API}/results", params={"session_id": SESSION_B}).json()
+    assert len(judge.get(f"{API}/results", params={"discipline": "pong"}).json()["items"]) == 2
+    assert judge.get(f"{API}/results", params={"section": "physical"}).json() == {
+        "total": 0,
+        "items": [],
+    }
+    assert judge.get(f"{API}/results", params={"participant": "zzz"}).json() == {
+        "total": 0,
+        "items": [],
+    }
+    by_session = judge.get(f"{API}/results", params={"session_id": SESSION_B}).json()["items"]
     assert {r["participant_code"] for r in by_session} == {"NT03", "NT04"}
     assert judge.get(f"{API}/results", params={"discipline": "chess"}).status_code == 422
 
@@ -89,7 +95,7 @@ def test_search_marks_voided_rows(
     row = row_of(db, "NT01", "darts")
     row.voided_at = row.created_at
     db.commit()
-    found = judge.get(f"{API}/results", params={"participant": "NT01"}).json()
+    found = judge.get(f"{API}/results", params={"participant": "NT01"}).json()["items"]
     assert found[0]["voided"] is True
     assert "category" not in str(found)
 
@@ -306,11 +312,12 @@ def test_lock_skips_voided_and_is_repeatable(app: FastAPI, db: Session, seeded: 
     row = row_of(db, "NT01", "darts")
     row.voided_at = row.created_at
     db.commit()
+    ids = [row_of(db, "NT03", "pong").id, row_of(db, "NT04", "pong").id]
     assert judge.post(f"{API}/results/lock").json() == {"locked": 2}
     assert row_of(db, "NT01", "darts").status == "confirmed"
     assert judge.post(f"{API}/results/lock").json() == {"locked": 0}
     entries = audit(db, "result.lock")
-    assert [e.after for e in entries] == [{"locked": 2}, {"locked": 0}]
+    assert [e.after for e in entries] == [{"locked": 2, "ids": ids}, {"locked": 0, "ids": []}]
     assert all(e.user_id is not None for e in entries)
 
 
@@ -392,7 +399,13 @@ def test_admin_forces_lock_and_audit_records_it(
     assert response.status_code == 200
     assert response.json() == {"locked": 4}
     entry = audit(db, "result.lock").pop()
-    assert entry.after == {"locked": 4, "force": True, "conflicts": 1, "open_corrections": 1}
+    assert entry.after is not None
+    assert entry.after.pop("ids") and entry.after == {
+        "locked": 4,
+        "force": True,
+        "conflicts": 1,
+        "open_corrections": 1,
+    }
 
 
 def test_force_without_blockers_is_a_normal_lock(app: FastAPI, db: Session, seeded: Seeded) -> None:
@@ -400,7 +413,78 @@ def test_force_without_blockers_is_a_normal_lock(app: FastAPI, db: Session, seed
     assert admin.post(f"{API}/results/lock", json={"force": True}).json() == {"locked": 3}
     assert audit(db, "result.lock").pop().after == {
         "locked": 3,
+        "ids": [1, 2, 3],
         "force": True,
         "conflicts": 0,
         "open_corrections": 0,
     }
+
+
+def test_search_pagination_and_total(app: FastAPI, db: Session, seeded: Seeded) -> None:
+    judge = staff(app, db, "judge")
+    page = judge.get(f"{API}/results", params={"limit": 2}).json()
+    assert (page["total"], len(page["items"])) == (3, 2)
+    rest = judge.get(f"{API}/results", params={"limit": 2, "offset": 2}).json()
+    assert (rest["total"], len(rest["items"])) == (3, 1)
+    ids = [r["id"] for r in page["items"] + rest["items"]]
+    assert len(set(ids)) == 3
+    assert judge.get(f"{API}/results", params={"offset": 9}).json() == {"total": 3, "items": []}
+    filtered = judge.get(f"{API}/results", params={"discipline": "pong", "limit": 1}).json()
+    assert (filtered["total"], len(filtered["items"])) == (2, 1)
+
+
+def test_search_limit_bounds(app: FastAPI, db: Session, seeded: Seeded) -> None:
+    judge = staff(app, db, "judge")
+    for params in ({"limit": 0}, {"limit": 1001}, {"offset": -1}):
+        assert judge.get(f"{API}/results", params=params).status_code == 422
+    assert judge.get(f"{API}/results", params={"limit": 1000}).status_code == 200
+
+
+def test_change_reason_is_stripped(app: FastAPI, db: Session, seeded: Seeded) -> None:
+    judge = staff(app, db, "judge")
+    row = row_of(db, "NT01", "darts")
+    url = f"{API}/results/{row.id}"
+    blank = judge.patch(url, json={"points": 1, "change_reason": "   	 "})
+    assert blank.status_code == 422
+    assert judge.patch(url, json={"points": 1, "change_reason": "  recount  "}).status_code == 200
+    assert audit(db, "result.correct").pop().reason == "recount"
+    assert judge.patch(url, json={"points": 2, "change_reason": " " + "x" * 200}).status_code == 200
+
+
+def test_pong_both_completed_needs_exactly_one_winner(
+    app: FastAPI, db: Session, seeded: Seeded
+) -> None:
+    judge = staff(app, db, "judge")
+    winner, loser = row_of(db, "NT03", "pong"), row_of(db, "NT04", "pong")
+    # the loser drops out and comes back: wins must be given again
+    assert (
+        edit(
+            judge, f"{API}/results/{loser.id}", outcome="not_completed", reason="health"
+        ).status_code
+        == 200
+    )
+    back = edit(judge, f"{API}/results/{loser.id}", outcome="completed", points=3)
+    assert back.status_code == 422
+    assert row_of(db, "NT04", "pong").outcome == "not_completed"
+    # with wins=0 next to the winner: exactly one winner
+    ok = edit(judge, f"{API}/results/{loser.id}", outcome="completed", points=3, wins=0)
+    assert ok.status_code == 200
+    assert (row_of(db, "NT03", "pong").wins, row_of(db, "NT04", "pong").wins) == (1, 0)
+    assert winner.id != loser.id
+
+
+def test_pong_two_losers_rejected(app: FastAPI, db: Session, seeded: Seeded) -> None:
+    judge = staff(app, db, "judge")
+    winner, loser = row_of(db, "NT03", "pong"), row_of(db, "NT04", "pong")
+    # the winner leaves the match, the other stays completed with wins=0
+    assert (
+        edit(
+            judge, f"{API}/results/{winner.id}", outcome="not_completed", reason="health"
+        ).status_code
+        == 200
+    )
+    # the former winner returns with wins=0 while the other has wins=0 too: nobody wins
+    nobody = edit(judge, f"{API}/results/{winner.id}", outcome="completed", points=3, wins=0)
+    assert nobody.status_code == 422
+    assert row_of(db, "NT04", "pong").wins == 0
+    assert loser.id != winner.id

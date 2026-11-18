@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Body, Depends, Query
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from sqlalchemy import func, select, update
 from sqlalchemy.engine import CursorResult
 
@@ -20,6 +20,8 @@ router = APIRouter(prefix="/api/v1/results", tags=["results"])
 
 Judge = Annotated[User, Depends(require_role("judge", "admin", "superuser"))]
 
+DEFAULT_LIMIT = 200
+MAX_LIMIT = 1000
 _AUDITED = ("points", "wins", "outcome", "reason", "comment")
 
 
@@ -41,6 +43,11 @@ class ResultOut(BaseModel):
     voided: bool
 
 
+class ResultPage(BaseModel):
+    total: int
+    items: list[ResultOut]
+
+
 class ResultPatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -49,7 +56,9 @@ class ResultPatch(BaseModel):
     outcome: Literal["completed", "not_completed"] | None = None
     reason: Reason | None = None
     comment: str | None = Field(default=None, max_length=200)
-    change_reason: str = Field(min_length=1, max_length=200)
+    change_reason: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)
+    ]
 
 
 def _out(row: SectionResult, code: str) -> ResultOut:
@@ -125,18 +134,14 @@ def _pong_siblings(
         )
     )
     completed = new["outcome"] == "completed"
-    if (
-        completed
-        and others
-        and all(o.outcome == "completed" for o in others)
-        and new["wins"] is None
-    ):
-        raise _invalid("both players completed: wins are required")
     if completed and row.wins == 1 and new["wins"] != 1:
         raise _invalid("the winner cannot be removed: set wins=1 on the other player")
-    if new["wins"] != 1 or row.wins == 1:
-        return []
-    changed = [o for o in others if o.outcome == "completed" and o.wins != 0]
+    promoted = new["wins"] == 1 and row.wins != 1
+    changed = [o for o in others if promoted and o.outcome == "completed" and o.wins != 0]
+    if completed and others and all(o.outcome == "completed" for o in others):
+        wins = (new["wins"] or 0) + sum(0 if o in changed else (o.wins or 0) for o in others)
+        if wins != 1 or new["wins"] is None:
+            raise _invalid("both players completed: exactly one must have wins=1")
     for other in changed:
         if other.status == "locked" and user.role == "judge":
             raise forbidden()
@@ -153,7 +158,9 @@ def list_results(
     discipline: Annotated[DisciplineName | None, Query()] = None,
     section: Annotated[SectionName | None, Query()] = None,
     session_id: Annotated[str | None, Query(max_length=64)] = None,
-) -> list[ResultOut]:
+    limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = DEFAULT_LIMIT,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> ResultPage:
     query = (
         select(SectionResult, Participant.code)
         .join(Participant, Participant.id == SectionResult.participant_id)
@@ -163,7 +170,7 @@ def list_results(
     if participant:
         code = normalize_code(participant)
         if code is None:
-            return []
+            return ResultPage(total=0, items=[])
         query = query.where(Participant.code == code)
     if discipline:
         query = query.where(SectionResult.discipline == discipline)
@@ -171,7 +178,9 @@ def list_results(
         query = query.where(SectionResult.section == section)
     if session_id:
         query = query.where(SectionResult.session_id == session_id)
-    return [_out(row, code) for row, code in db.execute(query)]
+    total = db.scalar(select(func.count()).select_from(query.order_by(None).subquery())) or 0
+    rows = db.execute(query.limit(limit).offset(offset))
+    return ResultPage(total=total, items=[_out(row, code) for row, code in rows])
 
 
 class LockRequest(BaseModel):
@@ -219,14 +228,25 @@ def lock_results(
             f"open correction requests: {blockers['open_corrections']}",
             extra=blockers,
         )
+    ids = list(
+        db.scalars(
+            select(SectionResult.id)
+            .where(SectionResult.status == "confirmed", SectionResult.voided_at.is_(None))
+            .order_by(SectionResult.id)
+        )
+    )
     done = db.execute(
         update(SectionResult)
-        .where(SectionResult.status == "confirmed", SectionResult.voided_at.is_(None))
+        .where(
+            SectionResult.id.in_(ids),
+            SectionResult.status == "confirmed",
+            SectionResult.voided_at.is_(None),
+        )
         .values(status="locked")
     )
     assert isinstance(done, CursorResult)
     locked = done.rowcount
-    after: dict[str, Any] = {"locked": locked}
+    after: dict[str, Any] = {"locked": locked, "ids": ids}
     if force:
         after |= {"force": True, **blockers}
     write_audit(

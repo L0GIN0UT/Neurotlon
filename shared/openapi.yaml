@@ -204,15 +204,28 @@ paths:
           required: false
           schema:
             $ref: "#/components/schemas/SessionId"
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 200
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
       responses:
         "200":
-          description: Результаты, в том числе аннулированные (`voided`)
+          description: Страница результатов, в том числе аннулированных (`voided`); `total` — всего по фильтру
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/StoredResult"
+                $ref: "#/components/schemas/StoredResultPage"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -425,7 +438,7 @@ paths:
       description: |
         Судья, админ, суперпользователь. Все подтверждённые неаннулированные
         результаты становятся `locked`; событие `result.lock` пишется в аудит.
-        Повтор безопасен (`locked: 0`). Если есть неразрешённые конфликты или
+        Повтор безопасен (`locked: 0`). В аудит пишутся `ids` заблокированных результатов. Если есть неразрешённые конфликты или
         открытые запросы на исправление — `409 conflict` с числами `conflicts` и
         `open_corrections`. `{"force": true}` фиксирует всё равно, только админ и
         суперпользователь (судье `403`); `force` и числа пишутся в аудит.
@@ -956,6 +969,19 @@ components:
         voided:
           type: boolean
 
+    StoredResultPage:
+      type: object
+      required: [total, items]
+      additionalProperties: false
+      properties:
+        total:
+          type: integer
+          minimum: 0
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/StoredResult"
+
     ResultPatch:
       type: object
       required: [change_reason]
@@ -980,7 +1006,7 @@ components:
           type: string
           minLength: 1
           maxLength: 200
-          description: Почему исправлено; попадает в журнал аудита.
+          description: Почему исправлено (пробелы по краям отбрасываются); попадает в журнал аудита.
 
     ProblemCode:
       type: string

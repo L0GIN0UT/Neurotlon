@@ -77,7 +77,7 @@ def test_staff_endpoints_match_schema(
         validate(spec, "StationInfo", row)
     for row in root.get(f"{API}/users").json():
         validate(spec, "UserInfo", row)
-    found = root.get(f"{API}/results").json()
+    found = root.get(f"{API}/results").json()["items"]
     assert found
     for row in found:
         validate(spec, "StoredResult", row)
