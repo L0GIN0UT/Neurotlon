@@ -68,6 +68,20 @@ def add_result(db: Session) -> None:
     db.commit()
 
 
+def uncap_teams(client: TestClient) -> None:
+    app = client.app
+    assert isinstance(app, FastAPI)
+    app.state.settings.max_teams = None
+
+
+def test_default_draw_has_two_teams(admin: TestClient, db: Session) -> None:
+    check_in(db, 10, 10)
+    response = admin.post(f"{API}/draw", json={"m": 5, "seed": 1})
+    assert response.status_code == 200
+    assert response.json()["team_count"] == 2
+    assert len(admin.get(f"{API}/teams").json()["duels"]) == 1
+
+
 def test_options(admin: TestClient, db: Session) -> None:
     check_in(db, 7, 9)
     # a participant without check-in is ignored
@@ -81,7 +95,9 @@ def test_options(admin: TestClient, db: Session) -> None:
         "reserve_ovz": 1,
         "reserve_total": 4,
     }
-    assert [o["m"] for o in body] == [3, 1, 2]
+    # two teams by default (decision 20): larger m leaves the smallest reserve
+    assert [o["m"] for o in body] == [3, 2, 1]
+    assert {o["team_count"] for o in body} == {2}
 
 
 def test_options_empty(admin: TestClient) -> None:
@@ -106,6 +122,7 @@ def test_roles(app: FastAPI, db: Session, admin: TestClient) -> None:
 
 
 def test_draw_persists_pure_result(admin: TestClient, db: Session) -> None:
+    uncap_teams(admin)
     people = check_in(db, 5, 5)
     check_in_extra = Participant(code="NT30", category=None)
     db.add(check_in_extra)
@@ -213,6 +230,7 @@ def test_redraw_blocked_by_results(root: TestClient, db: Session) -> None:
 
 
 def test_audit_has_only_seed_m_team_count(admin: TestClient, db: Session) -> None:
+    uncap_teams(admin)
     check_in(db, 4, 4)
     admin.post(f"{API}/draw", json={"m": 1, "seed": 9})
     row = db.scalars(select(AuditLog).where(AuditLog.action == "draw.create")).one()
@@ -222,6 +240,7 @@ def test_audit_has_only_seed_m_team_count(admin: TestClient, db: Session) -> Non
 
 
 def test_teams_hide_category(admin: TestClient, db: Session) -> None:
+    uncap_teams(admin)
     check_in(db, 4, 4)
     admin.post(f"{API}/draw", json={"m": 1, "seed": 9})
     response = admin.get(f"{API}/teams")
