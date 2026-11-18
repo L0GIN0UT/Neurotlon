@@ -127,3 +127,12 @@ def test_invalid_m_raises() -> None:
         run_draw(people(3, 3), 2, seed=1)
     with pytest.raises(ValueError):
         run_draw(people(5, 5), 0, seed=1)
+
+
+def test_max_teams_caps_team_count() -> None:
+    assert even_team_count(10, 10, 1) == 10
+    assert even_team_count(10, 10, 1, max_teams=2) == 2
+    assert even_team_count(10, 10, 1, max_teams=3) == 2
+    assert even_team_count(1, 10, 1, max_teams=2) == 0
+    assert {o.team_count for o in draw_options(10, 10, max_teams=2)} == {2}
+    assert run_draw(people(10, 10), 5, seed=1, max_teams=2).team_count == 2

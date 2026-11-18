@@ -1,7 +1,7 @@
 import secrets
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import delete, func, select, update
 
@@ -79,7 +79,8 @@ def _protocol(result: DrawResult) -> dict[str, Any]:
 
 
 @router.get("/draw/options")
-def options(db: Db, actor: Manager) -> list[dict[str, int]]:
+def options(request: Request, db: Db, actor: Manager) -> list[dict[str, int]]:
+    max_teams = request.app.state.settings.max_teams
     ovz, general = _counts(_checked_in(db))
     return [
         {
@@ -89,12 +90,15 @@ def options(db: Db, actor: Manager) -> list[dict[str, int]]:
             "reserve_ovz": o.reserve_ovz,
             "reserve_total": o.reserve_total,
         }
-        for o in draw_options(ovz, general)
+        for o in draw_options(ovz, general, max_teams)
     ]
 
 
 @router.post("/draw")
-def make_draw(body: DrawRequest, db: Db, now: Now, actor: Manager) -> dict[str, Any]:
+def make_draw(
+    request: Request, body: DrawRequest, db: Db, now: Now, actor: Manager
+) -> dict[str, Any]:
+    max_teams = request.app.state.settings.max_teams
     has_draw = (
         db.scalar(select(Draw.id).limit(1)) is not None
         or db.scalar(select(Team.id).limit(1)) is not None
@@ -107,12 +111,12 @@ def make_draw(body: DrawRequest, db: Db, now: Now, actor: Manager) -> dict[str, 
 
     people = _checked_in(db)
     ovz, general = _counts(people)
-    if body.m not in {o.m for o in draw_options(ovz, general)}:
+    if body.m not in {o.m for o in draw_options(ovz, general, max_teams)}:
         raise ProblemError(
             422, "invalid_request", "Invalid request", "m is not an available option"
         )
     seed = secrets.randbits(63) if body.seed is None else body.seed
-    result = run_draw(people, body.m, seed)
+    result = run_draw(people, body.m, seed, max_teams)
 
     if has_draw:
         db.execute(delete(Pair))

@@ -77,28 +77,32 @@ class DrawResult:
     reserve_general: tuple[str, ...]
 
 
-def even_team_count(ovz: int, general: int, m: int) -> int:
-    """Largest even team count for team size m; 0 when fewer than 2 teams fit."""
+def even_team_count(ovz: int, general: int, m: int, max_teams: int | None = None) -> int:
+    """Largest even team count for team size m, capped by max_teams; 0 if fewer than 2 fit."""
     if m < 1:
         return 0
     t = min(ovz // m, general // m)
+    if max_teams is not None:
+        t = min(t, max_teams)
     t -= t % 2
     return t if t >= 2 else 0
 
 
-def draw_options(ovz: int, general: int) -> list[DrawOption]:
+def draw_options(ovz: int, general: int, max_teams: int | None = None) -> list[DrawOption]:
     options = []
     for m in range(1, min(ovz, general) + 1):
-        t = even_team_count(ovz, general, m)
+        t = even_team_count(ovz, general, m, max_teams)
         if t:
             options.append(DrawOption(m, t, general - t * m, ovz - t * m))
     return sorted(options, key=lambda o: (o.reserve_total, -o.m))
 
 
-def run_draw(participants: list[tuple[str, str]], m: int, seed: int) -> DrawResult:
+def run_draw(
+    participants: list[tuple[str, str]], m: int, seed: int, max_teams: int | None = None
+) -> DrawResult:
     ovz = sorted(code for code, cat in participants if cat == OVZ)
     general = sorted(code for code, cat in participants if cat == GENERAL)
-    t = even_team_count(len(ovz), len(general), m)
+    t = even_team_count(len(ovz), len(general), m, max_teams)
     if not t:
         raise ValueError("fewer than 2 teams possible for this m")
 
