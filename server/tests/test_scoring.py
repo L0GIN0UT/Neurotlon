@@ -5,8 +5,10 @@ from neurotlon_server.scoring import (
     PlaceholderScoring,
     ResultIn,
     TeamIn,
+    duel_score,
     score_participants,
     score_teams,
+    top_players,
 )
 
 DISCIPLINES = [DisciplineIn("darts", 10), DisciplineIn("football", 10), DisciplineIn("pong", 10)]
@@ -22,8 +24,11 @@ def res(
     wins: int | None = None,
     status: str = "confirmed",
     voided: bool = False,
+    session: str = "",
 ) -> ResultIn:
-    return ResultIn(id, participant, discipline, section, outcome, points, wins, status, voided)
+    return ResultIn(
+        id, participant, discipline, section, outcome, points, wins, status, voided, session
+    )
 
 
 def person(id: int, team: int | None = 1) -> ParticipantIn:
@@ -190,3 +195,105 @@ def test_float_noise_does_not_break_ties() -> None:
     ranked = score_teams(results, people, _teams(1, 2), DISCIPLINES, FAKE)
     assert [score.rank for _, score in ranked] == [1, 1]
     assert [score.total for _, score in ranked] == [0.3, 0.3]
+
+
+def pong(id: int, participant: int, wins: int, session: str, **extra: object) -> ResultIn:
+    return res(id, participant, "pong", wins=wins, session=session, points=None, **extra)  # type: ignore[arg-type]
+
+
+DUEL_PEOPLE = [person(1, 1), person(2, 2), person(3, 1), person(4, 2)]
+
+
+def test_duel_score_counts_pong_match_wins_per_team() -> None:
+    results = [
+        pong(1, 1, 1, "s1"),
+        pong(2, 2, 0, "s1"),
+        pong(3, 1, 0, "s2", section="physical"),
+        pong(4, 2, 1, "s2", section="physical"),
+        pong(5, 3, 1, "s3"),
+        pong(6, 4, 0, "s3"),
+    ]
+    assert duel_score(results, DUEL_PEOPLE) == {1: 2, 2: 1}
+
+
+def test_duel_score_ignores_points_and_other_disciplines() -> None:
+    results = [res(1, 1, "darts", points=99), res(2, 2, "football", points=50)]
+    assert duel_score(results, DUEL_PEOPLE) == {1: 0, 2: 0}
+
+
+def test_duel_score_skips_voided_entered_and_unfinished() -> None:
+    results = [
+        pong(1, 1, 1, "v", voided=True),
+        pong(2, 2, 0, "v"),
+        pong(3, 1, 1, "e", status="entered"),
+        pong(4, 2, 0, "e"),
+        pong(5, 3, 1, "half"),  # the opponent's result has not arrived
+    ]
+    assert duel_score(results, DUEL_PEOPLE) == {1: 0, 2: 0}
+
+
+def test_duel_score_skips_not_completed_match() -> None:
+    results = [
+        pong(1, 1, 1, "n"),
+        res(2, 2, "pong", outcome="not_completed", points=None, session="n"),
+    ]
+    assert duel_score(results, DUEL_PEOPLE) == {1: 0, 2: 0}
+
+
+def test_duel_score_excludes_matches_in_conflict() -> None:
+    results = [
+        pong(1, 1, 1, "c1"),
+        pong(2, 2, 0, "c1"),
+        pong(3, 1, 0, "c2"),  # participant 1 has a second pong BCI result: conflict
+        pong(4, 4, 1, "c2"),
+        pong(5, 3, 1, "ok"),
+        pong(6, 4, 0, "ok2", section="physical"),  # other section, other session: half a match
+    ]
+    assert duel_score(results, DUEL_PEOPLE) == {1: 0, 2: 0}
+
+
+def test_duel_score_rejects_two_winners_and_unknown_teams() -> None:
+    results = [pong(1, 1, 1, "x"), pong(2, 2, 1, "x"), pong(3, 5, 1, "y"), pong(4, 2, 0, "y")]
+    assert duel_score(results, [*DUEL_PEOPLE, person(5, None)]) == {1: 0, 2: 0}
+
+
+def _top(results: list[ResultIn], numbers: dict[int, int], limit: int = 5, d: str = "darts"):  # type: ignore[no-untyped-def]
+    people = [person(i, 1) for i in numbers]
+    members = score_participants(results, people, DISCIPLINES, FAKE)
+    return top_players(members.values(), numbers, d, limit)
+
+
+def test_top_players_sum_both_sections_and_sort_by_points() -> None:
+    results = [
+        res(1, 1, points=5),
+        res(2, 1, section="physical", points=7),
+        res(3, 2, points=20),
+        res(4, 3, "football", points=100),
+    ]
+    top = _top(results, {1: 1, 2: 2, 3: 3})
+    assert [(e.participant_id, e.points, e.rank) for e in top] == [(2, 20, 1), (1, 12, 2)]
+
+
+def test_top_players_tie_breaks_by_sections_then_number() -> None:
+    results = [
+        res(1, 1, points=10),
+        res(2, 2, points=5),
+        res(3, 2, section="physical", points=5),
+        res(4, 3, points=10),
+    ]
+    top = _top(results, {1: 3, 2: 2, 3: 1})
+    assert [e.participant_id for e in top] == [2, 3, 1]  # 2: two sections; 3 before 1 by number
+
+
+def test_top_players_limit_and_conflict_marker() -> None:
+    results = [res(i, i, points=float(i)) for i in range(1, 8)]
+    results += [res(20, 8, points=1), res(21, 8, points=2, session="again")]
+    top = _top(results, {i: i for i in range(1, 9)})
+    assert len(top) == 5
+    assert (top[0].participant_id, top[0].pending, top[0].points) == (8, True, 0)
+    assert [e.participant_id for e in top[1:]] == [7, 6, 5, 4]
+    assert _top(results, {i: i for i in range(1, 9)}, limit=2)[0].pending is True
+
+
+def test_top_players_empty_when_nobody_scored() -> None:
+    assert _top([], {1: 1, 2: 2}) == []
