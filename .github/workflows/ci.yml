@@ -12,6 +12,11 @@ concurrency:
 jobs:
   python:
     runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      # игры и проверка игр открывают окно pygame: на раннере экрана нет
+      SDL_VIDEODRIVER: dummy
+      SDL_AUDIODRIVER: dummy
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -21,7 +26,7 @@ jobs:
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run mypy
-      - run: uv run pytest -q
+      - run: uv run pytest -q --durations=5
 
   web:
     runs-on: ubuntu-latest
