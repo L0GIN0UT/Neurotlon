@@ -17,6 +17,7 @@ import getpass
 import http.client
 import json
 import os
+import random
 import secrets
 import ssl
 import sys
@@ -37,6 +38,9 @@ NAME_PREFIX = "Rehearsal "
 PASSWORD_ENV = "NEUROTLON_REHEARSAL_PASSWORD"
 SSE_DEADLINE_S = 10.0
 DISCIPLINES = ("darts", "football", "pong")
+SEED = 2027  # fixed: a rehearsal run produces the same points every time
+POINTS_MAX = 10  # about 10 points per discipline for one person at the real event
+PONG_GAME_POINTS = 11  # a table-tennis game is played to 11
 API = "/api/v1"
 
 
@@ -250,7 +254,8 @@ class Rehearsal:
         self.password = password
         self.report = report
         self.xlsx_out = xlsx_out
-        self.rng = secrets.SystemRandom()
+        self.rng = random.Random(SEED)
+        self.pong_winner: dict[tuple[str, ...], str] = {}  # pair -> code of the match winner
         self.sessions: dict[tuple[str, str, str], str] = {}  # (code, discipline, section) -> id
 
     # --- setup -----------------------------------------------------------------------------
@@ -321,12 +326,28 @@ class Rehearsal:
 
     # --- results ---------------------------------------------------------------------------
 
-    def _entry(self, code: str, wins: int | None = None) -> dict[str, Any]:
-        entry: dict[str, Any] = {
-            "participant_code": code,
-            "outcome": "completed",
-            "points": round(self.rng.uniform(5, 60), 1),
-        }
+    def _points(self, section: str) -> float:
+        """Small realistic score: mostly 3..9, now and then 0 or 10; BCI has one decimal."""
+        roll = self.rng.random()
+        if roll < 0.05:
+            return 0.0
+        if roll < 0.13:
+            return float(POINTS_MAX)
+        if section == "bci":
+            return round(self.rng.uniform(3, 9), 1)
+        return float(self.rng.randint(3, 9))
+
+    def _other_points(self, points: float) -> float:
+        """A valid score different from `points`, for conflicts and corrections."""
+        return 9.0 if points == POINTS_MAX else float(POINTS_MAX)
+
+    def _entry(
+        self,
+        code: str,
+        points: float,
+        wins: int | None = None,
+    ) -> dict[str, Any]:
+        entry: dict[str, Any] = {"participant_code": code, "outcome": "completed", "points": points}
         if wins is not None:
             entry["wins"] = wins
         return entry
@@ -340,15 +361,27 @@ class Rehearsal:
             "entries": entries,
         }
 
-    def _entries(self, discipline: str, codes: tuple[str, ...]) -> list[dict[str, Any]]:
-        if discipline == "pong":
-            return [self._entry(codes[0], wins=1), self._entry(codes[1], wins=0)]
-        return [self._entry(codes[0])]
+    def _entries(
+        self, discipline: str, section: str, codes: tuple[str, ...]
+    ) -> list[dict[str, Any]]:
+        if discipline != "pong":
+            return [self._entry(codes[0], self._points(section))]
+        # One match, one winner: the same in the BCI and the physical section.
+        winner = self.pong_winner[codes]
+        entries = []
+        for code in codes:
+            if code == winner:
+                entries.append(self._entry(code, float(PONG_GAME_POINTS), wins=1))
+            else:
+                entries.append(
+                    self._entry(code, float(self.rng.randint(0, PONG_GAME_POINTS - 2)), 0)
+                )
+        return entries
 
     def _bci(self, actors: _Actors, discipline: str, codes: tuple[str, ...]) -> dict[str, Any]:
         station = self.make_http()
         auth = _bearer(actors.tokens[discipline])
-        body = self._body(discipline, "bci", self._entries(discipline, codes))
+        body = self._body(discipline, "bci", self._entries(discipline, "bci", codes))
         _call(
             station.post(
                 f"{API}/sessions",
@@ -366,13 +399,19 @@ class Rehearsal:
         return body
 
     def _physical(self, volunteer: Http, discipline: str, codes: tuple[str, ...]) -> dict[str, Any]:
-        body = self._body(discipline, "physical", self._entries(discipline, codes))
+        body = self._body(discipline, "physical", self._entries(discipline, "physical", codes))
         _call(volunteer.post(f"{API}/results", body), 201, f"{discipline} physical result")
         return body
 
     def _play(self, actors: _Actors, pairs: list[tuple[str, str]]) -> dict[str, Any]:
         """Everyone plays everything. Returns the sessions needed for the special cases."""
         special: dict[str, Any] = {}
+        # Half of the matches are won by the first player of the pair, half by the second;
+        # the order is shuffled by the seeded generator.
+        firsts = [n % 2 == 0 for n in range(len(pairs))]
+        self.rng.shuffle(firsts)
+        for (a, b), first in zip(pairs, firsts, strict=True):
+            self.pong_winner[(a, b)] = a if first else b
         for i, (a, b) in enumerate(pairs):
             for discipline in DISCIPLINES:
                 volunteer = actors.volunteers[discipline]
@@ -402,13 +441,18 @@ class Rehearsal:
         self.report.check(
             "replay of a session is accepted without a duplicate", replay.status == 200
         )
-        changed = dict(bci, entries=[dict(bci["entries"][0], points=999)])
+        changed = dict(
+            bci,
+            entries=[
+                dict(bci["entries"][0], points=self._other_points(bci["entries"][0]["points"]))
+            ],
+        )
         clash = station.post(f"{API}/results", changed, auth)
         self.report.check("same session_id with other data is refused", clash.status == 409)
 
         # Offline duplicate: the same person plays darts again under a new session id.
         code = bci["entries"][0]["participant_code"]
-        duplicate = self._body("darts", "bci", [self._entry(code)])
+        duplicate = self._body("darts", "bci", [self._entry(code, self._points("bci"))])
         got = station.post(f"{API}/results", duplicate, auth)
         self.report.check("offline duplicate is stored (never dropped)", got.status == 201)
         listing = _call(actors.judge.get(f"{API}/conflicts"), 200, "conflicts").json()
@@ -448,7 +492,8 @@ class Rehearsal:
         started = time.monotonic()
         if rows and pending:
             fixed = judge.patch(
-                f"{API}/results/{rows[0]['id']}", {"points": 55, "change_reason": "rehearsal"}
+                f"{API}/results/{rows[0]['id']}",
+                {"points": self._other_points(rows[0]["points"]), "change_reason": "rehearsal"},
             )
             self.report.check("judge corrects the result", fixed.status == 200, str(fixed.status))
             done = judge.post(f"{API}/corrections/{pending[0]['id']}/done")
