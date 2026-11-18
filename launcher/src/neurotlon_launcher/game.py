@@ -6,7 +6,7 @@ import json
 import logging
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Any, Protocol
@@ -146,9 +146,28 @@ def _finished(raw_entries: list[dict[str, Any]], request: GameRequest) -> GameOu
             entries.append(
                 GameEntry(code, "completed", float(raw["points"]), raw.get("wins"), None)
             )
+        elif "points" in raw or "wins" in raw:
+            return Crashed(f"у {code} есть points или wins при not_completed")
         else:
             entries.append(GameEntry(code, "not_completed", None, None, raw.get("reason", "other")))
-    return Finished(tuple(entries))
+    problem = entries_problem(request.discipline, entries)
+    return Crashed(problem) if problem else Finished(tuple(entries))
+
+
+def entries_problem(discipline: str, entries: Sequence[GameEntry]) -> str | None:
+    """Правила сервера (`_validate_entries`); нарушение там даёт 422."""
+    expected = 2 if discipline == "pong" else 1
+    if len(entries) != expected or len({e.participant_code for e in entries}) != expected:
+        return f"{discipline}: нужно ровно {expected} участник(ов) в результате"
+    wins = [e.wins for e in entries]
+    if discipline != "pong":
+        if any(w is not None for w in wins):
+            return f"wins допустимы только в понге, а не в {discipline}"
+    elif all(e.outcome == "completed" for e in entries) and (
+        None in wins or sum(w or 0 for w in wins) != 1
+    ):
+        return "понг: при двух завершивших wins есть у обоих, ровно у одного 1"
+    return None
 
 
 class SubprocessGameRunner:

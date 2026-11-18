@@ -279,3 +279,50 @@ def test_start_removes_stale_result_of_previous_attempt(tmp_path: Path) -> None:
     outcome = wait(game)
     assert isinstance(outcome, Crashed)  # не Aborted("old")
     assert not stale.exists()
+
+
+def completed(code: str, points: float, **extra: object) -> dict[str, object]:
+    return {"participant_code": code, "outcome": "completed", "points": points, **extra}
+
+
+@pytest.mark.parametrize(
+    ("discipline", "codes", "entries"),
+    [
+        ("darts", ("NT01",), [completed("NT01", 5, wins=1)]),  # wins вне понга
+        ("pong", ("NT03", "NT04"), [completed("NT03", 5), completed("NT04", 6)]),  # нет wins
+        ("pong", ("NT03", "NT04"), [completed("NT03", 5, wins=1), completed("NT04", 6, wins=1)]),
+        ("pong", ("NT03", "NT04"), [completed("NT03", 5, wins=0), completed("NT04", 6, wins=0)]),
+        (
+            "pong",
+            ("NT03", "NT04"),
+            [
+                completed("NT03", 5, wins=1),
+                {
+                    "participant_code": "NT04",
+                    "outcome": "not_completed",
+                    "points": 3,
+                    "reason": "health",
+                },
+            ],
+        ),
+        ("pong", ("NT03", "NT04"), [completed("NT03", 5, wins=1)]),  # не хватает игрока
+    ],
+)
+def test_locally_invalid_results_are_crashes(
+    tmp_path: Path, discipline: str, codes: tuple[str, ...], entries: list[dict[str, object]]
+) -> None:
+    req = request(discipline, codes)
+    path = write_result(tmp_path, req, status="finished", entries=entries)
+    assert isinstance(parse_result(path, req), Crashed)
+
+
+def test_locally_valid_pong_variants(tmp_path: Path) -> None:
+    req = request("pong", ("NT03", "NT04"))
+    ok_both = [completed("NT03", 5, wins=1), completed("NT04", 6, wins=0)]
+    one_left = [
+        completed("NT03", 5, wins=1),
+        {"participant_code": "NT04", "outcome": "not_completed", "reason": "health"},
+    ]
+    for entries in (ok_both, one_left):
+        path = write_result(tmp_path, req, status="finished", entries=entries)
+        assert isinstance(parse_result(path, req), Finished)
