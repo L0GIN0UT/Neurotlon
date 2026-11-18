@@ -4,6 +4,7 @@ from typing import Any, ClassVar
 from sqlalchemy import (
     DDL,
     JSON,
+    BigInteger,
     Boolean,
     CheckConstraint,
     Column,
@@ -271,3 +272,15 @@ class WebSession(Base):
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     expires_at: Mapped[datetime]
     revoked_at: Mapped[datetime | None]
+
+
+class Draw(Base):
+    __tablename__ = "draw"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    seed: Mapped[int] = mapped_column(BigInteger)
+    m: Mapped[int] = mapped_column(Integer)
+    team_count: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("user.id"))
+    protocol: Mapped[dict[str, Any]] = mapped_column(JSON)
