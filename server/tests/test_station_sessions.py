@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from neurotlon_server.models import GameSession, session_participant
+from neurotlon_server.models import Discipline, GameSession, session_participant
 
 from .conftest import FakeClock, login_as, make_user
 from .station_helpers import API, SESSION_A, SESSION_B, make_station, seed_people
@@ -73,6 +73,30 @@ def test_start_busy_on_live_other_station_only(
     assert response.json()["code"] == "busy_on_other_station"
 
     clock.advance(seconds=31)  # the first station went silent
+    ok = client.post(f"{API}/sessions", json=start(["NT01"], SESSION_B), headers=second)
+    assert ok.status_code == 201
+
+
+def test_abandoned_session_does_not_block_while_station_keeps_heartbeating(
+    client: TestClient, db: Session, clock: FakeClock
+) -> None:
+    seed_people(db)
+    _, first = make_station(db, "d1", "darts")
+    _, second = make_station(db, "d2", "darts")
+    client.post(f"{API}/stations/me/heartbeat", json=BEAT, headers=first)
+    client.post(f"{API}/sessions", json=start(["NT01"]), headers=first)
+    duration = db.get(Discipline, "darts")
+    assert duration is not None
+
+    clock.advance(seconds=duration.game_duration_s + 299)
+    client.post(f"{API}/stations/me/heartbeat", json=BEAT, headers=first)
+    assert (
+        client.post(f"{API}/sessions", json=start(["NT01"], SESSION_B), headers=second).status_code
+        == 409
+    )
+
+    clock.advance(seconds=2)  # game time + 300 s passed, heartbeats are still alive
+    client.post(f"{API}/stations/me/heartbeat", json=BEAT, headers=first)
     ok = client.post(f"{API}/sessions", json=start(["NT01"], SESSION_B), headers=second)
     assert ok.status_code == 201
 

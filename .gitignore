@@ -37,6 +37,8 @@ Thumbs.db
 .claude/settings.local.json
 *.log
 *.local
+launcher.toml
+*.token
 
 # Claude Code agent worktrees
 .claude/worktrees/
