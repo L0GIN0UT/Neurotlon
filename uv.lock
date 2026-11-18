@@ -552,6 +552,20 @@ dev = []
 name = "neurotlon-games"
 version = "0.1.0"
 source = { editable = "games" }
+dependencies = [
+    { name = "jsonschema" },
+    { name = "neurotlon-bridge" },
+    { name = "neurotlon-launcher" },
+    { name = "pygame-ce" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "jsonschema", specifier = ">=4.26.0" },
+    { name = "neurotlon-bridge", editable = "bci-bridge" },
+    { name = "neurotlon-launcher", editable = "launcher" },
+    { name = "pygame-ce", specifier = ">=2.5.8" },
+]
 
 [[package]]
 name = "neurotlon-launcher"
@@ -560,6 +574,7 @@ source = { editable = "launcher" }
 dependencies = [
     { name = "httpx2" },
     { name = "jsonschema" },
+    { name = "neurotlon-games" },
     { name = "opencv-python-headless" },
     { name = "pygame-ce" },
 ]
@@ -568,6 +583,7 @@ dependencies = [
 requires-dist = [
     { name = "httpx2", specifier = ">=2.16.2" },
     { name = "jsonschema", specifier = ">=4.26.0" },
+    { name = "neurotlon-games", editable = "games" },
     { name = "opencv-python-headless", specifier = ">=5.1.0.95" },
     { name = "pygame-ce", specifier = ">=2.5.8" },
 ]
