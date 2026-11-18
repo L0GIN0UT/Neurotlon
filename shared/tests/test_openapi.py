@@ -52,3 +52,9 @@ def test_invalid_entries_rejected(spec: dict[str, Any], entry: dict[str, Any]) -
 
 def test_category_is_never_exposed(spec: dict[str, Any]) -> None:
     assert "category" not in SPEC_PATH.read_text(encoding="utf-8")
+
+
+def test_schema_examples_match_schema(spec: dict[str, Any]) -> None:
+    for name, schema in spec["components"]["schemas"].items():
+        for example in schema.get("examples", []):
+            schema_validator(spec, name).validate(example)
