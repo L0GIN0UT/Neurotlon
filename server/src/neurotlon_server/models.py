@@ -227,6 +227,25 @@ class SectionResult(Base):
     void_reason: Mapped[str | None] = mapped_column(Text)
 
 
+class CorrectionRequest(Base):
+    """A volunteer asks the judge to fix a submitted result after the undo window."""
+
+    __tablename__ = "correction_request"
+    __table_args__ = (
+        CheckConstraint("status IN ('open', 'done')", name="status"),
+        CheckConstraint("length(comment) <= 200", name="comment"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    session_id: Mapped[str] = mapped_column(ForeignKey("game_session.session_id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id"))
+    comment: Mapped[str] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    status: Mapped[str] = mapped_column(String, default="open", server_default="open")
+    resolved_by: Mapped[int | None] = mapped_column(ForeignKey("user.id"))
+    resolved_at: Mapped[datetime | None]
+
+
 class User(Base):
     __tablename__ = "user"
     __table_args__ = (

@@ -181,6 +181,7 @@ def participant_issues(
             SectionResult.participant_id == participant.id,
             SectionResult.discipline == discipline,
             SectionResult.section == section,
+            SectionResult.voided_at.is_(None),
         )
     ).first()
     if done is not None:
@@ -287,6 +288,13 @@ def submit_result(
             raise session_conflict()
         if session.station_id != caller.station_id or session.user_id != caller.user_id:
             raise session_conflict()
+        voided = db.scalars(
+            select(SectionResult.voided_at).where(SectionResult.session_id == session_id)
+        ).all()
+        if voided and all(v is not None for v in voided):
+            raise ProblemError(
+                409, "result_voided", "Result voided", "This session was undone, enter it again"
+            )
         return _receipt(db, session), False
     elif (
         session.discipline != body.discipline

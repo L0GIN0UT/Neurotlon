@@ -169,8 +169,131 @@ paths:
         "403":
           $ref: "#/components/responses/Problem"
         "409":
+          description: |
+            `session_conflict` — другое тело с тем же `session_id`;
+            `result_voided` — сессия уже отменена (undo), нужен новый `session_id`.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "422":
+          $ref: "#/components/responses/Problem"
+
+  /results/{session_id}/undo:
+    post:
+      operationId: undoResult
+      summary: Отмена результата волонтёром (30 с)
+      description: |
+        Только сессия волонтёра, который записал результат, и не позже 30 с
+        после записи. Строки результата помечаются аннулированными
+        (`void_reason: undo`), событие `result.undo` пишется в аудит.
+      security:
+        - volunteerSession: []
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/SessionId"
+      responses:
+        "204":
+          description: Результат отменён
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "409":
+          description: Прошло больше 30 с или результат уже отменён (`conflict`)
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+  /corrections:
+    post:
+      operationId: createCorrection
+      summary: Запрос судье на исправление результата
+      description: |
+        Для результата, который нельзя отменить (прошло больше 30 с). Только
+        волонтёр, записавший эту сессию.
+      security:
+        - volunteerSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CorrectionCreate"
+      responses:
+        "201":
+          description: Запрос создан
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Correction"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
           $ref: "#/components/responses/Problem"
         "422":
+          $ref: "#/components/responses/Problem"
+    get:
+      operationId: listCorrections
+      summary: Запросы на исправление
+      description: Судья, админ и суперпользователь видят все, волонтёр — только свои.
+      security:
+        - volunteerSession: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/CorrectionStatus"
+      responses:
+        "200":
+          description: Список, по умолчанию открытые
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Correction"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Problem"
+
+  /corrections/{id}/done:
+    post:
+      operationId: resolveCorrection
+      summary: Отметить запрос выполненным
+      description: Судья, админ, суперпользователь.
+      security:
+        - volunteerSession: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Запрос закрыт
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Correction"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "409":
           $ref: "#/components/responses/Problem"
 
   /stations/me/heartbeat:
@@ -436,6 +559,46 @@ components:
               code:
                 $ref: "#/components/schemas/IssueCode"
 
+    CorrectionStatus:
+      type: string
+      enum: [open, done]
+
+    CorrectionCreate:
+      type: object
+      required: [session_id, comment]
+      additionalProperties: false
+      properties:
+        session_id:
+          $ref: "#/components/schemas/SessionId"
+        comment:
+          type: string
+          minLength: 1
+          maxLength: 200
+
+    Correction:
+      type: object
+      required: [id, session_id, participant_codes, comment, created_at, status, resolved_at]
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+        session_id:
+          $ref: "#/components/schemas/SessionId"
+        participant_codes:
+          type: array
+          items:
+            $ref: "#/components/schemas/ParticipantCode"
+        comment:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        status:
+          $ref: "#/components/schemas/CorrectionStatus"
+        resolved_at:
+          type: [string, "null"]
+          format: date-time
+
     StationState:
       type: string
       enum: [idle, confirming, calibrating, playing, sending]
@@ -481,6 +644,7 @@ components:
         - session_conflict
         - busy_on_other_station
         - invalid_entries
+        - result_voided
 
     Problem:
       type: object

@@ -39,3 +39,6 @@ Thumbs.db
 *.local
 launcher.toml
 *.token
+
+# Claude Code agent worktrees
+.claude/worktrees/
