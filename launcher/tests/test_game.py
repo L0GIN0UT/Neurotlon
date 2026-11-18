@@ -198,3 +198,15 @@ def test_parse_not_completed_gets_reason(tmp_path: Path) -> None:
     entries = [{"participant_code": "NT07", "outcome": "not_completed"}]
     outcome = parse_result(write_result(tmp_path, req, status="finished", entries=entries), req)
     assert outcome == Finished((GameEntry("NT07", "not_completed", None, None, "other"),))
+
+
+def test_start_removes_stale_result_of_previous_attempt(tmp_path: Path) -> None:
+    game = runner(tmp_path, "--crash")
+    req = request()
+    folder = tmp_path.resolve() / "sessions" / str(req.session_id)
+    folder.mkdir(parents=True)
+    stale = write_result(folder, req, status="aborted", entries=[], reason="old")
+    game.start(req)
+    outcome = wait(game)
+    assert isinstance(outcome, Crashed)  # не Aborted("old")
+    assert not stale.exists()

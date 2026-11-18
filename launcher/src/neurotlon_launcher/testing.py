@@ -8,6 +8,7 @@ from typing import Any
 
 from neurotlon_launcher.api import DisciplineConfig, Eligibility, Team
 from neurotlon_launcher.game import GameOutcome, GameRequest
+from neurotlon_launcher.outbox import ActiveSession
 
 
 def eligibility(code: str, *issues: str, name: str | None = None) -> Eligibility:
@@ -57,12 +58,19 @@ class FakeApi:
 class FakeQueue:
     def __init__(self) -> None:
         self.items: list[dict[str, Any]] = []
+        self.active: ActiveSession | None = None
 
     def add(self, payload: dict[str, Any]) -> None:
         self.items.append(payload)
 
     def pending_count(self) -> int:
         return len(self.items)
+
+    def set_active(self, active: ActiveSession) -> None:
+        self.active = active
+
+    def clear_active(self) -> None:
+        self.active = None
 
 
 class FakeRunner:

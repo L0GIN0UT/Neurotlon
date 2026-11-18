@@ -15,6 +15,7 @@ from .heartbeat import HeartbeatLoop
 from .machine import StationMachine
 from .outbox import Outbox
 from .qr import create_scanner
+from .recovery import recover_active
 from .sender import Sender
 
 EXIT_OK = 0
@@ -59,6 +60,7 @@ def run(config: LauncherConfig, token: str, *, camera: bool, windowed: bool) -> 
     )
     machine = StationMachine(config.discipline, api, outbox, runner, on_enqueue=sender.kick)
     heartbeat = HeartbeatLoop(api, machine.heartbeat_view, outbox.pending_count)
+    recover_active(machine, outbox, data_dir)
     scanner = create_scanner(config.camera_index, enabled=camera)
     sender.start()
     heartbeat.start()

@@ -35,7 +35,7 @@ from .game import (
     GameRunner,
     Player,
 )
-from .outbox import ResultQueue
+from .outbox import ActiveSession, ResultQueue
 
 SECTION = "bci"
 # Если конфиг дисциплины ни разу не получен (нет связи и нет кэша).
@@ -218,7 +218,8 @@ class StationMachine:
 
     def retry(self) -> None:
         if isinstance(self.state, TechnicalProblem):
-            self.state = Starting(self._new_session_id(), self.state.players)
+            # тот же session_id: на сервере одна сессия, повтор startSession безопасен
+            self.state = Starting(self.state.session_id, self.state.players)
 
     def give_up(self) -> None:
         state = self.state
@@ -230,6 +231,18 @@ class StationMachine:
         ]
         self._enqueue(state.session_id, entries)
         self.state = Done((texts.DONE_GIVE_UP,), self._monotonic() + DONE_SECONDS)
+
+    def recover(self, active: ActiveSession, outcome: GameOutcome) -> None:
+        """После перезапуска: сессия была в игре. Результат есть — в буфер, иначе экран проблемы."""
+        sid = uuid.UUID(active.session_id)
+        players = tuple(
+            Candidate(code, Eligibility(code, name, None, ())) for code, name in active.players
+        )
+        if isinstance(outcome, Finished):
+            self._finish(sid, outcome, self._clock())
+        else:
+            reason = outcome.reason if isinstance(outcome, Aborted) else outcome.detail
+            self.state = TechnicalProblem(sid, players, reason)
 
     def close(self) -> None:
         self._runner.stop()
@@ -305,23 +318,32 @@ class StationMachine:
             duration,
             tuple(Player(p.code, p.display_name) for p in state.players),
         )
+        self._outbox.set_active(
+            ActiveSession(
+                str(state.session_id),
+                self.discipline,
+                duration,
+                tuple((p.code, p.display_name) for p in state.players),
+            )
+        )
         self._runner.start(request)
         self.state = Playing(state.session_id, state.players, offline)
 
     def _game_exited(self, state: Playing, outcome: GameOutcome) -> None:
         finished_at = self._clock()
         match outcome:
-            case Finished(entries=entries):
-                payload = [_entry_payload(e) for e in entries]
-                self._enqueue(state.session_id, payload, finished_at)
-                lines = tuple(
-                    texts.points_line(e.participant_code, e.points, e.outcome) for e in entries
-                )
-                self.state = Done(lines, self._monotonic() + DONE_SECONDS)
+            case Finished():
+                self._finish(state.session_id, outcome, finished_at)
             case Aborted(reason=reason):
                 self.state = TechnicalProblem(state.session_id, state.players, reason)
             case Crashed(detail=detail):
                 self.state = TechnicalProblem(state.session_id, state.players, detail)
+
+    def _finish(self, session_id: uuid.UUID, outcome: Finished, finished_at: datetime) -> None:
+        entries = outcome.entries
+        self._enqueue(session_id, [_entry_payload(e) for e in entries], finished_at)
+        lines = tuple(texts.points_line(e.participant_code, e.points, e.outcome) for e in entries)
+        self.state = Done(lines, self._monotonic() + DONE_SECONDS)
 
     def _enqueue(
         self,
@@ -339,6 +361,7 @@ class StationMachine:
                 "entries": entries,
             }
         )
+        self._outbox.clear_active()
         if self._on_enqueue is not None:
             self._on_enqueue()
 

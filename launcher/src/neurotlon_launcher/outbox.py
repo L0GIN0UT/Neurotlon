@@ -24,6 +24,24 @@ CREATE TABLE IF NOT EXISTS outbox (
 """
 
 
+_ACTIVE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS active_session (
+    slot INTEGER PRIMARY KEY CHECK (slot = 1),
+    data TEXT NOT NULL
+)
+"""
+
+
+@dataclass(frozen=True)
+class ActiveSession:
+    """Сессия, игра которой запущена и результат ещё не поставлен в буфер."""
+
+    session_id: str
+    discipline: str
+    duration_s: int
+    players: tuple[tuple[str, str | None], ...]  # (код, имя для табло)
+
+
 @dataclass(frozen=True)
 class OutboxItem:
     session_id: str
@@ -38,6 +56,10 @@ class ResultQueue(Protocol):
 
     def add(self, payload: dict[str, Any]) -> None: ...
 
+    def set_active(self, active: ActiveSession) -> None: ...
+
+    def clear_active(self) -> None: ...
+
     def pending_count(self) -> int: ...
 
 
@@ -51,6 +73,7 @@ class Outbox:
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.execute("PRAGMA synchronous=FULL")
         self._db.execute(_SCHEMA)
+        self._db.execute(_ACTIVE_SCHEMA)
 
     def close(self) -> None:
         with self._lock:
@@ -75,6 +98,45 @@ class Outbox:
                 (state,),
             ).fetchall()
         return [OutboxItem(r[0], json.loads(r[1]), r[2], r[3], r[4]) for r in rows]
+
+    def has(self, session_id: str) -> bool:
+        with self._lock:
+            row = self._db.execute(
+                "SELECT 1 FROM outbox WHERE session_id = ?", (session_id,)
+            ).fetchone()
+        return row is not None
+
+    def set_active(self, active: ActiveSession) -> None:
+        data = json.dumps(
+            {
+                "session_id": active.session_id,
+                "discipline": active.discipline,
+                "duration_s": active.duration_s,
+                "players": [list(p) for p in active.players],
+            },
+            ensure_ascii=False,
+        )
+        with self._lock:
+            self._db.execute(
+                "INSERT OR REPLACE INTO active_session (slot, data) VALUES (1, ?)", (data,)
+            )
+
+    def get_active(self) -> ActiveSession | None:
+        with self._lock:
+            row = self._db.execute("SELECT data FROM active_session WHERE slot = 1").fetchone()
+        if row is None:
+            return None
+        data = json.loads(row[0])
+        return ActiveSession(
+            data["session_id"],
+            data["discipline"],
+            int(data["duration_s"]),
+            tuple((p[0], p[1]) for p in data["players"]),
+        )
+
+    def clear_active(self) -> None:
+        with self._lock:
+            self._db.execute("DELETE FROM active_session")
 
     def pending(self) -> list[OutboxItem]:
         return self._items("pending")

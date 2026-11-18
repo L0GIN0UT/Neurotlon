@@ -18,6 +18,7 @@ from neurotlon_launcher.machine import (
     StationMachine,
     TechnicalProblem,
 )
+from neurotlon_launcher.outbox import ActiveSession
 from neurotlon_launcher.testing import FakeApi, FakeQueue, FakeRunner, Ids, Time, eligibility
 
 DARTS_DONE = Finished((GameEntry("NT07", "completed", 42.5),))
@@ -244,7 +245,7 @@ def test_config_error_returns_to_confirm() -> None:
     assert rig.api.started == []
 
 
-def test_technical_problem_retry_uses_new_session_and_same_people() -> None:
+def test_technical_problem_retry_reuses_session_and_people() -> None:
     rig = Rig("darts", Crashed("код выхода 1"), DARTS_DONE)
     rig.scan("NT07")
     rig.machine.confirm()
@@ -257,14 +258,14 @@ def test_technical_problem_retry_uses_new_session_and_same_people() -> None:
 
     rig.machine.retry()
     assert isinstance(rig.state, Starting)
-    assert rig.state.session_id != first
+    assert rig.state.session_id == first
     rig.machine.tick()
     rig.machine.tick()
     assert isinstance(rig.state, Done)
-    assert [r.session_id for r in rig.runner.requests] == [first, uuid.UUID(int=2)]
+    assert [r.session_id for r in rig.runner.requests] == [first, first]
     first_try, second_try = rig.runner.requests
     assert first_try.players == second_try.players
-    assert rig.queue.items[0]["session_id"] == str(uuid.UUID(int=2))
+    assert rig.queue.items[0]["session_id"] == str(first)
     assert rig.queue.items[0]["entries"][0]["outcome"] == "completed"
 
 
@@ -344,3 +345,42 @@ def test_close_stops_runner() -> None:
     rig = Rig("darts")
     rig.machine.close()
     assert rig.runner.stopped
+
+
+def test_active_session_is_stored_before_game_and_cleared_on_result() -> None:
+    rig = Rig("darts", DARTS_DONE)
+    rig.api.people["NT07"] = eligibility("NT07", name="Аня")
+    rig.scan("NT07")
+    rig.machine.confirm()
+    assert rig.queue.active is None
+    rig.machine.tick()  # старт игры
+    active = rig.queue.active
+    assert active is not None
+    assert (active.session_id, active.discipline, active.duration_s) == (
+        str(uuid.UUID(int=1)),
+        "darts",
+        90,
+    )
+    assert active.players == (("NT07", "Аня"),)
+    rig.machine.tick()  # игра вышла
+    assert rig.queue.active is None
+
+
+def test_recover_finished_enqueues_result() -> None:
+    rig = Rig("darts")
+    active = ActiveSession(str(uuid.UUID(int=5)), "darts", 90, (("NT07", None),))
+    rig.machine.recover(active, DARTS_DONE)
+    assert isinstance(rig.state, Done)
+    assert rig.queue.items[0]["session_id"] == str(uuid.UUID(int=5))
+
+
+def test_recover_without_result_shows_technical_problem() -> None:
+    rig = Rig("pong")
+    active = ActiveSession(str(uuid.UUID(int=5)), "pong", 90, (("NT03", "Аня"), ("NT14", None)))
+    rig.machine.recover(active, Crashed("нет результата"))
+    assert isinstance(rig.state, TechnicalProblem)
+    assert [p.code for p in rig.state.players] == ["NT03", "NT14"]
+    assert rig.state.reason == "нет результата"
+    rig.machine.retry()
+    rig.machine.tick()
+    assert rig.runner.requests[0].session_id == uuid.UUID(int=5)

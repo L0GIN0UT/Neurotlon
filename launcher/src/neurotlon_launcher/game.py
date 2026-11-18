@@ -24,6 +24,10 @@ NAME_MAX = 24
 SIDES = ("left", "right")
 
 
+def session_dir(data_dir: Path, session_id: uuid.UUID | str) -> Path:
+    return data_dir.resolve() / "sessions" / str(session_id)
+
+
 @dataclass(frozen=True)
 class Player:
     code: str
@@ -162,7 +166,7 @@ class SubprocessGameRunner:
     ) -> None:
         self._command = command
         self._workdir = workdir
-        self._sessions_dir = data_dir.resolve() / "sessions"
+        self._data_dir = data_dir
         self._bridge = (bridge_host, bridge_port)
         self._fullscreen = fullscreen
         self._grace_s = grace_s
@@ -177,9 +181,11 @@ class SubprocessGameRunner:
     def start(self, request: GameRequest) -> None:
         self._request = request
         self._early = None
-        folder = self._sessions_dir / str(request.session_id)
+        folder = session_dir(self._data_dir, request.session_id)
         folder.mkdir(parents=True, exist_ok=True)
         self._result_path = folder / "result.json"
+        # повтор той же сессии: результат прошлой попытки читать нельзя
+        self._result_path.unlink(missing_ok=True)
         launch_path = folder / "launch.json"
         document = launch_document(
             request, self._result_path, *self._bridge, fullscreen=self._fullscreen
