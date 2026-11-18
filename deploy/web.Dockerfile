@@ -5,6 +5,8 @@ WORKDIR /web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
 COPY web/ ./
+# Tests and typecheck read the shared contracts (e.g. participant-code.cases.json) at ../shared.
+COPY shared/ /shared/
 RUN npm run build
 
 FROM nginx:stable-alpine AS runtime
