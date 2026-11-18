@@ -200,7 +200,8 @@ export function createStaffApi(options: ApiOptions = {}) {
       request<Correction[]>('GET', `/corrections${query({ status })}`),
     finishCorrection: (id: number) => request<Correction>('POST', `/corrections/${id}/done`),
 
-    results: (filter: ResultFilter) => request<StoredResult[]>('GET', `/results${query(filter)}`),
+    results: (filter: ResultFilter) =>
+      request<{ total: number; items: StoredResult[] }>('GET', `/results${query(filter)}`),
     patchResult: (id: number, patch: ResultPatch) =>
       request<StoredResult>('PATCH', `/results/${id}`, patch),
     lockResults: (force = false) =>

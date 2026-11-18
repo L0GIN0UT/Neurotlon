@@ -43,7 +43,7 @@ function CorrectionCard({ api, correction, canEditLocked, onDone }: CardProps) {
 
   async function open() {
     const found = await action.run(() => api.results({ session_id: correction.session_id }))
-    if (found) setRows(found)
+    if (found) setRows(found.items)
   }
 
   async function finish() {

@@ -19,13 +19,17 @@ export function SearchPanel({ api, canEditLocked }: Props) {
   const [discipline, setDiscipline] = useState<Discipline | ''>('')
   const [section, setSection] = useState<Section | ''>('')
   const [rows, setRows] = useState<StoredResult[] | null>(null)
+  const [total, setTotal] = useState(0)
 
   async function search(event: FormEvent) {
     event.preventDefault()
     const found = await action.run(() =>
       api.results({ participant: participant.trim(), discipline, section }),
     )
-    if (found) setRows(found)
+    if (found) {
+      setRows(found.items)
+      setTotal(found.total)
+    }
   }
 
   return (
@@ -66,6 +70,11 @@ export function SearchPanel({ api, canEditLocked }: Props) {
         </button>
       </form>
       <ErrorText error={action.error} />
+      {rows && total > rows.length && (
+        <p className="warning">
+          Показано {rows.length} из {total}: уточните поиск.
+        </p>
+      )}
       {rows?.length === 0 && <p className="card">Ничего не найдено.</p>}
       {rows?.map((row) => (
         <ResultEditor

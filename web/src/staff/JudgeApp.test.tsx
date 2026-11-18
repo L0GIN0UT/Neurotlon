@@ -102,7 +102,7 @@ describe('запросы на исправление и правка', () => {
     let open = [correction]
     server.routes.set('GET /conflicts', () => json([]))
     server.routes.set('GET /corrections', () => json(open))
-    server.routes.set('GET /results', () => json([row]))
+    server.routes.set('GET /results', () => json({ total: 1, items: [row] }))
     server.routes.set('PATCH /results/*', (body) => {
       const patch = body as { points?: number }
       Object.assign(row, { points: patch.points ?? row.points, version: row.version + 1 })
@@ -197,7 +197,7 @@ describe('запросы на исправление и правка', () => {
 
   test('заблокированный результат судье не правится, админу правится', async () => {
     const judge = setup('judge')
-    judge.server.routes.set('GET /results', () => json([stored({ status: 'locked' })]))
+    judge.server.routes.set('GET /results', () => json({ total: 1, items: [stored({ status: 'locked' })] }))
     const first = renderJudge(judge.server)
     await openTab('Поиск и правка')
     fireEvent.click(await screen.findByRole('button', { name: 'Найти' }))
@@ -207,7 +207,7 @@ describe('запросы на исправление и правка', () => {
     first.unmount()
 
     const admin = setup('admin')
-    admin.server.routes.set('GET /results', () => json([stored({ status: 'locked' })]))
+    admin.server.routes.set('GET /results', () => json({ total: 1, items: [stored({ status: 'locked' })] }))
     renderJudge(admin.server)
     await openTab('Поиск и правка')
     fireEvent.click(await screen.findByRole('button', { name: 'Найти' }))
@@ -217,7 +217,7 @@ describe('запросы на исправление и правка', () => {
 
   test('аннулированный результат не правится', async () => {
     const { server } = setup()
-    server.routes.set('GET /results', () => json([stored({ voided: true })]))
+    server.routes.set('GET /results', () => json({ total: 1, items: [stored({ voided: true })] }))
     renderJudge(server)
     await openTab('Поиск и правка')
     fireEvent.click(await screen.findByRole('button', { name: 'Найти' }))
@@ -335,7 +335,7 @@ describe('победитель в понге', () => {
       stored({ id: 2, participant_code: 'NT04', discipline: 'pong', points: 7, wins: 0 }),
     ]
     server.routes.set('GET /conflicts', () => json([]))
-    server.routes.set('GET /results', () => json(rows))
+    server.routes.set('GET /results', () => json({ total: 2, items: rows }))
     server.routes.set('PATCH /results/*', () => json(rows[1]))
     renderJudge(server)
     await openTab('Поиск и правка')
@@ -358,5 +358,17 @@ describe('победитель в понге', () => {
     expect(server.bodies('PATCH /results/*')).toEqual([
       { wins: 1, change_reason: 'судья пересмотрел' },
     ])
+  })
+})
+
+describe('длинный список результатов', () => {
+  test('показывает, что найдено больше, чем выведено', async () => {
+    const server = createFakeServer('judge', 'judy')
+    server.routes.set('GET /conflicts', () => json([]))
+    server.routes.set('GET /results', () => json({ total: 450, items: [stored()] }))
+    renderJudge(server)
+    await openTab('Поиск и правка')
+    fireEvent.click(await screen.findByRole('button', { name: 'Найти' }))
+    expect(await screen.findByText('Показано 1 из 450: уточните поиск.')).toBeDefined()
   })
 })
