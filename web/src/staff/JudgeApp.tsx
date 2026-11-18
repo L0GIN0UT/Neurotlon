@@ -29,7 +29,7 @@ export function JudgeApp({ fetchFn }: { fetchFn?: typeof fetch }) {
             {tab === 'search' && <SearchPanel api={api} canEditLocked={canEditLocked} />}
             {tab === 'lock' && (
               <>
-                <LockPanel api={api} />
+                <LockPanel api={api} canForce={canEditLocked} />
                 <ExportLink />
               </>
             )}

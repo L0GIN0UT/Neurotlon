@@ -203,7 +203,8 @@ export function createStaffApi(options: ApiOptions = {}) {
     results: (filter: ResultFilter) => request<StoredResult[]>('GET', `/results${query(filter)}`),
     patchResult: (id: number, patch: ResultPatch) =>
       request<StoredResult>('PATCH', `/results/${id}`, patch),
-    lockResults: () => request<{ locked: number }>('POST', '/results/lock'),
+    lockResults: (force = false) =>
+      request<{ locked: number }>('POST', '/results/lock', force ? { force: true } : undefined),
   }
 }
 

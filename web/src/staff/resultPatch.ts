@@ -49,12 +49,10 @@ export function buildPatch(row: StoredResult, draft: ResultDraft): PatchResult {
       patch.points = points
       changed = true
     }
-    if (row.discipline === 'pong' && draft.wins !== '') {
-      const wins = Number(draft.wins)
-      if (switched || wins !== row.wins) {
-        patch.wins = wins
-        changed = true
-      }
+    // Победителя можно только назначить: второму игроку сервер сам ставит 0.
+    if (row.discipline === 'pong' && draft.wins === '1' && (switched || row.wins !== 1)) {
+      patch.wins = 1
+      changed = true
     }
   } else {
     if (draft.reason === '') return { error: 'Выберите причину «не пройдено»' }

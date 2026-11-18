@@ -82,6 +82,11 @@ describe('buildPatch', () => {
     expect(buildPatch(pong, { ...draftOf(pong), wins: '1', changeReason: 'r' })).toEqual({
       patch: { wins: 1, change_reason: 'r' },
     })
+    // победитель остаётся победителем: wins не отправляется
+    const winner = row({ discipline: 'pong', wins: 1, points: 7 })
+    expect(buildPatch(winner, { ...draftOf(winner), points: '8', changeReason: 'r' })).toEqual({
+      patch: { points: 8, change_reason: 'r' },
+    })
     const darts = row()
     expect(buildPatch(darts, { ...draftOf(darts), wins: '1', changeReason: 'r' })).toEqual({
       error: 'Нет изменений',

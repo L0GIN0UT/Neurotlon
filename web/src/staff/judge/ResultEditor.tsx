@@ -89,15 +89,18 @@ export function ResultEditor({ api, row, canEditLocked, onSaved }: Props) {
             </label>
             {row.discipline === 'pong' && (
               <label className="field">
-                Победы
-                <select
-                  value={draft.wins}
-                  onChange={(e) => set('wins', e.target.value as ResultDraft['wins'])}
-                >
-                  <option value="">—</option>
-                  <option value="0">0</option>
-                  <option value="1">1</option>
-                </select>
+                <span>
+                  <input
+                    type="checkbox"
+                    checked={draft.wins === '1'}
+                    disabled={row.wins === 1}
+                    onChange={(e) =>
+                      set('wins', e.target.checked ? '1' : row.wins === null ? '' : '0')
+                    }
+                  />{' '}
+                  Победитель
+                </span>
+                {row.wins === 1 && <small>Чтобы сменить победителя, отметьте другого игрока</small>}
               </label>
             )}
           </>

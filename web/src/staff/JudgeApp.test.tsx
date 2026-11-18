@@ -274,3 +274,89 @@ describe('фиксация итогов', () => {
     )
   })
 })
+
+describe('фиксация при блокировках', () => {
+  function blockedServer(role: string) {
+    const server = createFakeServer(role, 'who')
+    server.routes.set('GET /conflicts', () => json([]))
+    server.routes.set('POST /results/lock', (body) =>
+      (body as { force?: boolean } | undefined)?.force
+        ? json({ locked: 5 })
+        : json(
+            {
+              type: 'about:blank',
+              title: 'Conflict',
+              status: 409,
+              code: 'conflict',
+              conflicts: 2,
+              open_corrections: 1,
+            },
+            409,
+          ),
+    )
+    return server
+  }
+
+  async function tryLock() {
+    await openTab('Итоги')
+    fireEvent.click(await screen.findByRole('button', { name: 'Зафиксировать итоги' }))
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Продолжить' }))
+    fireEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Да, зафиксировать' }),
+    )
+  }
+
+  test('судья видит причины и не может зафиксировать вопреки им', async () => {
+    const server = blockedServer('judge')
+    renderJudge(server)
+    await tryLock()
+    expect(await screen.findByText('Неразрешённых конфликтов: 2')).toBeDefined()
+    expect(screen.getByText('Открытых запросов на исправление: 1')).toBeDefined()
+    expect(screen.queryByRole('button', { name: 'Всё равно зафиксировать' })).toBeNull()
+    expect(server.bodies('POST /results/lock')).toEqual([undefined])
+  })
+
+  test('админ может зафиксировать принудительно', async () => {
+    const server = blockedServer('admin')
+    renderJudge(server)
+    await tryLock()
+    fireEvent.click(await screen.findByRole('button', { name: 'Всё равно зафиксировать' }))
+    expect(await screen.findByText('Зафиксировано результатов: 5 (принудительно)')).toBeDefined()
+    expect(server.bodies('POST /results/lock')).toEqual([undefined, { force: true }])
+    expect(screen.queryByText('Неразрешённых конфликтов: 2')).toBeNull()
+  })
+})
+
+describe('победитель в понге', () => {
+  test('один выбор «Победитель»: назначение отправляет wins=1, текущего победителя снять нельзя', async () => {
+    const server = createFakeServer('judge', 'judy')
+    const rows = [
+      stored({ id: 1, participant_code: 'NT03', discipline: 'pong', points: 11, wins: 1 }),
+      stored({ id: 2, participant_code: 'NT04', discipline: 'pong', points: 7, wins: 0 }),
+    ]
+    server.routes.set('GET /conflicts', () => json([]))
+    server.routes.set('GET /results', () => json(rows))
+    server.routes.set('PATCH /results/*', () => json(rows[1]))
+    renderJudge(server)
+    await openTab('Поиск и правка')
+    fireEvent.click(await screen.findByRole('button', { name: 'Найти' }))
+
+    const winner = await screen.findByRole('form', { name: 'Правка 1' })
+    const winnerBox = within(winner).getByLabelText(/Победитель/) as HTMLInputElement
+    expect(winnerBox.checked).toBe(true)
+    expect(winnerBox.disabled).toBe(true)
+
+    const loser = screen.getByRole('form', { name: 'Правка 2' })
+    const box = within(loser).getByLabelText(/Победитель/) as HTMLInputElement
+    expect(box.checked).toBe(false)
+    fireEvent.click(box)
+    fireEvent.change(within(loser).getByLabelText('Причина исправления (в журнал)'), {
+      target: { value: 'судья пересмотрел' },
+    })
+    fireEvent.click(within(loser).getByRole('button', { name: 'Сохранить правку' }))
+    await waitFor(() => expect(server.count('PATCH /results/*')).toBe(1))
+    expect(server.bodies('PATCH /results/*')).toEqual([
+      { wins: 1, change_reason: 'судья пересмотрел' },
+    ])
+  })
+})

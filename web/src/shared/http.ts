@@ -5,13 +5,22 @@ export class ApiError extends Error {
   readonly status: number
   readonly code: string
   readonly detail: string | undefined
+  /** Остальные поля problem+json (например, числа блокировок фиксации). */
+  readonly extra: Record<string, unknown>
 
-  constructor(status: number, code: string, title: string, detail?: string) {
+  constructor(
+    status: number,
+    code: string,
+    title: string,
+    detail?: string,
+    extra: Record<string, unknown> = {},
+  ) {
     super(title)
     this.name = 'ApiError'
     this.status = status
     this.code = code
     this.detail = detail
+    this.extra = extra
   }
 }
 
@@ -58,7 +67,7 @@ export function createRequester({ fetchFn, onUnauthorized }: ApiOptions = {}): R
       throw new NetworkError()
     }
     if (!response.ok) {
-      let problem: { code?: string; title?: string; detail?: string } = {}
+      let problem: { code?: string; title?: string; detail?: string } & Record<string, unknown> = {}
       try {
         problem = (await response.json()) as typeof problem
       } catch {
@@ -70,6 +79,7 @@ export function createRequester({ fetchFn, onUnauthorized }: ApiOptions = {}): R
         problem.code ?? 'unknown',
         problem.title ?? `HTTP ${response.status}`,
         problem.detail,
+        problem,
       )
     }
     if (response.status === 204) return undefined as T
