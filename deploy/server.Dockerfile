@@ -18,6 +18,7 @@ COPY server/pyproject.toml server/pyproject.toml
 COPY launcher/pyproject.toml launcher/pyproject.toml
 COPY bci-bridge/pyproject.toml bci-bridge/pyproject.toml
 COPY games/pyproject.toml games/pyproject.toml
+COPY shared/python/pyproject.toml shared/python/pyproject.toml
 
 # Dependencies first: this layer is reused while only the source changes.
 RUN uv sync --locked --package neurotlon_server --no-dev --no-install-project
