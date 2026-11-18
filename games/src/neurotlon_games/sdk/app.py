@@ -174,7 +174,7 @@ class GameApp:
             case Phase.SENSOR_LOST:
                 self._tick_lost(dt * self._scale)
             case Phase.FINISHED:
-                self._finished_s += dt
+                self._finished_s += dt * self._scale
             case Phase.CONFIRM_ABORT:
                 pass
 

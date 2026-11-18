@@ -67,11 +67,17 @@ def entries_problem(discipline: str, entries: Sequence[EntryLike]) -> str | None
     expected = 2 if discipline == "pong" else 1
     if len(entries) != expected or len({e.participant_code for e in entries}) != expected:
         return f"{discipline}: нужно ровно {expected} участник(ов) в результате"
-    wins = [e.wins for e in entries]
     if discipline != "pong":
-        if any(w is not None for w in wins):
+        if any(e.wins is not None for e in entries):
             return f"wins допустимы только в понге, а не в {discipline}"
-    elif all(e.outcome == "completed" for e in entries) and (
+        return None
+    return pong_winner_problem(entries)
+
+
+def pong_winner_problem(entries: Sequence[EntryLike]) -> str | None:
+    """Понг: если завершили оба, `wins` есть у обоих и ровно у одного равно 1."""
+    wins = [e.wins for e in entries]
+    if all(e.outcome == "completed" for e in entries) and (
         None in wins or sum(w or 0 for w in wins) != 1
     ):
         return "понг: при двух завершивших wins есть у обоих, ровно у одного 1"
@@ -93,7 +99,9 @@ def raw_entries_problem(raw_entries: Sequence[dict[str, Any]], codes: Sequence[s
     return None
 
 
-class _RawEntry:
+class RawEntry:
+    """Запись из разобранного JSON в виде `EntryLike`."""
+
     def __init__(self, raw: dict[str, Any]) -> None:
         self.participant_code: str = raw["participant_code"]
         self.outcome: str = raw["outcome"]
@@ -116,4 +124,4 @@ def result_problem(
     problem = raw_entries_problem(raw, codes)
     if problem:
         return problem
-    return entries_problem(discipline, [_RawEntry(e) for e in raw])
+    return entries_problem(discipline, [RawEntry(e) for e in raw])
