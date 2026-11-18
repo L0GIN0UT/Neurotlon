@@ -8,7 +8,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from ..contract import PROTOCOL, RESULT_REASON_MAX, result_problem
+from neurotlon_contracts.contract import PROTOCOL, RESULT_REASON_MAX, result_problem
+
 from .launch import LaunchInfo
 
 Reason = Literal["participant_refused", "health", "equipment", "no_show", "other"]

@@ -9,8 +9,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from neurotlon_bridge.source import PROFILES
-
-from ..contract import schema_problem
+from neurotlon_contracts.contract import schema_problem
 
 Side = Literal["left", "right"]
 

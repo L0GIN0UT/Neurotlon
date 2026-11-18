@@ -15,6 +15,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
+from neurotlon_contracts.contract import (
+    RawEntry,
+    entries_problem,
+    pong_winner_problem,
+    raw_entries_problem,
+    schema_problem,
+)
 from neurotlon_launcher.game import (
     DETAIL_EXIT_CODE,
     DETAIL_START_FAILED,
@@ -29,13 +36,6 @@ from neurotlon_launcher.game import (
     session_dir,
 )
 
-from ..contract import (
-    RawEntry,
-    entries_problem,
-    pong_winner_problem,
-    raw_entries_problem,
-    schema_problem,
-)
 from ..sdk.app import TIME_SCALE_ENV
 from ..sdk.calibration import phases_for
 from .harness import CheckBridge

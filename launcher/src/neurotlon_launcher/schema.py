@@ -2,6 +2,6 @@
 
 from __future__ import annotations
 
-from neurotlon_games.contract import SHARED_ENV, launch_validator, shared_dir
+from neurotlon_contracts.contract import SHARED_ENV, launch_validator, shared_dir
 
 __all__ = ["SHARED_ENV", "launch_validator", "shared_dir"]

@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from neurotlon_games import contract
+from neurotlon_contracts import contract
 
 SESSION = "7b1d3e00-5a4f-4c2b-8e7a-91c0d2f3a4b5"
 

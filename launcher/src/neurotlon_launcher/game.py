@@ -13,7 +13,7 @@ from typing import IO, Any, Protocol
 
 from jsonschema import ValidationError
 
-from neurotlon_games.contract import result_problem
+from neurotlon_contracts.contract import result_problem
 
 from .proc import ManagedProcess
 from .schema import launch_validator

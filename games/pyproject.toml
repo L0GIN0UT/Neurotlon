@@ -5,6 +5,7 @@ description = "Darts, football and pong"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "jsonschema>=4.26.0",
+    "neurotlon_contracts",
     "neurotlon_bridge",
     "neurotlon_launcher",
     "pygame-ce>=2.5.8",

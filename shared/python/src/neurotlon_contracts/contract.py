@@ -39,7 +39,7 @@ def shared_dir() -> Path:
     env = os.environ.get(SHARED_ENV)
     if env:
         return Path(env)
-    return Path(__file__).resolve().parents[3] / "shared"
+    return Path(__file__).resolve().parents[3]
 
 
 @cache
