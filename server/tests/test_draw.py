@@ -100,7 +100,9 @@ def test_team_numbers_names_colors() -> None:
     result = run_draw(people(14, 14), 1, seed=1)
     assert len(PALETTE) >= 12 and len(set(PALETTE)) == len(PALETTE)
     assert [t.number for t in result.teams] == list(range(1, 15))
-    assert result.teams[0].name == "Команда 1"
+    assert [t.name for t in result.teams[:3]] == ["Красные", "Синие", "Команда 3"]
+    assert result.teams[0].color == "#E6194B"  # red
+    assert result.teams[1].color == "#4363D8"  # blue
     assert [t.color for t in result.teams] == list(PALETTE[:14])
 
 

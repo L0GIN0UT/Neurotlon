@@ -415,7 +415,9 @@ class Rehearsal:
         found = [c for c in listing if c["participant_code"] == code]
         self.report.check("duplicate shows up as a conflict", len(found) == 1, str(listing))
         board = self.make_http().get(f"{API}/scoreboard").json()
-        pending = [m for t in board["teams"] for m in t["members"] if m["pending"]]
+        pending = [
+            m for t in board["teams"] for rows in t["top"].values() for m in rows if m["pending"]
+        ]
         self.report.check("scoreboard marks the conflict as pending", len(pending) == 1)
         special["conflict"] = found[0] if found else None
 

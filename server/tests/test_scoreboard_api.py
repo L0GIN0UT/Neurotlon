@@ -2,17 +2,20 @@ import asyncio
 import contextlib
 import json
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from jsonschema import Draft202012Validator
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 from starlette.requests import Request
 
-from neurotlon_server.models import AuditLog, Discipline, SectionResult
+from neurotlon_server.models import AuditLog, Discipline, Participant, SectionResult, Team
 from neurotlon_server.scoreboard_api import (
     ScoreboardCache,
     scoreboard_events,
@@ -20,7 +23,7 @@ from neurotlon_server.scoreboard_api import (
 )
 
 from .conftest import login_as, make_user
-from .station_helpers import API, SESSION_B, darts_body, make_station, seed_people
+from .station_helpers import API, SESSION_B, darts_body, make_station, pong_body, seed_people
 
 SESSION_C = "5d2f6a10-9b3c-4e1d-a7c8-0e4b1f2a3c6d"
 
@@ -58,9 +61,13 @@ def test_scoreboard_is_public_and_has_no_category(client: TestClient, db: Sessio
     assert (first["rank"], first["total"], first["sections_passed"]) == (1, 42.5, 1)
     assert first["by_discipline"] == {"darts": 42.5, "football": 0, "pong": 0}
     assert first["finished"] is False
-    assert first["members"] == [
-        {"label": "Name 1", "total": 42.5, "sections_passed": 1, "pending": False}
+    assert first["duel_score"] == 0
+    assert first["top"]["darts"] == [
+        {"rank": 1, "number": 1, "label": "Name 1", "points": 42.5, "pending": False}
     ]
+    assert first["top"]["football"] == first["top"]["pong"] == []
+    assert list(first["top"]) == ["darts", "football", "pong"]
+    assert "members" not in first
     text = response.text.lower()
     assert "ovz" not in text
     assert "general" not in text
@@ -71,7 +78,7 @@ def test_conflict_appears_and_counts_nothing(app: FastAPI, client: TestClient, d
     two_darts(client, db)
     team = alpha(client)
     assert team["total"] == 0
-    assert team["members"][0]["pending"] is True
+    assert team["top"]["darts"][0]["pending"] is True
     make_user(db, "boss", role="admin")
     listing = login_as(app, "boss").get(f"{API}/conflicts")
     assert listing.status_code == 200
@@ -112,7 +119,7 @@ def test_judge_resolves_and_scoreboard_counts_kept(
     assert response.status_code == 200
     assert response.json() == {"voided": [first]}
     assert alpha(client)["total"] == 10
-    assert alpha(client)["members"][0]["pending"] is False
+    assert alpha(client)["top"]["darts"][0]["pending"] is False
     assert judge.get(f"{API}/conflicts").json() == []
     db.expire_all()
     voided = db.get(SectionResult, first)
@@ -379,7 +386,7 @@ def test_voided_and_entered_rows_are_excluded(
     app.state.scoreboard.mark_dirty()
     team = alpha(client)
     assert (team["total"], team["sections_passed"]) == (0, 0)
-    assert team["members"][0]["pending"] is False
+    assert team["top"]["darts"] == []
 
 
 def test_locked_and_confirmed_in_same_section_conflict(
@@ -390,7 +397,7 @@ def test_locked_and_confirmed_in_same_section_conflict(
     db.get(SectionResult, first).status = "locked"  # type: ignore[union-attr]
     db.commit()
     app.state.scoreboard.mark_dirty()
-    assert alpha(client)["members"][0]["pending"] is True
+    assert alpha(client)["top"]["darts"][0]["pending"] is True
     make_user(db, "judge", role="judge")
     assert len(login_as(app, "judge").get(f"{API}/conflicts").json()) == 1
 
@@ -410,3 +417,52 @@ def test_resolve_database_error_is_409(
     response = judge.post(f"{API}/conflicts/resolve", json={"keep_result_id": first, "reason": "x"})
     assert response.status_code == 409
     assert response.json()["code"] == "conflict"
+
+
+SPEC_PATH = Path(__file__).resolve().parents[2] / "shared" / "openapi.yaml"
+
+
+def place_pong_players(db: Session) -> None:
+    """NT03 plays for Alpha, NT04 for Beta (seed_people only places NT01)."""
+    teams = {t.number: t.id for t in db.scalars(select(Team))}
+    for code, number, slot in (("NT03", 1, 2), ("NT04", 2, 1)):
+        person = db.scalars(select(Participant).where(Participant.code == code)).one()
+        person.team_id, person.number_in_team = teams[number], slot
+    db.commit()
+
+
+def test_duel_score_and_discipline_tops_and_schema(client: TestClient, db: Session) -> None:
+    seed_people(db)
+    place_pong_players(db)
+    _, darts = make_station(db, "d1", "darts")
+    _, pong = make_station(db, "p1", "pong")
+    client.post(f"{API}/results", json=darts_body(), headers=darts)
+    assert client.post(f"{API}/results", json=pong_body(), headers=pong).status_code == 201
+
+    body = client.get(f"{API}/scoreboard").json()
+    spec = yaml.safe_load(SPEC_PATH.read_text(encoding="utf-8"))
+    schema = {"$ref": "#/components/schemas/Scoreboard", "components": spec["components"]}
+    Draft202012Validator(schema).validate(body)
+
+    alpha_row, beta_row = body["teams"]
+    assert (alpha_row["duel_score"], beta_row["duel_score"]) == (1, 0)  # NT03 won the match
+    assert alpha_row["by_discipline"]["pong"] == 10  # placeholder: wins * win_points
+    assert alpha_row["top"]["pong"] == [
+        {"rank": 1, "number": 2, "label": "Name 3", "points": 10, "pending": False}
+    ]
+    assert [e["label"] for e in alpha_row["top"]["darts"]] == ["Name 1"]
+    assert beta_row["top"]["pong"] == [
+        {"rank": 1, "number": 1, "label": "Name 4", "points": 0, "pending": False}
+    ]
+
+
+def test_conflicted_pong_match_is_not_counted_in_duel(client: TestClient, db: Session) -> None:
+    seed_people(db)
+    place_pong_players(db)
+    _, pong = make_station(db, "p1", "pong")
+    client.post(f"{API}/results", json=pong_body(), headers=pong)
+    client.post(f"{API}/results", json=pong_body(SESSION_C), headers=pong)  # same players again
+    first, second = client.get(f"{API}/scoreboard").json()["teams"]
+    assert (first["duel_score"], second["duel_score"]) == (0, 0)
+    assert first["top"]["pong"][0]["pending"] is True
+    assert first["top"]["pong"][0]["rank"] is None

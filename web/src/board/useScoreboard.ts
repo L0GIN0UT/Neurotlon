@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react'
 
 // Публичное табло: категории (ОВЗ) и резерва в ответе нет (server/scoreboard_api.py).
-export interface BoardMember {
+/** Строка топа игроков в дисциплине: очки физической + BCI секций. */
+export interface BoardTop {
+  /** Место 1..5; null у игрока в конфликте: места не занимает. */
+  rank: number | null
+  number: number
   label: string
-  total: number
-  sections_passed: number
+  points: number
   pending: boolean
 }
 
@@ -14,10 +17,14 @@ export interface BoardTeam {
   name: string
   color: string
   total: number
+  /** Победы команды в понге (1 матч = 1 очко), считается на сервере. */
+  duel_score: number
+  /** Сумма очков команды по дисциплинам (физическая + BCI). */
   by_discipline: Record<string, number>
   sections_passed: number
   finished: boolean
-  members: BoardMember[]
+  /** До 5 лучших игроков по каждой дисциплине. */
+  top: Record<string, BoardTop[]>
 }
 
 export interface Scoreboard {

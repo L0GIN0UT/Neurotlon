@@ -19,20 +19,24 @@ from neurotlon_server.scoring import (
     ResultIn,
     SectionScoring,
     TeamIn,
+    duel_score,
     score_teams,
+    top_players,
 )
 
 router = APIRouter(prefix="/api/v1/scoreboard", tags=["scoreboard"])
 
+DISCIPLINE_ORDER = ("darts", "football", "pong")
 PUSH_INTERVAL_S = 2.0
 POLL_INTERVAL_S = 0.5  # how often a stream checks the shared cache (in memory)
 PING_INTERVAL_S = 15.0
 
 
-class MemberOut(BaseModel):
+class TopOut(BaseModel):
+    rank: int | None
+    number: int
     label: str
-    total: float
-    sections_passed: int
+    points: float
     pending: bool
 
 
@@ -42,10 +46,11 @@ class TeamRowOut(BaseModel):
     name: str
     color: str
     total: float
+    duel_score: int
     by_discipline: dict[str, float]
     sections_passed: int
     finished: bool
-    members: list[MemberOut]
+    top: dict[str, list[TopOut]]
 
 
 class ScoreboardOut(BaseModel):
@@ -66,11 +71,12 @@ def load_inputs(
             r.wins,
             r.status,
             r.voided_at is not None,
+            r.session_id,
         )
         for r in db.scalars(select(SectionResult))
     ]
     people = [
-        ParticipantIn(p.id, p.code, p.display_name, p.team_id)
+        ParticipantIn(p.id, p.code, p.display_name, p.team_id, p.number_in_team)
         for p in db.scalars(select(Participant).where(Participant.team_id.is_not(None)))
     ]
     teams = [TeamIn(t.id, t.number, t.name, t.color) for t in db.scalars(select(Team))]
@@ -81,6 +87,8 @@ def load_inputs(
 def build_scoreboard(db: Session, scoring: SectionScoring) -> ScoreboardOut:
     results, people, teams, disciplines = load_inputs(db)
     labels = {p.id: p.display_name or p.code for p in people}
+    numbers = {p.id: p.number_in_team or 0 for p in people}
+    duel = duel_score(results, people)
     rows = [
         TeamRowOut(
             rank=score.rank,
@@ -88,18 +96,23 @@ def build_scoreboard(db: Session, scoring: SectionScoring) -> ScoreboardOut:
             name=team.name,
             color=team.color,
             total=score.total,
+            duel_score=duel.get(team.id, 0),
             by_discipline=score.by_discipline,
             sections_passed=score.sections_passed,
             finished=score.finished,
-            members=[
-                MemberOut(
-                    label=labels[m.participant_id],
-                    total=m.total,
-                    sections_passed=m.sections_passed,
-                    pending=m.conflicts > 0,
-                )
-                for m in score.members
-            ],
+            top={
+                d.code: [
+                    TopOut(
+                        rank=e.rank,
+                        number=e.number,
+                        label=labels[e.participant_id],
+                        points=e.points,
+                        pending=e.pending,
+                    )
+                    for e in top_players(score.members, numbers, d.code)
+                ]
+                for d in sorted(disciplines, key=lambda d: DISCIPLINE_ORDER.index(d.code))
+            },
         )
         for team, score in score_teams(results, people, teams, disciplines, scoring)
     ]

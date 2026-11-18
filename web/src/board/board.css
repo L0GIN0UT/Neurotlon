@@ -1,117 +1,170 @@
-/* Табло: читается с 5 м, без прокрутки (2 команды × 10 участников), шрифт системный. */
+/* Табло 16:9: шапка со счётом дуэли и три полосы дисциплин. Без прокрутки, системные шрифты. */
 body.board-body {
   margin: 0;
   overflow: hidden;
   background: #0b0f1a;
 }
 
-.board {
-  --gap: 1.6vh;
-  height: 100vh;
-  box-sizing: border-box;
-  padding: var(--gap);
-  display: flex;
-  flex-direction: column;
-  color: #fff;
+.board,
+.overlay {
   font-family: system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   font-variant-numeric: tabular-nums;
-  overflow: hidden;
+  color: #fff;
 }
 
-.board .teams {
-  flex: 1;
-  min-height: 0;
-  display: grid;
-  grid-template-columns: repeat(min(var(--count), 2), minmax(0, 1fr));
-  grid-auto-rows: minmax(0, 1fr);
-  gap: calc(var(--gap) * 2);
-}
-
-.board .team {
-  --row: calc(60vh / var(--rows));
+.board {
+  --gap: 1.2vh;
+  height: 100vh;
+  box-sizing: border-box;
+  padding: var(--gap) 2vw;
   display: flex;
   flex-direction: column;
-  min-height: 0;
-  border: 0.5vh solid var(--team);
-  border-radius: 1.5vh;
+  gap: var(--gap);
   overflow: hidden;
-  background: #151b2c;
 }
 
-.board .team header {
-  display: flex;
+/* Шапка: «название A [счёт] VS [счёт] название B» */
+.duel {
+  flex: 0 0 15vh;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto minmax(0, 1fr);
   align-items: center;
-  gap: 2vh;
-  padding: 1vh 2vh;
-  background: var(--team);
-  color: var(--on-team);
+  gap: 2vw;
 }
 
-.board .team h2 {
-  flex: 1;
+.team-name {
   margin: 0;
-  font-size: 6vh;
+  color: var(--team);
+  font-size: 8vh;
   line-height: 1.1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.board .rank {
-  font-size: 8vh;
-  font-weight: 800;
-  line-height: 1;
+.team-name.name-a {
+  text-align: right;
 }
 
-.board .total {
-  font-size: 9vh;
+.duel-score {
+  min-width: 1.4ch;
+  padding: 0 1.2vh;
+  border: 0.6vh solid var(--team);
+  border-radius: 1.5vh;
+  background: #151b2c;
+  color: #fff;
+  font-size: 11vh;
   font-weight: 800;
-  line-height: 1;
+  line-height: 1.15;
+  text-align: center;
 }
 
-.board .disciplines {
+.vs {
+  font-size: 5vh;
+  font-weight: 700;
+  color: #9fb0d6;
+}
+
+.bands {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+  gap: var(--gap);
+}
+
+.band {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 26vw minmax(0, 1fr);
+  gap: 1.5vw;
+  min-height: 0;
+  padding: 0.8vh 1vw;
+  border-radius: 1.5vh;
+  background: #151b2c;
+}
+
+.centre {
   display: flex;
-  justify-content: space-around;
-  list-style: none;
-  margin: 0;
-  padding: 1vh 2vh;
-  font-size: 3.4vh;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  gap: 0.4vh;
+}
+
+.centre .icon {
+  height: 8vh;
+  aspect-ratio: 1;
   color: #c9d3ea;
 }
 
-.board .disciplines li {
+.centre .icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.band-name {
+  font-size: 3vh;
+  color: #c9d3ea;
+  line-height: 1;
+}
+
+.versus {
   display: flex;
-  gap: 1.2vh;
   align-items: baseline;
+  gap: 1.5vw;
+  font-size: 8vh;
+  line-height: 1;
 }
 
-.board .disciplines strong {
-  color: #fff;
-  font-size: 4.2vh;
+.versus b {
+  color: var(--team);
+  font-weight: 800;
 }
 
-.board .members {
-  flex: 1;
+.versus i {
+  font-style: normal;
+  font-size: 0.45em;
+  color: #9fb0d6;
+}
+
+/* Топ-5 игроков: пять равных строк на всю высоту полосы */
+.top {
   min-height: 0;
   display: flex;
   flex-direction: column;
   list-style: none;
   margin: 0;
-  padding: 0 2vh 1vh;
+  padding: 0;
 }
 
-.board .member {
+.player {
   flex: 1 1 0;
   min-height: 0;
   display: flex;
   align-items: center;
-  gap: 2vh;
+  gap: 1.2vw;
+  padding: 0 1vw;
   border-top: 1px solid #2a3350;
-  font-size: min(4vh, calc(var(--row) * 0.62));
-  line-height: 1.05;
+  font-size: 3.6vh;
+  line-height: 1;
 }
 
-.board .member .label {
+.player:first-child {
+  border-top: 0;
+}
+
+.top.side-b .player {
+  flex-direction: row-reverse;
+}
+
+.player .place {
+  min-width: 1.2ch;
+  color: #9fb0d6;
+  text-align: center;
+}
+
+.player .label {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -119,26 +172,30 @@ body.board-body {
   white-space: nowrap;
 }
 
-.board .member .passed {
-  color: #9fb0d6;
+.top.side-b .label {
+  text-align: right;
 }
 
-.board .member .points {
-  min-width: 5ch;
+.player .points {
+  min-width: 4ch;
   text-align: right;
   font-weight: 700;
 }
 
-.board .member.pending {
+.top.side-b .points {
+  text-align: left;
+}
+
+.player.pending {
   background: #3b2f08;
 }
 
-.board .flag {
+.flag {
   background: #f2b705;
   color: #111;
   font-size: 0.6em;
   font-weight: 700;
-  padding: 0.1em 0.6em;
+  padding: 0.15em 0.6em;
   border-radius: 999px;
   white-space: nowrap;
 }
@@ -147,6 +204,15 @@ body.board-body {
   margin: auto;
   font-size: 8vh;
   text-align: center;
+}
+
+.board .notice {
+  position: fixed;
+  left: 2vw;
+  bottom: 0.4vh;
+  margin: 0;
+  font-size: 2vh;
+  color: #9fb0d6;
 }
 
 .board .status {
@@ -158,4 +224,110 @@ body.board-body {
   background: #b3261e;
   border-radius: 1vh;
   font-size: 2.4vh;
+}
+
+/* Оверлей OBS: прозрачный фон, плашка у нижнего края. Размер задаёт ?scale= (--scale). */
+.overlay {
+  --scale: 1;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: calc(8px * var(--scale));
+  padding: calc(24px * var(--scale));
+  background: transparent;
+  font-size: calc(28px * var(--scale));
+  text-shadow: 0 1px 3px rgb(0 0 0 / 80%);
+}
+
+.overlay .plate {
+  border-radius: calc(12px * var(--scale));
+  background: rgb(11 15 26 / 82%);
+}
+
+.overlay .duel {
+  flex: none;
+  padding: calc(8px * var(--scale)) calc(20px * var(--scale));
+  gap: calc(20px * var(--scale));
+}
+
+.overlay .team-name {
+  font-size: calc(44px * var(--scale));
+}
+
+.overlay .duel-score {
+  font-size: calc(56px * var(--scale));
+  border-width: calc(4px * var(--scale));
+  border-radius: calc(10px * var(--scale));
+}
+
+.overlay .vs {
+  font-size: calc(30px * var(--scale));
+}
+
+.overlay .rows {
+  display: grid;
+  gap: calc(6px * var(--scale));
+  padding: calc(8px * var(--scale)) calc(20px * var(--scale));
+}
+
+.overlay .row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: calc(16px * var(--scale));
+}
+
+.overlay .row .icon {
+  display: inline-block;
+  width: calc(36px * var(--scale));
+  height: calc(36px * var(--scale));
+  margin-right: calc(10px * var(--scale));
+  vertical-align: middle;
+}
+
+.overlay .row .icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.overlay .row .mid {
+  display: flex;
+  align-items: center;
+  gap: calc(10px * var(--scale));
+}
+
+.overlay .versus {
+  font-size: calc(40px * var(--scale));
+  gap: calc(12px * var(--scale));
+}
+
+.overlay .top {
+  flex-direction: row;
+  gap: calc(10px * var(--scale));
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+.overlay .top.side-b {
+  justify-content: flex-end;
+}
+
+.overlay .player {
+  flex: 0 1 auto;
+  border: 0;
+  padding: 0 calc(8px * var(--scale));
+  font-size: calc(22px * var(--scale));
+  gap: calc(6px * var(--scale));
+}
+
+.overlay .player .label {
+  flex: 0 1 auto;
+  max-width: 8em;
+}
+
+.overlay .player .points {
+  min-width: 0;
 }

@@ -21,6 +21,7 @@ class ResultIn:
     wins: int | None
     status: str
     voided: bool = False
+    session_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,7 @@ class ParticipantIn:
     code: str
     display_name: str | None
     team_id: int | None
+    number_in_team: int | None = None
 
 
 @dataclass(frozen=True)
@@ -55,6 +57,20 @@ class ParticipantScore:
     conflicts: int = 0
     by_discipline: dict[str, float] = field(default_factory=dict)
     by_section: dict[tuple[str, str], float] = field(default_factory=dict)
+    passed_by_discipline: dict[str, int] = field(default_factory=dict)
+    conflicts_by_discipline: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class TopEntry:
+    """One line of a discipline's top list on the scoreboard."""
+
+    rank: int | None  # None: undecided (conflict), not placed
+    participant_id: int
+    number: int
+    points: float
+    sections_passed: int
+    pending: bool
 
 
 @dataclass(frozen=True)
@@ -77,6 +93,82 @@ def group_live(results: Iterable[ResultIn]) -> dict[tuple[int, str, str], list[R
         if not result.voided and result.status in COUNTED_STATUSES:
             groups[(result.participant_id, result.discipline, result.section)].append(result)
     return groups
+
+
+def duel_score(
+    results: Iterable[ResultIn], participants: Iterable[ParticipantIn]
+) -> dict[int, int]:
+    """Pong matches won per team id (1 match = 1 point for the winner's team).
+
+    A match is one pong session: two counted results, both completed, exactly one with wins=1.
+    A session where either player's section is in a conflict, or whose rows are voided or not
+    yet confirmed, is not a match yet. Independent of the points scoring.
+    """
+    team_of = {p.id: p.team_id for p in participants}
+    sessions: dict[str, list[ResultIn]] = defaultdict(list)
+    for rows in group_live(results).values():
+        if len(rows) == 1 and rows[0].discipline == "pong":
+            sessions[rows[0].session_id].append(rows[0])
+    score: dict[int, int] = {team_id: 0 for team_id in team_of.values() if team_id is not None}
+    for rows in sessions.values():
+        if len(rows) != 2 or any(r.outcome != "completed" for r in rows):
+            continue
+        winners = [r for r in rows if r.wins == 1]
+        if len(winners) != 1 or sum(r.wins or 0 for r in rows) != 1:
+            continue
+        teams = {team_of.get(r.participant_id) for r in rows}
+        if len(teams) != 2 or None in teams:  # same team or a player without a team: no match
+            continue
+        team_id = team_of[winners[0].participant_id]
+        if team_id is not None:
+            score[team_id] += 1
+    return score
+
+
+TOP_LIMIT = 5
+
+
+def top_players(
+    members: Iterable[ParticipantScore],
+    numbers: dict[int, int],
+    discipline: str,
+    limit: int = TOP_LIMIT,
+) -> list[TopEntry]:
+    """Best players of one team in one discipline (physical + BCI points).
+
+    The first `limit` entries are ranked 1..limit: points desc, sections passed in the discipline
+    desc, number in team asc; players with no counted result are left out. Players whose section
+    in this discipline is in a conflict take no place: they follow as extra entries with
+    `rank=None` and `pending=True`, so the judge's open question is never cut off.
+    """
+    counted = []
+    pending = []
+    for m in members:
+        row = (m, m.by_discipline.get(discipline, 0.0), m.passed_by_discipline.get(discipline, 0))
+        if m.conflicts_by_discipline.get(discipline):
+            pending.append(row)
+        elif discipline in m.by_discipline:
+            counted.append(row)
+
+    def order(r: tuple[ParticipantScore, float, int]) -> tuple[float, int, int]:
+        return (-r[1], -r[2], numbers.get(r[0].participant_id, 0))
+
+    def entry(rank: int | None, r: tuple[ParticipantScore, float, int]) -> TopEntry:
+        m, points, passed = r
+        return TopEntry(
+            rank=rank,
+            participant_id=m.participant_id,
+            number=numbers.get(m.participant_id, 0),
+            points=points,
+            sections_passed=passed,
+            pending=rank is None,
+        )
+
+    counted.sort(key=order)
+    pending.sort(key=order)
+    return [entry(i, r) for i, r in enumerate(counted[:limit], start=1)] + [
+        entry(None, r) for r in pending
+    ]
 
 
 class SectionScoring(Protocol):
@@ -116,14 +208,20 @@ def score_participants(
         passed = conflicts = 0
         by_discipline: dict[str, float] = {}
         by_section: dict[tuple[str, str], float] = {}
+        passed_by: dict[str, int] = {}
+        conflicts_by: dict[str, int] = {}
         for rows in per_person.get(person.id, []):
             if len(rows) > 1:  # conflict: counts as nothing until resolved
                 conflicts += 1
+                conflicts_by[rows[0].discipline] = conflicts_by.get(rows[0].discipline, 0) + 1
                 continue
             row = rows[0]
             points = scoring.score(row, by_code[row.discipline])
             total += points
             passed += row.outcome == "completed"
+            passed_by[row.discipline] = passed_by.get(row.discipline, 0) + (
+                row.outcome == "completed"
+            )
             if row.section == "bci":
                 bci += points
             else:
@@ -139,6 +237,8 @@ def score_participants(
             conflicts,
             {code: round(points, PRECISION) for code, points in by_discipline.items()},
             {key: round(points, PRECISION) for key, points in by_section.items()},
+            passed_by,
+            conflicts_by,
         )
     return scores
 

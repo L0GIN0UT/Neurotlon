@@ -517,6 +517,63 @@ paths:
         "422":
           $ref: "#/components/responses/Problem"
 
+  /scoreboard:
+    get:
+      operationId: getScoreboard
+      summary: Табло (публично, без входа)
+      description: |
+        Снимок для большого экрана и оверлея OBS; тот же снимок приходит в потоке
+        `GET /scoreboard/stream` (SSE, событие `scoreboard`). Всё вычисляется из
+        результатов секций, ничего не хранится. Категории и внутренних id нет.
+        `duel_score` — победы команды в понге (один матч = одно очко). `by_discipline` —
+        сумма очков команды в дисциплине (физическая + BCI). `top` — до 5 лучших игроков
+        команды в каждой дисциплине (очки физической + BCI).
+      security: []
+      responses:
+        "200":
+          description: Команды в порядке мест
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Scoreboard"
+
+  /teams/{id}:
+    patch:
+      operationId: renameTeam
+      summary: Название и цвет команды (админ, суперпользователь)
+      description: |
+        Название — от 1 до 24 символов без пробелов по краям, цвет — `#RRGGBB`.
+        Изменение попадает в журнал аудита, табло обновляется сразу.
+      security:
+        - volunteerSession: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TeamPatch"
+      responses:
+        "200":
+          description: Команда после правки
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamInfo"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "422":
+          $ref: "#/components/responses/Problem"
+
   /export.xlsx:
     get:
       operationId: exportXlsx
@@ -622,6 +679,108 @@ components:
         color:
           type: string
           pattern: "^#[0-9a-fA-F]{6}$"
+
+    TeamPatch:
+      type: object
+      required: [name, color]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 24
+        color:
+          type: string
+          pattern: "^#[0-9a-fA-F]{6}$"
+
+    TeamInfo:
+      type: object
+      required: [id, number, name, color]
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+        number:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+        color:
+          type: string
+          pattern: "^#[0-9a-fA-F]{6}$"
+
+    BoardTopEntry:
+      type: object
+      required: [rank, number, label, points, pending]
+      additionalProperties: false
+      properties:
+        rank:
+          type: [integer, "null"]
+          minimum: 1
+          maximum: 5
+          description: Место 1..5; null у игрока в конфликте (места не занимает, идёт после пятёрки).
+        number:
+          type: integer
+          description: Номер игрока в команде.
+        label:
+          type: string
+          description: Имя или код участника.
+        points:
+          type: number
+          description: Очки игрока в этой дисциплине, физическая + BCI.
+        pending:
+          type: boolean
+          description: Секция в этой дисциплине в конфликте, нужно решение судьи.
+
+    BoardTeam:
+      type: object
+      required: [rank, number, name, color, total, duel_score, by_discipline, sections_passed, finished, top]
+      additionalProperties: false
+      properties:
+        rank:
+          type: integer
+          minimum: 1
+        number:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+        color:
+          type: string
+          pattern: "^#[0-9a-fA-F]{6}$"
+        total:
+          type: number
+        duel_score:
+          type: integer
+          minimum: 0
+          description: Победы команды в понге, один матч — одно очко.
+        by_discipline:
+          type: object
+          description: Сумма очков команды по дисциплинам (физическая + BCI).
+          additionalProperties:
+            type: number
+        sections_passed:
+          type: integer
+        finished:
+          type: boolean
+        top:
+          type: object
+          description: До 5 лучших игроков команды по каждой дисциплине.
+          additionalProperties:
+            type: array
+            description: Не более 5 мест плюс игроки в конфликте (rank null).
+            items:
+              $ref: "#/components/schemas/BoardTopEntry"
+
+    Scoreboard:
+      type: object
+      required: [teams]
+      additionalProperties: false
+      properties:
+        teams:
+          type: array
+          items:
+            $ref: "#/components/schemas/BoardTeam"
 
     IssueCode:
       type: string

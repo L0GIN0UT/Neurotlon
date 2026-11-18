@@ -4,6 +4,7 @@ import type { DrawProtocol, StaffApi } from '../api.ts'
 import { ConfirmDialog, ErrorText } from '../ui.tsx'
 import { formatTime } from '../format.ts'
 import { useAction, useLoader } from '../hooks.ts'
+import { TeamsEditor } from './TeamsEditor.tsx'
 
 async function loadDraw(api: StaffApi): Promise<DrawProtocol | null> {
   try {
@@ -115,6 +116,7 @@ export function DrawTab({ api }: { api: StaffApi }) {
         />
       )}
 
+      {draw.data && <TeamsEditor key={draw.data.id} api={api} onSaved={draw.reload} />}
       {draw.data && <Protocol protocol={draw.data} />}
     </section>
   )
