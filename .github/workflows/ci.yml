@@ -82,6 +82,7 @@ jobs:
           curl -fsS --cacert certs/server.pem https://localhost/health
           curl -fsS --cacert certs/server.pem https://localhost/board | grep -q '<div id="root">'
           curl -fsS --cacert certs/server.pem https://localhost/tablet | grep -q '<div id="root">'
+          curl -fsS --cacert certs/server.pem https://localhost/overlay | grep -q '<div id="root">'
           curl -fsS --cacert certs/server.pem https://localhost/api/v1/scoreboard
           curl -fsSI --cacert certs/server.pem https://localhost/sw.js | grep -i 'cache-control: no-cache'
           test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost/board)" = 301
