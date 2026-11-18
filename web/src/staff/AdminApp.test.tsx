@@ -335,6 +335,96 @@ describe('жеребьёвка', () => {
   })
 })
 
+describe('названия и цвета команд', () => {
+  const protocol = {
+    id: 1,
+    created_at: '2027-01-01T09:00:00Z',
+    seed: 1,
+    m: 1,
+    team_count: 2,
+    teams: [
+      { number: 1, name: 'Красные', color: '#e6194b', members: [] },
+      { number: 2, name: 'Синие', color: '#4363d8', members: [] },
+    ],
+    duels: [],
+    reserve_ovz: [],
+    reserve_general: [],
+  }
+
+  function setup() {
+    const server = createFakeServer('admin')
+    const teams = [
+      { id: 11, number: 1, name: 'Красные', color: '#e6194b' },
+      { id: 12, number: 2, name: 'Синие', color: '#4363d8' },
+    ]
+    server.routes.set('GET /draw/options', () => json([]))
+    server.routes.set('GET /draw', () => json(protocol))
+    server.routes.set('GET /teams', () => json({ teams, duels: [] }))
+    server.routes.set('PATCH /teams/*', (body, url) => {
+      const id = Number(url.pathname.split('/').at(-1))
+      const team = teams.find((t) => t.id === id)
+      Object.assign(team ?? {}, body)
+      return json(team)
+    })
+    return server
+  }
+
+  test('админ переименовывает команду и выбирает цвет', async () => {
+    const server = setup()
+    renderAdmin(server)
+    await openTab('Жеребьёвка')
+    const name = await screen.findByLabelText('Название команды 1')
+    const save = screen.getByRole('button', { name: 'Сохранить команду 1' }) as HTMLButtonElement
+    expect(save.disabled).toBe(true)
+
+    fireEvent.change(name, { target: { value: '  Огонь  ' } })
+    fireEvent.change(screen.getByLabelText('Цвет команды 1'), { target: { value: '#ff8800' } })
+    expect(save.disabled).toBe(false)
+    fireEvent.click(save)
+
+    await waitFor(() =>
+      expect(server.bodies('PATCH /teams/*')).toEqual([{ name: 'Огонь', color: '#ff8800' }]),
+    )
+    expect(server.calls.find((c) => c.key === 'PATCH /teams/*')?.url.pathname).toBe('/api/v1/teams/11')
+    await waitFor(() =>
+      expect((screen.getByLabelText('Название команды 1') as HTMLInputElement).value).toBe('Огонь'),
+    )
+  })
+
+  test('цвет выбирается нативным полем color', async () => {
+    renderAdmin(setup())
+    await openTab('Жеребьёвка')
+    const color = (await screen.findByLabelText('Цвет команды 2')) as HTMLInputElement
+    expect(color.type).toBe('color')
+    expect(color.value).toBe('#4363d8')
+  })
+
+  test('пустое название нельзя сохранить, длина ограничена 24', async () => {
+    const server = setup()
+    renderAdmin(server)
+    await openTab('Жеребьёвка')
+    const name = (await screen.findByLabelText('Название команды 1')) as HTMLInputElement
+    const save = screen.getByRole('button', { name: 'Сохранить команду 1' }) as HTMLButtonElement
+    fireEvent.change(name, { target: { value: '   ' } })
+    expect(save.disabled).toBe(true)
+    fireEvent.change(name, { target: { value: 'Ф' } })
+    expect(save.disabled).toBe(false)
+    expect(name.maxLength).toBe(24)
+    expect(server.count('PATCH /teams/*')).toBe(0)
+  })
+
+  test('ошибка сервера показывается, введённое остаётся', async () => {
+    const server = setup()
+    server.routes.set('PATCH /teams/*', () => problem(422, 'invalid_request'))
+    renderAdmin(server)
+    await openTab('Жеребьёвка')
+    fireEvent.change(await screen.findByLabelText('Название команды 1'), { target: { value: 'Новая' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Сохранить команду 1' }))
+    await waitFor(() => expect(server.count('PATCH /teams/*')).toBe(1))
+    expect((screen.getByLabelText('Название команды 1') as HTMLInputElement).value).toBe('Новая')
+  })
+})
+
 describe('дисциплины', () => {
   test('меняется только изменённое поле', async () => {
     const server = createFakeServer('admin')

@@ -42,6 +42,13 @@ export interface DrawProtocol {
   reserve_general: string[]
 }
 
+export interface TeamInfo {
+  id: number
+  number: number
+  name: string
+  color: string
+}
+
 export interface StationInfo {
   id: number
   name: string
@@ -170,6 +177,9 @@ export function createStaffApi(options: ApiOptions = {}) {
         seed === undefined ? { m } : { m, seed },
       ),
     draw: () => request<DrawProtocol>('GET', '/draw'),
+    teams: () => request<{ teams: TeamInfo[] }>('GET', '/teams'),
+    patchTeam: (id: number, name: string, color: string) =>
+      request<TeamInfo>('PATCH', `/teams/${id}`, { name, color }),
 
     stations: () => request<StationInfo[]>('GET', '/stations'),
     createStation: (name: string, discipline: Discipline) =>
