@@ -11,6 +11,7 @@ from neurotlon_server.auth import LoginThrottle
 from neurotlon_server.auth import router as auth_router
 from neurotlon_server.config import Settings
 from neurotlon_server.conflicts_api import router as conflicts_router
+from neurotlon_server.corrections_api import router as corrections_router
 from neurotlon_server.db import create_engine_from_settings, create_session_factory
 from neurotlon_server.disciplines_api import router as disciplines_router
 from neurotlon_server.draw_api import router as draw_router
@@ -79,6 +80,7 @@ def create_app(
     app.include_router(station_router)
     app.include_router(scoreboard_router)
     app.include_router(conflicts_router)
+    app.include_router(corrections_router)
     app.include_router(disciplines_router)
 
     @app.get("/health")

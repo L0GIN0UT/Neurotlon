@@ -11,3 +11,10 @@ createRoot(root).render(
     <App />
   </StrictMode>,
 )
+
+// Оболочка приложения кэшируется для работы при перезагрузке без связи (sw.js создаёт сборка).
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    void navigator.serviceWorker.register('/sw.js')
+  })
+}
