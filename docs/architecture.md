@@ -144,6 +144,8 @@ erDiagram
     PAIR }|--|{ PARTICIPANT : "2 участника"
     PARTICIPANT ||--o{ SECTION_RESULT : "1:N"
     STATION ||--o{ SECTION_RESULT : "источник"
+    DISCIPLINE ||--o{ STATION : "1:N"
+    DISCIPLINE ||--o{ SECTION_RESULT : "1:N"
     SECTION_RESULT ||--o{ AUDIT_LOG : "изменения"
     USER ||--o{ AUDIT_LOG : "кто"
 
@@ -176,6 +178,13 @@ erDiagram
         int participant_a
         int participant_b
         string zone_statuses
+    }
+    DISCIPLINE {
+        string code "darts, football, pong"
+        string name
+        string modalities
+        int game_duration_s
+        int physical_duration_s
     }
     STATION {
         int id
@@ -219,6 +228,7 @@ erDiagram
 
 - Итоги (участника, команды, рейтинг, исход дуэли) не хранятся — вычисляются из `SECTION_RESULT`.
 - Журнал аудита только на добавление (триггеры запрещают UPDATE/DELETE).
+- Время игры (`game_duration_s`) и физической дисциплины (`physical_duration_s`) меняют админ и судья в админке, в том числе с планшета. Лаунчер и планшет читают их перед каждой сессией; идущая сессия не обрывается; изменение пишется в журнал.
 
 ## 8. Статусы результата
 

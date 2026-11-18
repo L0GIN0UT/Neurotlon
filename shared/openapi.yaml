@@ -22,6 +22,23 @@ security:
   - volunteerSession: []
 
 paths:
+  /me/config:
+    get:
+      operationId: getConfig
+      summary: Настройки дисциплины для станции или волонтёра
+      description: |
+        Читается перед каждой сессией и кэшируется на случай потери связи.
+        Меняют админ и судья; новое значение действует со следующей сессии.
+      responses:
+        "200":
+          description: Настройки
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DisciplineConfig"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   /participants/{code}/eligibility:
     get:
       operationId: getEligibility
@@ -222,6 +239,28 @@ components:
       type: string
       enum: [bci, physical]
       description: bci — игра на стенде, physical — физическая секция у волонтёра.
+
+    DisciplineConfig:
+      type: object
+      required: [discipline, section, duration_s]
+      additionalProperties: false
+      properties:
+        discipline:
+          $ref: "#/components/schemas/Discipline"
+        section:
+          $ref: "#/components/schemas/Section"
+        duration_s:
+          type: integer
+          minimum: 10
+          maximum: 3600
+          description: |
+            Время сессии: для станции — время игры, для волонтёра — время
+            физической дисциплины. На стенде по истечении игра завершается с
+            текущими очками, на планшете это таймер для волонтёра.
+      examples:
+        - discipline: darts
+          section: bci
+          duration_s: 120
 
     Team:
       type: object
