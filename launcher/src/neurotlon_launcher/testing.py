@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from neurotlon_launcher.api import DisciplineConfig, Eligibility, Team
 from neurotlon_launcher.game import GameOutcome, GameRequest
-from neurotlon_launcher.outbox import ActiveSession
+from neurotlon_launcher.outbox import ActiveSession, OutboxItem
 
 
 def eligibility(code: str, *issues: str, name: str | None = None) -> Eligibility:
@@ -59,12 +60,21 @@ class FakeQueue:
     def __init__(self) -> None:
         self.items: list[dict[str, Any]] = []
         self.active: ActiveSession | None = None
+        self.rejected_items: list[OutboxItem] = []
+        self.exports = 0
 
     def add(self, payload: dict[str, Any]) -> None:
         self.items.append(payload)
 
     def pending_count(self) -> int:
         return len(self.items)
+
+    def rejected(self) -> list[OutboxItem]:
+        return self.rejected_items
+
+    def export_rejected(self) -> Path:
+        self.exports += 1
+        return Path("rejected.json")
 
     def set_active(self, active: ActiveSession) -> None:
         self.active = active

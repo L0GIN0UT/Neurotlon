@@ -1,3 +1,4 @@
+import json
 import threading
 import uuid
 from pathlib import Path
@@ -90,7 +91,7 @@ def test_offline_stops_pass_keeps_order_and_retries(outbox: Outbox) -> None:
     assert [s[-1] for s in api.sent] == ["1", "2"]
 
 
-@pytest.mark.parametrize("status", [409, 422])
+@pytest.mark.parametrize("status", [403, 404, 409, 422])
 def test_rejected_is_kept_and_not_retried(outbox: Outbox, status: int) -> None:
     api = ScriptedApi()
     outbox.add(payload(1))
@@ -109,7 +110,7 @@ def test_rejected_is_kept_and_not_retried(outbox: Outbox, status: int) -> None:
     assert outbox.rejected_count() == 1
 
 
-@pytest.mark.parametrize("status", [401, 403, 500, 503])
+@pytest.mark.parametrize("status", [401, 500, 503])
 def test_other_server_errors_are_retried(outbox: Outbox, status: int) -> None:
     api = ScriptedApi()
     outbox.add(payload(1))
@@ -143,3 +144,35 @@ def test_thread_sends_after_kick_and_stops(outbox: Outbox) -> None:
     finally:
         sender.stop()
     assert outbox.pending_count() == 0
+
+
+def test_export_rejected_writes_json_for_the_judge(outbox: Outbox, tmp_path: Path) -> None:
+    api = ScriptedApi()
+    outbox.add(payload(1))
+    outbox.add(payload(2))
+    api.plan[payload(1)["session_id"]] = ApiProblem(404, "unknown_participant", "no such id")
+    Sender(outbox, api).send_pending()
+    exported = tmp_path / "data" / "rejected.json"  # sender exports on rejection
+    data = json.loads(exported.read_text(encoding="utf-8"))
+    assert [d["session_id"] for d in data] == [payload(1)["session_id"]]
+    assert data[0]["participant_codes"] == ["NT01"]
+    assert "404" in data[0]["error"]
+    assert outbox.export_rejected() == exported
+    assert not list(exported.parent.glob("*.tmp"))
+
+
+def test_sender_stops_between_items_when_stopped(outbox: Outbox) -> None:
+    for n in (1, 2, 3):
+        outbox.add(payload(n))
+    holder: list[Sender] = []
+
+    class StoppingApi(ScriptedApi):
+        def submit_result(self, body: dict[str, Any]) -> None:
+            super().submit_result(body)
+            holder[0].stop()
+
+    api = StoppingApi()
+    holder.append(Sender(outbox, api))
+    holder[0].send_pending()
+    assert len(api.sent) == 1
+    assert outbox.pending_count() == 2

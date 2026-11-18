@@ -17,6 +17,7 @@ from .outbox import Outbox
 from .qr import create_scanner
 from .recovery import recover_active
 from .sender import Sender
+from .startup import check_discipline
 
 EXIT_OK = 0
 EXIT_CONFIG = 2
@@ -73,6 +74,9 @@ def run(config: LauncherConfig, token: str, *, camera: bool, windowed: bool) -> 
     )
     heartbeat = HeartbeatLoop(api, machine.heartbeat_view, outbox.pending_count)
     recover_active(machine, outbox, data_dir)
+    problem = check_discipline(api, config.discipline)
+    if problem:
+        machine.block(problem)
     scanner = create_scanner(config.camera_index, enabled=camera)
     sender.start()
     heartbeat.start()
@@ -87,9 +91,12 @@ def run(config: LauncherConfig, token: str, *, camera: bool, windowed: bool) -> 
         machine.close()
         scanner.stop()
         heartbeat.stop()
-        sender.stop()
+        sender_stopped = sender.stop()
         api.close()
-        outbox.close()
+        if sender_stopped:
+            outbox.close()  # пока поток досылки жив, базу не закрываем
+        else:
+            logging.getLogger(__name__).warning("sender thread did not stop, outbox left open")
 
 
 def main(argv: Sequence[str] | None = None) -> int:

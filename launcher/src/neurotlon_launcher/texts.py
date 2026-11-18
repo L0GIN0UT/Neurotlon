@@ -67,7 +67,29 @@ GIVE_UP_BUTTON = "Не пройдено"
 
 # Подвал
 QUEUE_LINE = "Не отправлено: {n}"
-REJECTED_LINE = "Сервер не принял результатов: {n} (см. data/outbox.db)"
+REJECTED_LINE = "Сервер не принял результатов: {n}"
 
 # Восстановление
 RESTARTED = "Лаунчер был перезапущен во время игры, результата нет"
+
+# Блокировка и отклонённые результаты
+BLOCKED_TITLE = "Стенд остановлен"
+BLOCKED_HINT = "Исправьте launcher.toml или станцию в админке и перезапустите лаунчер (Ctrl+Q)"
+
+
+def discipline_mismatch(configured: str, on_server: str) -> str:
+    return (
+        f"Дисциплина в launcher.toml ({configured}) не совпадает "
+        f"с дисциплиной станции на сервере ({on_server})"
+    )
+
+
+REJECTED_TITLE = "Отклонённые результаты"
+REJECTED_EMPTY = "Отклонённых результатов нет"
+REJECTED_HINT = "F2 — отклонённые результаты"
+EXPORT_BUTTON = "Экспорт в файл"
+BACK_BUTTON = "Назад"
+
+
+def exported_to(path: str) -> str:
+    return f"Сохранено: {path}"

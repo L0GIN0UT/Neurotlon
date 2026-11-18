@@ -13,8 +13,10 @@ log = logging.getLogger(__name__)
 
 BACKOFF_S = (1.0, 2.0, 5.0, 10.0, 30.0)
 POLL_S = 5.0
-# Сервер окончательно не принял результат: повтор бессмыслен, решает оператор.
-REJECT_STATUSES = frozenset({409, 422})
+STOP_TIMEOUT_S = 10.0  # дольше одного запроса с таймаутом 3 с
+# Сервер окончательно не принял результат (в том числе чужая дисциплина или неизвестный
+# участник): повтор бессмыслен, решает оператор.
+REJECT_STATUSES = frozenset({403, 404, 409, 422})
 
 
 def backoff_delay(failures: int) -> float:
@@ -42,6 +44,8 @@ class Sender:
         результат (409/422) остаётся в буфере со статусом rejected, очередь идёт дальше.
         """
         for item in self._outbox.pending():
+            if self._stop.is_set():
+                return True  # остановка: остальное уйдёт при следующем запуске
             try:
                 self._api.submit_result(item.payload)
             except Offline as exc:
@@ -51,6 +55,7 @@ class Sender:
                 if exc.status in REJECT_STATUSES:
                     log.warning("result %s rejected: %s", item.session_id, exc)
                     self._outbox.mark_rejected(item.session_id, str(exc))
+                    self._export_rejected()
                     continue
                 self._outbox.record_failure(item.session_id, str(exc))
                 return False
@@ -60,6 +65,12 @@ class Sender:
             self._outbox.mark_sent(item.session_id)
         return True
 
+    def _export_rejected(self) -> None:
+        try:
+            self._outbox.export_rejected()
+        except OSError:
+            log.exception("could not export rejected results")
+
     def kick(self) -> None:
         """Попробовать отправить сразу (например, после добавления результата)."""
         self._wake.set()
@@ -68,11 +79,14 @@ class Sender:
         self._thread = threading.Thread(target=self._run, name="sender", daemon=True)
         self._thread.start()
 
-    def stop(self) -> None:
+    def stop(self) -> bool:
+        """Остановить поток; `True`, если он завершился (после этого буфер можно закрывать)."""
         self._stop.set()
         self._wake.set()
-        if self._thread is not None:
-            self._thread.join(timeout=5)
+        if self._thread is None:
+            return True
+        self._thread.join(timeout=STOP_TIMEOUT_S)
+        return not self._thread.is_alive()
 
     def _run(self) -> None:
         failures = 0

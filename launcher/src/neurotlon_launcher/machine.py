@@ -120,7 +120,37 @@ class TechnicalProblem:
     reason: str
 
 
-State = Idle | Checking | Confirm | Starting | Playing | Done | TechnicalProblem
+@dataclass(frozen=True)
+class Blocked:
+    """Работа невозможна до исправления настроек; из этого состояния выхода нет."""
+
+    message: str
+
+
+@dataclass(frozen=True)
+class RejectedEntry:
+    session_id: str
+    codes: tuple[str, ...]
+    error: str
+
+
+@dataclass(frozen=True)
+class RejectedList:
+    items: tuple[RejectedEntry, ...]
+    exported_to: str | None = None
+
+
+State = (
+    Idle
+    | Checking
+    | Confirm
+    | Starting
+    | Playing
+    | Done
+    | TechnicalProblem
+    | Blocked
+    | RejectedList
+)
 
 
 def _now() -> datetime:
@@ -245,6 +275,32 @@ class StationMachine:
         else:
             reason = outcome.reason if isinstance(outcome, Aborted) else outcome.detail
             self.state = TechnicalProblem(sid, players, reason)
+
+    def block(self, message: str) -> None:
+        self.state = Blocked(message)
+
+    def show_rejected(self) -> None:
+        state = self.state
+        if isinstance(state, Idle) and not state.input and not state.taken:
+            items = tuple(
+                RejectedEntry(
+                    item.session_id,
+                    tuple(e["participant_code"] for e in item.payload.get("entries", [])),
+                    item.last_error or "",
+                )
+                for item in self._outbox.rejected()
+            )
+            self.state = RejectedList(items)
+
+    def export_rejected(self) -> None:
+        state = self.state
+        if isinstance(state, RejectedList):
+            path = self._outbox.export_rejected()
+            self.state = RejectedList(state.items, str(path))
+
+    def close_rejected(self) -> None:
+        if isinstance(self.state, RejectedList):
+            self.state = Idle()
 
     def close(self) -> None:
         self._runner.stop()

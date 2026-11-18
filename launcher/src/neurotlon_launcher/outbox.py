@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import threading
 from dataclasses import dataclass
@@ -60,6 +61,10 @@ class ResultQueue(Protocol):
 
     def clear_active(self) -> None: ...
 
+    def rejected(self) -> list[OutboxItem]: ...
+
+    def export_rejected(self) -> Path: ...
+
     def pending_count(self) -> int: ...
 
 
@@ -68,6 +73,7 @@ class Outbox:
 
     def __init__(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
+        self._export_path = path.parent / "rejected.json"
         self._lock = threading.Lock()
         self._db = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
         self._db.execute("PRAGMA journal_mode=WAL")
@@ -78,6 +84,25 @@ class Outbox:
     def close(self) -> None:
         with self._lock:
             self._db.close()
+
+    def export_rejected(self) -> Path:
+        """Записать отклонённые результаты в JSON рядом с базой (для судьи)."""
+        items = [
+            {
+                "session_id": item.session_id,
+                "participant_codes": [
+                    e["participant_code"] for e in item.payload.get("entries", [])
+                ],
+                "error": item.last_error,
+                "attempts": item.attempts,
+                "payload": item.payload,
+            }
+            for item in self.rejected()
+        ]
+        tmp = self._export_path.with_name(self._export_path.name + ".tmp")
+        tmp.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(tmp, self._export_path)
+        return self._export_path
 
     def add(self, payload: dict[str, Any]) -> None:
         with self._lock:

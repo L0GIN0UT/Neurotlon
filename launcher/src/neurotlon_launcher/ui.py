@@ -28,12 +28,14 @@ from .layout import (
     wrap_text,
 )
 from .machine import (
+    Blocked,
     Candidate,
     Checking,
     Confirm,
     Done,
     Idle,
     Playing,
+    RejectedList,
     Starting,
     StationMachine,
     TechnicalProblem,
@@ -121,7 +123,9 @@ class Ui:
         machine, state = self._machine, self._machine.state
         enter = event.key in (pygame.K_RETURN, pygame.K_KP_ENTER)
         if isinstance(state, Idle):
-            if enter:
+            if event.key == pygame.K_F2:
+                machine.show_rejected()
+            elif enter:
                 machine.submit_input()
             elif event.key == pygame.K_BACKSPACE:
                 machine.backspace()
@@ -134,6 +138,11 @@ class Ui:
                 machine.confirm()
             elif event.key == pygame.K_ESCAPE:
                 machine.cancel()
+        elif isinstance(state, RejectedList):
+            if event.key == pygame.K_ESCAPE:
+                machine.close_rejected()
+            elif event.key == pygame.K_e:
+                machine.export_rejected()
         elif isinstance(state, TechnicalProblem) and enter:
             machine.retry()  # «Не пройдено» только кнопкой: случайное нажатие не должно её вызвать
 
@@ -158,6 +167,10 @@ class Ui:
                 self._center(texts.PLAYING_OFFLINE, "mid", YELLOW, 0.55)
         elif isinstance(state, Done):
             self._draw_done(state)
+        elif isinstance(state, Blocked):
+            self._draw_blocked(state)
+        elif isinstance(state, RejectedList):
+            self._draw_rejected(state)
         else:
             self._draw_problem(state)
         self._draw_footer()
@@ -245,6 +258,34 @@ class Ui:
         give_up = Button(texts.GIVE_UP_BUTTON, button_row(w, h, 2)[1], self._machine.give_up)
         self._draw_buttons((retry, give_up), YELLOW)
 
+    def _draw_blocked(self, state: Blocked) -> None:
+        w, _ = self._screen.get_size()
+        self._center(texts.BLOCKED_TITLE, "big", RED, 0.2)
+        font = self._fonts["mid"]
+        lines = wrap_text(state.message, w * 3 // 4, lambda s: font.size(s)[0])
+        for i, line in enumerate(lines[:5]):
+            self._center(line, "mid", WHITE, 0.4 + i * 0.07)
+        self._center(texts.BLOCKED_HINT, "small", GRAY, 0.85)
+
+    def _draw_rejected(self, state: RejectedList) -> None:
+        w, h = self._screen.get_size()
+        self._center(texts.REJECTED_TITLE, "mid", WHITE, 0.07)
+        if not state.items:
+            self._center(texts.REJECTED_EMPTY, "mid", GRAY, 0.4)
+        font = self._fonts["small"]
+        for i, item in enumerate(state.items[:8]):
+            line = f"{item.session_id[:8]}  {', '.join(item.codes)}  {item.error}"
+            while len(line) > 8 and font.size(line)[0] > w - 80:
+                line = line[:-4] + "…"
+            surface = font.render(line, True, YELLOW)
+            self._screen.blit(surface, (40, int(h * 0.15) + i * surface.get_height() * 3 // 2))
+        if state.exported_to:
+            self._center(texts.exported_to(state.exported_to), "small", GREEN, 0.7)
+        rects = button_row(w, h, 2)
+        export = Button(texts.EXPORT_BUTTON, rects[0], self._machine.export_rejected, True)
+        back = Button(texts.BACK_BUTTON, rects[1], self._machine.close_rejected)
+        self._draw_buttons((export, back), GREEN)
+
     def _draw_buttons(self, buttons: Sequence[Button], accent: Color) -> None:
         font = self._fonts["mid"]
         for button in buttons:
@@ -264,7 +305,7 @@ class Ui:
         if pending:
             parts.append(texts.QUEUE_LINE.format(n=pending))
         if rejected:
-            parts.append(texts.REJECTED_LINE.format(n=rejected))
+            parts.append(f"{texts.REJECTED_LINE.format(n=rejected)} · {texts.REJECTED_HINT}")
         if parts:
             color = RED if rejected else YELLOW
             surface = self._fonts["small"].render("   ".join(parts), True, color)
