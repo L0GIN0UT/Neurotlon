@@ -121,11 +121,12 @@ def _apply(db: Db, row: SectionResult, patch: ResultPatch) -> dict[str, Any]:
         raise _invalid("not_completed needs reason and no points or wins")
     if row.discipline != "pong" and new["wins"] is not None:
         raise _invalid("wins are only for pong")
-    discipline = db.get(Discipline, row.discipline)
-    assert discipline is not None
-    message = points_over_limit(row.discipline, new["points"], discipline.max_section_points)
-    if message:
-        raise _invalid(message)
+    if "points" in changes:  # fixing other fields must not trip over a lowered limit
+        discipline = db.get(Discipline, row.discipline)
+        assert discipline is not None
+        message = points_over_limit(row.discipline, new["points"], discipline.max_section_points)
+        if message:
+            raise _invalid(message)
     return new
 
 

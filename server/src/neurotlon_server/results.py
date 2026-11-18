@@ -200,7 +200,7 @@ def points_over_limit(discipline: str, points: float | None, limit: int) -> str 
     return f"points must not exceed {limit} for {discipline}"
 
 
-def _validate_entries(db: Session, body: ResultSubmission) -> None:
+def _validate_entries(body: ResultSubmission) -> None:
     expected = 2 if body.discipline == "pong" else 1
     distinct = {e.participant_code for e in body.entries}
     if len(body.entries) != expected or len(distinct) != expected:
@@ -221,6 +221,10 @@ def _validate_entries(db: Session, body: ResultSubmission) -> None:
         raise ProblemError(
             422, "invalid_entries", "Invalid entries", "Wins do not match the discipline rules"
         )
+
+
+def _check_points_limit(db: Session, body: ResultSubmission) -> None:
+    """Only for new writes: a replay of a stored session must not depend on today's limit."""
     discipline = db.get(Discipline, body.discipline)
     assert discipline is not None
     for entry in body.entries:
@@ -278,13 +282,15 @@ def submit_result(
 ) -> tuple[ResultReceipt, bool]:
     """Store a result; returns the receipt and whether anything was newly written."""
     caller.check(body.discipline, body.section)
-    _validate_entries(db, body)
+    _validate_entries(body)
     _check_finished_at(body, now)
     session_id = str(body.session_id)
     digest = payload_hash(body)
     people = find_participants(db, [e.participant_code for e in body.entries])
 
     session = db.get(GameSession, session_id)
+    if session is None or session.payload_hash is None:
+        _check_points_limit(db, body)
     if session is None:
         session = GameSession(
             session_id=session_id,

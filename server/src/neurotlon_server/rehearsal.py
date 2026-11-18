@@ -255,6 +255,7 @@ class Rehearsal:
         self.report = report
         self.xlsx_out = xlsx_out
         self.rng = random.Random(SEED)
+        self.max_points = POINTS_MAX  # replaced by the server limit in _setup_event
         self.pong_winner: dict[tuple[str, ...], str] = {}  # pair -> code of the match winner
         self.sessions: dict[tuple[str, str, str], str] = {}  # (code, discipline, section) -> id
 
@@ -301,7 +302,14 @@ class Rehearsal:
             self.report.check(f"volunteer {d} signs in", reply.status == 200, str(reply.status))
         return actors
 
+    def _read_limit(self, admin: Http) -> None:
+        """Section points never exceed the limit the server enforces for darts and football."""
+        rows = _call(admin.get(f"{API}/disciplines"), 200, "disciplines").json()
+        limits = [r["max_section_points"] for r in rows if r["code"] != "pong"]
+        self.max_points = int(min(limits)) if limits else POINTS_MAX
+
     def _setup_event(self, admin: Http) -> list[tuple[str, str]]:
+        self._read_limit(admin)
         generated = _call(admin.post(f"{API}/participants/generate", {"count": 20}), 200, "gen")
         self.report.check("20 participants generated", generated.json()["total"] == 20)
         for n in range(1, 21):
@@ -327,19 +335,21 @@ class Rehearsal:
     # --- results ---------------------------------------------------------------------------
 
     def _points(self, section: str) -> float:
-        """Small realistic score: mostly 3..9, now and then 0 or 10; BCI has one decimal."""
+        """Small realistic score: mostly 30%..90% of the limit, now and then 0 or the limit."""
+        top = self.max_points
         roll = self.rng.random()
         if roll < 0.05:
             return 0.0
         if roll < 0.13:
-            return float(POINTS_MAX)
+            return float(top)
         if section == "bci":
-            return round(self.rng.uniform(3, 9), 1)
-        return float(self.rng.randint(3, 9))
+            return min(float(top), round(self.rng.uniform(top * 0.3, top * 0.9), 1))
+        return float(self.rng.randint(max(1, top * 3 // 10), max(1, top * 9 // 10)))
 
     def _other_points(self, points: float) -> float:
         """A valid score different from `points`, for conflicts and corrections."""
-        return 9.0 if points == POINTS_MAX else float(POINTS_MAX)
+        other = float(self.max_points)
+        return max(other - 1, 0.0) if points == other else other
 
     def _entry(
         self,
