@@ -43,7 +43,7 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
 # проект русскоязычный: однобуквенные слова («с», «о») не считаем путаницей с латиницей
-allowed-confusables = ["а", "с", "е", "о", "р", "х", "у", "г", "Н"]
+allowed-confusables = ["а", "с", "е", "о", "р", "х", "у", "г", "б", "Н", "Т", "В", "К", "М", "А", "Е", "О", "Р", "С", "Х"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["neurotlon_server", "neurotlon_launcher", "neurotlon_bridge", "neurotlon_games"]
