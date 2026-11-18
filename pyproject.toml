@@ -7,6 +7,7 @@ dependencies = [
     "neurotlon_launcher",
     "neurotlon_bridge",
     "neurotlon_games",
+    "neurotlon_contracts",
 ]
 
 [tool.uv]
@@ -17,9 +18,10 @@ neurotlon_server = { workspace = true }
 neurotlon_launcher = { workspace = true }
 neurotlon_bridge = { workspace = true }
 neurotlon_games = { workspace = true }
+neurotlon_contracts = { workspace = true }
 
 [tool.uv.workspace]
-members = ["server", "launcher", "bci-bridge", "games"]
+members = ["server", "launcher", "bci-bridge", "games", "shared/python"]
 
 [dependency-groups]
 dev = [
@@ -43,20 +45,20 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
 # проект русскоязычный: однобуквенные слова («с», «о») не считаем путаницей с латиницей
-allowed-confusables = ["а", "с", "е", "о", "р", "х", "у", "г", "Н"]
+allowed-confusables = ["а", "с", "е", "о", "р", "х", "у", "г", "б", "Н", "Т", "В", "К", "М", "А", "Е", "О", "Р", "С", "Х"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["neurotlon_server", "neurotlon_launcher", "neurotlon_bridge", "neurotlon_games"]
+known-first-party = ["neurotlon_contracts", "neurotlon_server", "neurotlon_launcher", "neurotlon_bridge", "neurotlon_games"]
 
 [tool.mypy]
 python_version = "3.12"
 strict = true
-mypy_path = ["server/src", "launcher/src", "bci-bridge/src", "games/src"]
-files = ["shared/tests", "server", "launcher", "bci-bridge", "games"]
+mypy_path = ["shared/python/src", "server/src", "launcher/src", "bci-bridge/src", "games/src"]
+files = ["shared/tests", "shared/python", "server", "launcher", "bci-bridge", "games"]
 explicit_package_bases = true
 
 [tool.pytest.ini_options]
-testpaths = ["shared/tests", "server/tests", "launcher/tests", "bci-bridge/tests", "games/tests"]
+testpaths = ["shared/tests", "shared/python/tests", "server/tests", "launcher/tests", "bci-bridge/tests", "games/tests"]
 addopts = "--import-mode=importlib"
 
 [[tool.mypy.overrides]]

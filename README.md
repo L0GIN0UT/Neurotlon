@@ -26,3 +26,4 @@ cd web && npm run lint && npm run typecheck && npm test
 - [Архитектура](docs/architecture.md) — схемы зала, сервисов, стенда, процессов, модели данных, статусов и расчёта очков
 - [Принятые решения](docs/decisions.md) — отличия от ТЗ и открытые вопросы
 - [Роадмап](docs/roadmap.md) — этапы работ
+- [Как подключить игру](games/README.md) — SDK для pygame-ce, кит для Unity, проверка `neurotlon-game-check`

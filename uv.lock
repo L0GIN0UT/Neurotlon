@@ -6,6 +6,7 @@ requires-python = "==3.12.*"
 members = [
     "neurotlon",
     "neurotlon-bridge",
+    "neurotlon-contracts",
     "neurotlon-games",
     "neurotlon-launcher",
     "neurotlon-server",
@@ -481,6 +482,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "neurotlon-bridge" },
+    { name = "neurotlon-contracts" },
     { name = "neurotlon-games" },
     { name = "neurotlon-launcher" },
     { name = "neurotlon-server" },
@@ -504,6 +506,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "neurotlon-bridge", editable = "bci-bridge" },
+    { name = "neurotlon-contracts", editable = "shared/python" },
     { name = "neurotlon-games", editable = "games" },
     { name = "neurotlon-launcher", editable = "launcher" },
     { name = "neurotlon-server", editable = "server" },
@@ -549,9 +552,36 @@ requires-dist = [
 dev = []
 
 [[package]]
+name = "neurotlon-contracts"
+version = "0.1.0"
+source = { editable = "shared/python" }
+dependencies = [
+    { name = "jsonschema" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "jsonschema", specifier = ">=4.26.0" }]
+
+[[package]]
 name = "neurotlon-games"
 version = "0.1.0"
 source = { editable = "games" }
+dependencies = [
+    { name = "jsonschema" },
+    { name = "neurotlon-bridge" },
+    { name = "neurotlon-contracts" },
+    { name = "neurotlon-launcher" },
+    { name = "pygame-ce" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "jsonschema", specifier = ">=4.26.0" },
+    { name = "neurotlon-bridge", editable = "bci-bridge" },
+    { name = "neurotlon-contracts", editable = "shared/python" },
+    { name = "neurotlon-launcher", editable = "launcher" },
+    { name = "pygame-ce", specifier = ">=2.5.8" },
+]
 
 [[package]]
 name = "neurotlon-launcher"
@@ -560,6 +590,7 @@ source = { editable = "launcher" }
 dependencies = [
     { name = "httpx2" },
     { name = "jsonschema" },
+    { name = "neurotlon-contracts" },
     { name = "opencv-python-headless" },
     { name = "pygame-ce" },
 ]
@@ -568,6 +599,7 @@ dependencies = [
 requires-dist = [
     { name = "httpx2", specifier = ">=2.16.2" },
     { name = "jsonschema", specifier = ">=4.26.0" },
+    { name = "neurotlon-contracts", editable = "shared/python" },
     { name = "opencv-python-headless", specifier = ">=5.1.0.95" },
     { name = "pygame-ce", specifier = ">=2.5.8" },
 ]

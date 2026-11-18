@@ -3,7 +3,16 @@ name = "neurotlon_games"
 version = "0.1.0"
 description = "Darts, football and pong"
 requires-python = ">=3.12,<3.13"
-dependencies = []
+dependencies = [
+    "jsonschema>=4.26.0",
+    "neurotlon_contracts",
+    "neurotlon_bridge",
+    "neurotlon_launcher",
+    "pygame-ce>=2.5.8",
+]
+
+[project.scripts]
+neurotlon-game-check = "neurotlon_games.check.__main__:main"
 
 [build-system]
 requires = ["hatchling"]

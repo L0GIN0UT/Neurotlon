@@ -6,12 +6,14 @@ import json
 import logging
 import time
 import uuid
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Any, Protocol
 
 from jsonschema import ValidationError
+
+from neurotlon_contracts.contract import result_problem
 
 from .proc import ManagedProcess
 from .schema import launch_validator
@@ -20,6 +22,10 @@ log = logging.getLogger(__name__)
 
 PROTOCOL = 1
 GRACE_S = 120.0
+# начала сообщений `Crashed`: по ним `neurotlon-game-check` отличает причины
+DETAIL_START_FAILED = "не удалось запустить игру"
+DETAIL_TIMEOUT = "игра не завершилась вовремя"
+DETAIL_EXIT_CODE = "игра завершилась с кодом"
 NAME_MAX = 24
 SIDES = ("left", "right")
 
@@ -121,53 +127,25 @@ def parse_result(path: Path, request: GameRequest) -> GameOutcome:
         return Crashed("игра вышла без result.json")
     except (OSError, ValueError) as exc:
         return Crashed(f"result.json не читается: {exc}")
-    try:
-        launch_validator("Result").validate(data)
-    except ValidationError as exc:
-        return Crashed(f"result.json не проходит схему: {exc.message}")
-    if data["session_id"] != str(request.session_id):
-        return Crashed("session_id в result.json не совпадает с запущенной сессией")
+    codes = [p.code for p in request.players]
+    problem = result_problem(
+        data, session_id=str(request.session_id), discipline=request.discipline, codes=codes
+    )
+    if problem:
+        return Crashed(problem)
     if data["status"] == "aborted":
         return Aborted(str(data["reason"]))
-    return _finished(data["entries"], request)
-
-
-def _finished(raw_entries: list[dict[str, Any]], request: GameRequest) -> GameOutcome:
-    expected = [p.code for p in request.players]
-    by_code = {e["participant_code"]: e for e in raw_entries}
-    if len(by_code) != len(raw_entries) or set(by_code) != set(expected):
-        return Crashed("записи result.json не соответствуют участникам сессии")
+    by_code = {e["participant_code"]: e for e in data["entries"]}
     entries: list[GameEntry] = []
-    for code in expected:
+    for code in codes:
         raw = by_code[code]
         if raw["outcome"] == "completed":
-            if "points" not in raw:
-                return Crashed(f"у {code} нет points при completed")
             entries.append(
                 GameEntry(code, "completed", float(raw["points"]), raw.get("wins"), None)
             )
-        elif "points" in raw or "wins" in raw:
-            return Crashed(f"у {code} есть points или wins при not_completed")
         else:
             entries.append(GameEntry(code, "not_completed", None, None, raw.get("reason", "other")))
-    problem = entries_problem(request.discipline, entries)
-    return Crashed(problem) if problem else Finished(tuple(entries))
-
-
-def entries_problem(discipline: str, entries: Sequence[GameEntry]) -> str | None:
-    """Правила сервера (`_validate_entries`); нарушение там даёт 422."""
-    expected = 2 if discipline == "pong" else 1
-    if len(entries) != expected or len({e.participant_code for e in entries}) != expected:
-        return f"{discipline}: нужно ровно {expected} участник(ов) в результате"
-    wins = [e.wins for e in entries]
-    if discipline != "pong":
-        if any(w is not None for w in wins):
-            return f"wins допустимы только в понге, а не в {discipline}"
-    elif all(e.outcome == "completed" for e in entries) and (
-        None in wins or sum(w or 0 for w in wins) != 1
-    ):
-        return "понг: при двух завершивших wins есть у обоих, ровно у одного 1"
-    return None
+    return Finished(tuple(entries))
 
 
 class SubprocessGameRunner:
@@ -222,7 +200,7 @@ class SubprocessGameRunner:
             )
         except OSError as exc:
             self._close_log()
-            self._early = Crashed(f"не удалось запустить игру: {exc}")
+            self._early = Crashed(f"{DETAIL_START_FAILED}: {exc}")
             return
         self._deadline = self._monotonic() + request.duration_s + self._grace_s
 
@@ -239,10 +217,10 @@ class SubprocessGameRunner:
                 return None
             log.warning("game did not exit in time, killing it")
             self.stop()
-            return Crashed("игра не завершилась вовремя")
+            return Crashed(DETAIL_TIMEOUT)
         self._finish_process()
         if code != 0:
-            return Crashed(f"игра завершилась с кодом {code}")
+            return Crashed(f"{DETAIL_EXIT_CODE} {code}")
         return parse_result(result_path, request)
 
     def stop(self) -> None:

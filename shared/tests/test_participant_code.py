@@ -11,7 +11,7 @@ SHARED = Path(__file__).parent.parent
 CASES = json.loads((SHARED / "participant-code.cases.json").read_text(encoding="utf-8"))
 CODE_RE = re.compile(r"^NT(0[1-9]|[1-9][0-9])$")
 INPUT_RE = re.compile(r"^(?:NT)?([0-9]{1,2})$")
-CYRILLIC_PREFIX = str.maketrans({"Н": "N", "Т": "T"})  # noqa: RUF001 (Cyrillic on purpose)
+CYRILLIC_PREFIX = str.maketrans({"Н": "N", "Т": "T"})
 
 
 def normalize(raw: str) -> str | None:
