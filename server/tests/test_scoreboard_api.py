@@ -465,3 +465,4 @@ def test_conflicted_pong_match_is_not_counted_in_duel(client: TestClient, db: Se
     first, second = client.get(f"{API}/scoreboard").json()["teams"]
     assert (first["duel_score"], second["duel_score"]) == (0, 0)
     assert first["top"]["pong"][0]["pending"] is True
+    assert first["top"]["pong"][0]["rank"] is None

@@ -33,7 +33,7 @@ PING_INTERVAL_S = 15.0
 
 
 class TopOut(BaseModel):
-    rank: int
+    rank: int | None
     number: int
     label: str
     points: float

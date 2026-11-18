@@ -285,15 +285,41 @@ def test_top_players_tie_breaks_by_sections_then_number() -> None:
     assert [e.participant_id for e in top] == [2, 3, 1]  # 2: two sections; 3 before 1 by number
 
 
-def test_top_players_limit_and_conflict_marker() -> None:
+def test_top_players_pending_take_no_place_and_follow_the_top() -> None:
     results = [res(i, i, points=float(i)) for i in range(1, 8)]
     results += [res(20, 8, points=1), res(21, 8, points=2, session="again")]
-    top = _top(results, {i: i for i in range(1, 9)})
-    assert len(top) == 5
-    assert (top[0].participant_id, top[0].pending, top[0].points) == (8, True, 0)
-    assert [e.participant_id for e in top[1:]] == [7, 6, 5, 4]
-    assert _top(results, {i: i for i in range(1, 9)}, limit=2)[0].pending is True
+    results += [res(30, 9, points=1), res(31, 9, points=2, session="again")]
+    numbers = {i: i for i in range(1, 10)}
+    top = _top(results, numbers)
+    assert [(e.rank, e.participant_id, e.pending) for e in top] == [
+        (1, 7, False),
+        (2, 6, False),
+        (3, 5, False),
+        (4, 4, False),
+        (5, 3, False),
+        (None, 8, True),
+        (None, 9, True),
+    ]
+    assert [e.rank for e in _top(results, numbers, limit=2)] == [1, 2, None, None]
+
+
+def test_top_players_only_pending_when_nobody_counted() -> None:
+    results = [res(1, 1, points=1), res(2, 1, points=2, session="again")]
+    assert [(e.rank, e.pending) for e in _top(results, {1: 1})] == [(None, True)]
 
 
 def test_top_players_empty_when_nobody_scored() -> None:
     assert _top([], {1: 1, 2: 2}) == []
+
+
+def test_duel_score_skips_same_team_and_teamless_matches() -> None:
+    results = [
+        pong(1, 1, 1, "same"),  # players 1 and 3 are both on team 1
+        pong(2, 3, 0, "same"),
+        pong(3, 1, 1, "free"),  # player 5 has no team
+        pong(4, 5, 0, "free"),
+        pong(5, 5, 1, "free2"),
+        pong(6, 2, 0, "free2"),
+    ]
+    people = [*DUEL_PEOPLE, person(5, None)]
+    assert duel_score(results, people) == {1: 0, 2: 0}

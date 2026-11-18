@@ -65,7 +65,7 @@ class ParticipantScore:
 class TopEntry:
     """One line of a discipline's top list on the scoreboard."""
 
-    rank: int
+    rank: int | None  # None: undecided (conflict), not placed
     participant_id: int
     number: int
     points: float
@@ -116,7 +116,10 @@ def duel_score(
         winners = [r for r in rows if r.wins == 1]
         if len(winners) != 1 or sum(r.wins or 0 for r in rows) != 1:
             continue
-        team_id = team_of.get(winners[0].participant_id)
+        teams = {team_of.get(r.participant_id) for r in rows}
+        if len(teams) != 2 or None in teams:  # same team or a player without a team: no match
+            continue
+        team_id = team_of[winners[0].participant_id]
         if team_id is not None:
             score[team_id] += 1
     return score
@@ -133,33 +136,38 @@ def top_players(
 ) -> list[TopEntry]:
     """Best players of one team in one discipline (physical + BCI points).
 
-    Order: points desc, sections passed in the discipline desc, number in team asc. Players with
-    no counted result are left out, except those whose section is in a conflict: they are marked
-    pending and listed first, so the judge's open question is never cut off.
+    The first `limit` entries are ranked 1..limit: points desc, sections passed in the discipline
+    desc, number in team asc; players with no counted result are left out. Players whose section
+    in this discipline is in a conflict take no place: they follow as extra entries with
+    `rank=None` and `pending=True`, so the judge's open question is never cut off.
     """
-    rows = [
-        (m, m.by_discipline.get(discipline, 0.0), m.passed_by_discipline.get(discipline, 0))
-        for m in members
-        if discipline in m.by_discipline or m.conflicts_by_discipline.get(discipline)
-    ]
-    rows.sort(
-        key=lambda r: (
-            not r[0].conflicts_by_discipline.get(discipline),  # undecided players stay visible
-            -r[1],
-            -r[2],
-            numbers.get(r[0].participant_id, 0),
-        )
-    )
-    return [
-        TopEntry(
-            rank=i,
+    counted = []
+    pending = []
+    for m in members:
+        row = (m, m.by_discipline.get(discipline, 0.0), m.passed_by_discipline.get(discipline, 0))
+        if m.conflicts_by_discipline.get(discipline):
+            pending.append(row)
+        elif discipline in m.by_discipline:
+            counted.append(row)
+
+    def order(r: tuple[ParticipantScore, float, int]) -> tuple[float, int, int]:
+        return (-r[1], -r[2], numbers.get(r[0].participant_id, 0))
+
+    def entry(rank: int | None, r: tuple[ParticipantScore, float, int]) -> TopEntry:
+        m, points, passed = r
+        return TopEntry(
+            rank=rank,
             participant_id=m.participant_id,
             number=numbers.get(m.participant_id, 0),
             points=points,
             sections_passed=passed,
-            pending=bool(m.conflicts_by_discipline.get(discipline)),
+            pending=rank is None,
         )
-        for i, (m, points, passed) in enumerate(rows[:limit], start=1)
+
+    counted.sort(key=order)
+    pending.sort(key=order)
+    return [entry(i, r) for i, r in enumerate(counted[:limit], start=1)] + [
+        entry(None, r) for r in pending
     ]
 
 
