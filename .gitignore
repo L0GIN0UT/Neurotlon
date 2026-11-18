@@ -37,3 +37,6 @@ Thumbs.db
 .claude/settings.local.json
 *.log
 *.local
+
+# Claude Code agent worktrees
+.claude/worktrees/
