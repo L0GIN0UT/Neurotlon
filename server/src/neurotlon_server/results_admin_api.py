@@ -3,17 +3,18 @@
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Body, Depends, Query
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.engine import CursorResult
 
 from neurotlon_server.audit import write_audit
 from neurotlon_server.auth import Db, require_role
 from neurotlon_server.codes import normalize_code
 from neurotlon_server.errors import ProblemError, conflict, forbidden, not_found
-from neurotlon_server.models import Participant, SectionResult, User
+from neurotlon_server.models import CorrectionRequest, Participant, SectionResult, User
 from neurotlon_server.results import DisciplineName, Reason, SectionName
+from neurotlon_server.scoring import COUNTED_STATUSES
 
 router = APIRouter(prefix="/api/v1/results", tags=["results"])
 
@@ -108,10 +109,12 @@ def _apply(row: SectionResult, patch: ResultPatch) -> dict[str, Any]:
     return new
 
 
-def _check_pong_wins(db: Db, row: SectionResult, new: dict[str, Any]) -> None:
-    """Match-level rules. The winner is flipped in two edits, so only "at most one" is enforced."""
+def _pong_siblings(
+    db: Db, row: SectionResult, new: dict[str, Any], user: User
+) -> list[SectionResult]:
+    """Match-level rules; returns the other rows that must get wins=0 in the same edit."""
     if row.discipline != "pong":
-        return
+        return []
     others = list(
         db.scalars(
             select(SectionResult).where(
@@ -121,11 +124,25 @@ def _check_pong_wins(db: Db, row: SectionResult, new: dict[str, Any]) -> None:
             )
         )
     )
-    both_done = new["outcome"] == "completed" and all(o.outcome == "completed" for o in others)
-    if both_done and others and new["wins"] is None:
+    completed = new["outcome"] == "completed"
+    if (
+        completed
+        and others
+        and all(o.outcome == "completed" for o in others)
+        and new["wins"] is None
+    ):
         raise _invalid("both players completed: wins are required")
-    if (new["wins"] or 0) + sum(o.wins or 0 for o in others) > 1:
-        raise _invalid("a pong match has at most one winner")
+    if completed and row.wins == 1 and new["wins"] != 1:
+        raise _invalid("the winner cannot be removed: set wins=1 on the other player")
+    if new["wins"] != 1 or row.wins == 1:
+        return []
+    changed = [o for o in others if o.outcome == "completed" and o.wins != 0]
+    for other in changed:
+        if other.status == "locked" and user.role == "judge":
+            raise forbidden()
+        if other.status not in ("confirmed", "locked"):
+            raise conflict("The other player's result is not confirmed")
+    return changed
 
 
 @router.get("")
@@ -157,8 +174,51 @@ def list_results(
     return [_out(row, code) for row, code in db.execute(query)]
 
 
+class LockRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    force: bool = False
+
+
+def _blockers(db: Db) -> dict[str, int]:
+    """Unresolved duplicates and open correction requests that should stop the lock."""
+    live = db.execute(
+        select(
+            SectionResult.participant_id,
+            SectionResult.discipline,
+            SectionResult.section,
+            func.count(),
+        )
+        .where(SectionResult.voided_at.is_(None), SectionResult.status.in_(COUNTED_STATUSES))
+        .group_by(SectionResult.participant_id, SectionResult.discipline, SectionResult.section)
+    )
+    conflicts = sum(1 for *_, n in live if n > 1)
+    open_requests = db.scalar(
+        select(func.count())
+        .select_from(CorrectionRequest)
+        .where(CorrectionRequest.status == "open")
+    )
+    return {"conflicts": conflicts, "open_corrections": open_requests or 0}
+
+
 @router.post("/lock")
-def lock_results(db: Db, user: Judge) -> dict[str, int]:
+def lock_results(
+    db: Db, user: Judge, body: Annotated[LockRequest | None, Body()] = None
+) -> dict[str, int]:
+    force = body is not None and body.force
+    if force and user.role == "judge":
+        raise forbidden()
+    blockers = _blockers(db)
+    blocked = any(blockers.values())
+    if blocked and not force:
+        raise ProblemError(
+            409,
+            "conflict",
+            "Conflict",
+            f"Unresolved conflicts: {blockers['conflicts']}, "
+            f"open correction requests: {blockers['open_corrections']}",
+            extra=blockers,
+        )
     done = db.execute(
         update(SectionResult)
         .where(SectionResult.status == "confirmed", SectionResult.voided_at.is_(None))
@@ -166,16 +226,50 @@ def lock_results(db: Db, user: Judge) -> dict[str, int]:
     )
     assert isinstance(done, CursorResult)
     locked = done.rowcount
+    after: dict[str, Any] = {"locked": locked}
+    if force:
+        after |= {"force": True, **blockers}
     write_audit(
         db,
         action="result.lock",
         object_type="section_result",
         object_id="bulk",
         user_id=user.id,
-        after={"locked": locked},
+        after=after,
     )
     db.commit()
     return {"locked": locked}
+
+
+def _demote_sibling(db: Db, other: SectionResult, user: User, change_reason: str) -> None:
+    """The other pong player becomes the loser (wins=0) in the same transaction."""
+    version = other.version
+    before = _snapshot(other) | {"version": version}
+    done = db.execute(
+        update(SectionResult)
+        .where(
+            SectionResult.id == other.id,
+            SectionResult.version == version,
+            SectionResult.status == other.status,
+            SectionResult.voided_at.is_(None),
+        )
+        .values(wins=0, version=version + 1)
+    )
+    assert isinstance(done, CursorResult)
+    if done.rowcount != 1:
+        db.rollback()
+        raise conflict("Result changed concurrently, reload and try again")
+    code = db.scalar(select(Participant.code).where(Participant.id == other.participant_id))
+    write_audit(
+        db,
+        action="result.correct",
+        object_type="section_result",
+        object_id=other.id,
+        user_id=user.id,
+        before=before,
+        after=_snapshot(other) | {"wins": 0, "version": version + 1, "participant_code": code},
+        reason=change_reason,
+    )
 
 
 @router.patch("/{result_id}")
@@ -190,7 +284,7 @@ def patch_result(result_id: int, body: ResultPatch, db: Db, user: Judge) -> Resu
     if row.status not in ("confirmed", "locked"):
         raise conflict("Only confirmed or locked results can be corrected")
     new = _apply(row, body)
-    _check_pong_wins(db, row, new)
+    siblings = _pong_siblings(db, row, new, user)
     before = _snapshot(row) | {"version": row.version}
     version, status = row.version, row.status
     # Guarded update: of two parallel corrections (or a lock in between) only one wins.
@@ -210,6 +304,8 @@ def patch_result(result_id: int, body: ResultPatch, db: Db, user: Judge) -> Resu
         raise conflict("Result changed concurrently, reload and try again")
     code = db.scalar(select(Participant.code).where(Participant.id == row.participant_id))
     assert code is not None
+    for other in siblings:
+        _demote_sibling(db, other, user, body.change_reason)
     write_audit(
         db,
         action="result.correct",
