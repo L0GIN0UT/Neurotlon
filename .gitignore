@@ -24,6 +24,7 @@ coverage/
 .env.*
 !.env.example
 *.pem
+bridge.toml
 *.key
 
 # Editors and OS

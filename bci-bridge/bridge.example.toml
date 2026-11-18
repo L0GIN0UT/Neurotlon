@@ -1,0 +1,37 @@
+# Скопируйте в bridge.toml (он в .gitignore) и впишите серийные номера своих датчиков.
+# Список найденных датчиков: uv run neurotlon-bridge --scan
+
+[devices]
+# дартс, футбол: BrainBit и Callibri
+eeg = ""        # серийный номер BrainBit
+emg = ""        # серийный номер Callibri
+# понг: два Callibri (левая и правая рука)
+emg_left = ""
+emg_right = ""
+scan_s = 12.0   # сколько секунд искать датчики при старте
+
+# Параметры ниже можно не трогать: это значения, проверенные на железе.
+[emg]
+fs_nominal = 1000          # Гц в режиме ЭМГ
+band_low_hz = 20
+band_high_hz = 450
+notch_hz = 50
+notch_q = 30
+rms_window_ms = 100
+rms_step_ms = 20
+settle_s = 5.0             # после подключения сигнал оседает, это время RMS не считается
+calib_rest_s = 5.0         # шаг rest
+calib_contractions = 3     # шаг contract: столько сокращений
+calib_contraction_s = 3.0  # длительность одного сокращения
+calib_pause_s = 1.0        # пауза между сокращениями
+calib_min_ratio = 1.0      # максимум должен быть выше покоя во столько раз (1.0 — просто выше)
+
+[eeg]
+sampling_rate = 250
+process_win_freq = 25
+fft_window = 1000
+n_first_sec_skipped = 4
+num_wins_for_quality_avg = 125
+ampl_art_extremum_border = 25
+calibration_s = 8          # шаг baseline
+skip_wins_after_artifact = 10

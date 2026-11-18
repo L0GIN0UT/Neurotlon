@@ -10,7 +10,7 @@ import time
 from dataclasses import dataclass, field
 
 from . import protocol
-from .source import CalibrationProgress, Clock, SensorState, SignalSource
+from .source import CalibrationProgress, CalibrationStep, Clock, SensorState, SignalSource
 
 log = logging.getLogger(__name__)
 
@@ -21,7 +21,12 @@ class _Tracking:
 
     states: dict[str, SensorState]
     calibrations: dict[str, CalibrationProgress | None]
+    batteries: dict[str, int | None] = field(default_factory=dict)
     calibration_sent_at: dict[str, float] = field(default_factory=dict)
+
+
+def _default_step(signal: str) -> CalibrationStep:
+    return "baseline" if signal == "eeg" else "rest"
 
 
 class BridgeServer:
@@ -100,7 +105,7 @@ class BridgeServer:
             )
             tasks = {
                 asyncio.create_task(self._send_loop(writer, tracking)),
-                asyncio.create_task(self._receive_loop(reader, tracking)),
+                asyncio.create_task(self._receive_loop(reader, writer, tracking)),
             }
             done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             for task in pending:
@@ -119,7 +124,9 @@ class BridgeServer:
             with contextlib.suppress(ConnectionError, OSError):
                 await writer.wait_closed()
 
-    async def _receive_loop(self, reader: asyncio.StreamReader, tracking: _Tracking) -> None:
+    async def _receive_loop(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter, tracking: _Tracking
+    ) -> None:
         while True:
             try:
                 line = await reader.readline()
@@ -136,15 +143,33 @@ class BridgeServer:
             match msg:
                 case protocol.Calibrate():
                     try:
-                        self._source.start_calibration(msg.signal, msg.step)
+                        # вызов может блокировать (замки обработчиков): не в цикле событий
+                        await asyncio.to_thread(
+                            self._source.start_calibration, msg.signal, msg.step
+                        )
                     except ValueError as exc:
                         log.warning("calibrate проигнорирован: %s", exc)
+                    except Exception as exc:
+                        log.exception("ошибка запуска калибровки %s", msg.signal)
+                        await self._report_failure(writer, msg.signal, msg.step, exc)
                 case protocol.Reset():
-                    self._source.reset()
+                    try:
+                        await asyncio.to_thread(self._source.reset)
+                    except Exception as exc:
+                        log.exception("ошибка очистки калибровки")
+                        for name in self._source.signals():
+                            await self._report_failure(writer, name, _default_step(name), exc)
                     for name in tracking.calibrations:
                         tracking.calibrations[name] = None
                 case _:
                     pass
+
+    async def _report_failure(
+        self, writer: asyncio.StreamWriter, signal: str, step: CalibrationStep, exc: Exception
+    ) -> None:
+        reason = f"внутренняя ошибка моста: {exc}"
+        msg = protocol.Calibration(signal, step, "failed", None, reason)
+        await self._write(writer, protocol.encode(msg))
 
     async def _send_loop(self, writer: asyncio.StreamWriter, tracking: _Tracking) -> None:
         period = 1.0 / self._rate_hz
@@ -166,9 +191,11 @@ class BridgeServer:
         out: list[bytes] = []
         for name in self._source.signals():
             state = self._source.state(name)
-            if state != tracking.states.get(name):
+            battery = self._source.battery(name)
+            if state != tracking.states.get(name) or battery != tracking.batteries.get(name):
                 tracking.states[name] = state
-                out.append(protocol.encode(protocol.Sensor(name, state)))
+                tracking.batteries[name] = battery
+                out.append(protocol.encode(protocol.Sensor(name, state, battery)))
         return out
 
     def _calibration_messages(self, tracking: _Tracking, now: float) -> list[bytes]:

@@ -4,7 +4,11 @@ version = "0.1.0"
 description = "BrainBit / Callibri bridge"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "numpy>=2.5.5",
+    "pyem-st-artifacts==1.0.5",
     "pygame-ce>=2.5.8",
+    "pyneurosdk2==1.0.15",
+    "scipy>=1.18.1",
 ]
 
 [project.scripts]
@@ -16,3 +20,8 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/neurotlon_bridge"]
+
+[dependency-groups]
+dev = [
+    "scipy-stubs>=1.18.1.1",
+]
