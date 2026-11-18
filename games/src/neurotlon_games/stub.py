@@ -58,6 +58,20 @@ def spawn_child(pid_file: Path) -> None:
     pid_file.write_text(str(child.pid), encoding="utf-8")
 
 
+def connect_bridge(host: str, port: int, wait_s: float = 5.0) -> None:
+    """Подключиться к мосту, дождаться связи и отключиться."""
+    from neurotlon_bridge.client import BridgeClient
+
+    client = BridgeClient(host, port)
+    try:
+        deadline = time.monotonic() + wait_s
+        while not client.connected and time.monotonic() < deadline:
+            time.sleep(0.02)
+        time.sleep(0.3)
+    finally:
+        client.close()
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="neurotlon_games.stub", description=__doc__)
     parser.add_argument("--launch", type=Path, required=True)
@@ -70,11 +84,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="запустить долгоживущий дочерний процесс, его pid — в child.pid рядом с result.json",
     )
     parser.add_argument("--crash", action="store_true", help="выйти с кодом 1 без результата")
+    parser.add_argument(
+        "--connect",
+        action="store_true",
+        help="подключиться к мосту из launch.json (для проверки neurotlon-game-check)",
+    )
     args = parser.parse_args(argv)
 
     launch = json.loads(args.launch.read_text(encoding="utf-8"))
     if args.spawn_child:
         spawn_child(Path(launch["result_path"]).parent / "child.pid")
+    if args.connect:
+        connect_bridge(launch["bridge"]["host"], launch["bridge"]["port"])
     time.sleep(max(args.seconds, 0.0))
     if args.crash:
         print("stub: simulated crash", file=sys.stderr)
