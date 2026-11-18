@@ -17,6 +17,7 @@ dependencies = [
 
 [project.scripts]
 neurotlon-server = "neurotlon_server.cli:main"
+neurotlon-rehearsal = "neurotlon_server.rehearsal:main"
 
 [build-system]
 requires = ["hatchling"]
