@@ -8,6 +8,7 @@ from neurotlon_launcher import texts
 from neurotlon_launcher.api import (
     ApiProblem,
     Busy,
+    DisciplineConfig,
     Eligibility,
     Offline,
     Unauthorized,
@@ -472,3 +473,17 @@ def test_unexpected_error_in_worker_does_not_crash_the_machine() -> None:
     rig.machine.tick()
     assert isinstance(rig.state, Confirm)
     assert rig.state.notice == texts.server_error("ValueError")
+
+
+def test_max_points_from_config_reaches_game_and_active_session() -> None:
+    rig = Rig("darts", DARTS_DONE)
+    rig.api.config = DisciplineConfig("darts", "bci", 90, 10)
+    rig.api.people["NT07"] = eligibility("NT07")
+    rig.machine.enter_code("7")
+    rig.machine.tick()
+    rig.machine.confirm()
+    rig.machine.tick()
+    assert rig.runner.requests[0].max_points == 10
+    active = rig.queue.active
+    assert active is not None
+    assert active.max_points == 10

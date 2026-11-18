@@ -375,11 +375,13 @@ class StationMachine:
     def _back_to_confirm(self, state: Starting, notice: str) -> None:
         self.state = Confirm(state.players[-1], state.players[:-1], notice)
 
-    def _start_job(self, state: Starting) -> tuple[int, bool]:
-        """Настройки и startSession; результат — (время игры, не было связи)."""
+    def _start_job(self, state: Starting) -> tuple[int, int | None, bool]:
+        """Настройки и startSession; результат — (время игры, лимит очков, не было связи)."""
         offline = False
+        max_points: int | None = None
         try:
-            duration = self._api.get_config().duration_s
+            config = self._api.get_config()
+            duration, max_points = config.duration_s, config.max_points
         except Offline:
             duration, offline = self._fallback_duration_s, True
         try:
@@ -388,14 +390,14 @@ class StationMachine:
             )
         except Offline:
             offline = True
-        return duration, offline
+        return duration, max_points, offline
 
     def _start(self, state: Starting) -> None:
         future = self._await(lambda: self._start_job(state))
         if future is None:
             return
         try:
-            duration, offline = future.result()
+            duration, max_points, offline = future.result()
         except Busy:
             self._back_to_confirm(state, texts.BUSY)
             return
@@ -411,6 +413,7 @@ class StationMachine:
             self.discipline,
             duration,
             tuple(Player(p.code, p.display_name) for p in state.players),
+            max_points,
         )
         self._outbox.set_active(
             ActiveSession(
@@ -418,6 +421,7 @@ class StationMachine:
                 self.discipline,
                 duration,
                 tuple((p.code, p.display_name) for p in state.players),
+                max_points,
             )
         )
         self._runner.start(request)

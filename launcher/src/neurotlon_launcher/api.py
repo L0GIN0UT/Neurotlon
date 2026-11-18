@@ -85,6 +85,17 @@ class DisciplineConfig:
     discipline: str
     section: str
     duration_s: int
+    max_points: int | None = None
+
+
+def _config_from(data: dict[str, Any]) -> DisciplineConfig:
+    raw = data.get("max_points")
+    return DisciplineConfig(
+        data["discipline"],
+        data["section"],
+        int(data["duration_s"]),
+        int(raw) if raw is not None else None,
+    )
 
 
 @dataclass(frozen=True)
@@ -181,7 +192,7 @@ class HttpStationApi:
             if cached is None:
                 raise
             return cached
-        config = DisciplineConfig(data["discipline"], data["section"], int(data["duration_s"]))
+        config = _config_from(data)
         self._write_cache(data)
         return config
 
@@ -190,7 +201,7 @@ class HttpStationApi:
             return None
         try:
             data = json.loads(self._cache_path.read_text(encoding="utf-8"))
-            return DisciplineConfig(data["discipline"], data["section"], int(data["duration_s"]))
+            return _config_from(data)
         except (OSError, ValueError, KeyError, TypeError):
             return None
 

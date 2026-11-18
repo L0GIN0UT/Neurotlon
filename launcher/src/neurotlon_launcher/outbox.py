@@ -41,6 +41,7 @@ class ActiveSession:
     discipline: str
     duration_s: int
     players: tuple[tuple[str, str | None], ...]  # (код, имя для табло)
+    max_points: int | None = None
 
 
 @dataclass(frozen=True)
@@ -138,6 +139,7 @@ class Outbox:
                 "discipline": active.discipline,
                 "duration_s": active.duration_s,
                 "players": [list(p) for p in active.players],
+                "max_points": active.max_points,
             },
             ensure_ascii=False,
         )
@@ -157,6 +159,7 @@ class Outbox:
             data["discipline"],
             int(data["duration_s"]),
             tuple((p[0], p[1]) for p in data["players"]),
+            data.get("max_points"),
         )
 
     def clear_active(self) -> None:

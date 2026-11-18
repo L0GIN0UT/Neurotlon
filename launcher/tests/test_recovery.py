@@ -90,3 +90,11 @@ def test_nothing_to_recover(tmp_path: Path) -> None:
     machine = machine_for(box)
     recover_active(machine, box, tmp_path)
     assert machine.state == Idle()
+
+
+def test_max_points_survives_restart(tmp_path: Path) -> None:
+    box = Outbox(tmp_path / "o.db")
+    limited = ActiveSession(str(SID), "darts", 90, (("NT07", "Аня"),), 10)
+    box.set_active(limited)
+    box.close()
+    assert Outbox(tmp_path / "o.db").get_active() == limited
