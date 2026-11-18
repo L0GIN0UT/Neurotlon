@@ -346,11 +346,16 @@ components:
         points:
           type: number
           minimum: 0
+          maximum: 1000
           description: Очки по методике; шкалы задаются в настройках сервера.
         wins:
           type: integer
           minimum: 0
-          description: Победы в сессии; для понга — 1 у победителя матча.
+          maximum: 1
+          description: |
+            Победы в сессии, только для понга (для дартса и футбола — `invalid_entries`).
+            Если оба игрока завершили, `wins` обязателен у обоих и ровно у одного равен 1.
+            Если кто-то не завершил, у него `wins` нет; завершивший может передать `wins: 1`.
         reason:
           $ref: "#/components/schemas/NotCompletedReason"
         comment:
@@ -451,10 +456,14 @@ components:
         queue_length:
           type: integer
           minimum: 0
+          maximum: 100000
           description: Результатов в офлайн-буфере.
         sensors:
           type: object
           description: Ключ — имя датчика (eeg, emg, emg_left, emg_right).
+          maxProperties: 4
+          propertyNames:
+            enum: [eeg, emg, emg_left, emg_right]
           additionalProperties:
             $ref: "#/components/schemas/SensorState"
 

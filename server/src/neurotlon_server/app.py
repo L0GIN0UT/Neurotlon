@@ -13,6 +13,7 @@ from neurotlon_server.draw_api import router as draw_router
 from neurotlon_server.errors import PROBLEM_JSON, forbidden, install_error_handlers
 from neurotlon_server.models import utcnow
 from neurotlon_server.participants import router as participants_router
+from neurotlon_server.station_api import router as station_router
 
 _UNSAFE_METHODS = frozenset({"POST", "PATCH", "PUT", "DELETE"})
 
@@ -48,6 +49,7 @@ def create_app(settings: Settings | None = None, clock: Callable[[], datetime] =
     app.include_router(admin_router)
     app.include_router(participants_router)
     app.include_router(draw_router)
+    app.include_router(station_router)
 
     @app.get("/health")
     def health() -> dict[str, str]:
