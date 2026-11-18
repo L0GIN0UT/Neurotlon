@@ -65,7 +65,7 @@ class TemplateGame(GameApp):
             color = ACCENT if self._levels[name] > THRESHOLD else MUTED
             draw_text(surface, SIGNAL_TITLES[name], 44, (x, height // 3), MUTED)
             draw_bar(surface, (x - 150, height // 2, 300, 36), self._levels[name], color)
-            draw_text(surface, f"Очки: {self._points[name]:.0f}", 52, (x, height * 2 // 3))
+            draw_text(surface, f"Очки: {int(self._points[name])}", 52, (x, height * 2 // 3))
 
     def result(self) -> Sequence[ResultEntry]:
         launch = self.launch
@@ -73,7 +73,7 @@ class TemplateGame(GameApp):
             player = launch.participants[0]
             total = sum(self._points.values())
             cap = float(launch.max_points or MAX_POINTS)  # секция: не больше лимита дисциплины
-            return [completed(player.code, round(min(total, cap), 1))]
+            return [completed(player.code, int(min(total, cap)))]
         scores = {p.code: self._points[launch.signal_of(p)] for p in launch.participants}
         peaks = {p.code: self._peaks[launch.signal_of(p)] for p in launch.participants}
         # при равенстве очков побеждает тот, у кого выше пик; потом левый (первый)
@@ -81,7 +81,7 @@ class TemplateGame(GameApp):
             launch.participants, key=lambda p: (scores[p.code], peaks[p.code], p.side == "left")
         )
         return [
-            completed(p.code, round(min(scores[p.code], MAX_POINTS), 1), int(p is winner))
+            completed(p.code, int(min(scores[p.code], MAX_POINTS)), int(p is winner))
             for p in launch.participants
         ]
 

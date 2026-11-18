@@ -139,14 +139,14 @@ def test_timer_ignores_negative_dt_and_rejects_zero_duration() -> None:
 def test_writer_finished_is_atomic_and_valid(tmp_path: Path) -> None:
     launch = make_launch("pong", tmp_path / "out" / "result.json")
     ResultWriter(launch).write_finished(
-        [completed("NT03", 12.5, wins=1), completed("NT14", 7, wins=0)]
+        [completed("NT03", 12, wins=1), completed("NT14", 7, wins=0)]
     )
     data = json.loads((tmp_path / "out" / "result.json").read_text(encoding="utf-8"))
     assert data["status"] == "finished"
     assert data["entries"][0] == {
         "participant_code": "NT03",
         "outcome": "completed",
-        "points": 12.5,
+        "points": 12,
         "wins": 1,
     }
     assert not list((tmp_path / "out").glob("*.tmp"))
@@ -420,7 +420,7 @@ def test_launch_rejects_bad_max_points() -> None:
 def test_writer_refuses_points_above_max_points(tmp_path: Path) -> None:
     launch = make_launch("darts", tmp_path / "result.json", max_points=10)
     with pytest.raises(ResultError, match="лимита"):
-        ResultWriter(launch).write_finished([completed("NT07", 10.5)])
+        ResultWriter(launch).write_finished([completed("NT07", 11)])
     assert not (tmp_path / "result.json").exists()
     ResultWriter(launch).write_finished([completed("NT07", 10)])
     assert (tmp_path / "result.json").exists()
@@ -431,3 +431,11 @@ def test_writer_pong_points_ignore_max_points(tmp_path: Path) -> None:
     ResultWriter(launch).write_finished(
         [completed("NT03", 50, wins=1), completed("NT14", 7, wins=0)]
     )
+
+
+def test_completed_requires_whole_points(tmp_path: Path) -> None:
+    for bad in (4.5, 0.1, True):
+        with pytest.raises(ResultError, match="целым"):
+            completed("NT07", bad)  # type: ignore[arg-type]
+    assert completed("NT07", 7.0).points == 7
+    assert isinstance(completed("NT07", 7.0).points, int)

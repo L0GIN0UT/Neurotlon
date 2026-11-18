@@ -12,7 +12,7 @@ namespace Neurotlon
     {
         public string participant_code;
         public string outcome;
-        public float points;
+        public int points; // только целые (решение 28)
         public int wins = -1; // -1: поле не пишется
         public string reason;
 
@@ -29,7 +29,7 @@ namespace Neurotlon
     public static class NeurotlonResult
     {
         // Участник доиграл. wins только в понге: 1 у победителя, 0 у проигравшего.
-        public static ResultEntryData Completed(string code, float points, int wins = -1)
+        public static ResultEntryData Completed(string code, int points, int wins = -1)
         {
             return new ResultEntryData
             {
@@ -110,7 +110,7 @@ namespace Neurotlon
         {
             if (e.outcome == NeurotlonProtocol.OutcomeCompleted)
             {
-                if (float.IsNaN(e.points) || e.points < 0f || e.points > NeurotlonProtocol.ResultPointsMax)
+                if (e.points < 0 || e.points > NeurotlonProtocol.ResultPointsMax)
                     return e.participant_code + ": points должно быть от 0 до 1000";
                 if (!launch.IsPong && launch.MaxPoints > 0 && e.points > launch.MaxPoints)
                     return e.participant_code + ": points больше лимита секции " + launch.MaxPoints;
@@ -149,7 +149,7 @@ namespace Neurotlon
             sb.Append(",\"outcome\":").Append(Quote(e.outcome));
             if (e.HasPoints)
             {
-                sb.Append(",\"points\":").Append(e.points.ToString("0.###", CultureInfo.InvariantCulture));
+                sb.Append(",\"points\":").Append(e.points.ToString(CultureInfo.InvariantCulture));
             }
             if (e.HasWins) sb.Append(",\"wins\":").Append(e.wins.ToString(CultureInfo.InvariantCulture));
             if (!string.IsNullOrEmpty(e.reason)) sb.Append(",\"reason\":").Append(Quote(e.reason));

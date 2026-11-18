@@ -23,7 +23,7 @@ class ResultError(ValueError):
 class ResultEntry:
     participant_code: str
     outcome: Literal["completed", "not_completed"]
-    points: float | None = None
+    points: int | None = None
     wins: int | None = None
     reason: Reason | None = None
 
@@ -38,8 +38,14 @@ class ResultEntry:
         return out
 
 
-def completed(code: str, points: float, wins: int | None = None) -> ResultEntry:
-    """Участник доиграл. `wins` только в понге: 1 у победителя, 0 у проигравшего."""
+def completed(code: str, points: int, wins: int | None = None) -> ResultEntry:
+    """Участник доиграл. `wins` только в понге: 1 у победителя, 0 у проигравшего.
+
+    `points` — целое число (решение 28); дробное значение — `ResultError`.
+    """
+    if isinstance(points, bool) or not isinstance(points, (int, float)) or points != int(points):
+        raise ResultError(f"points должны быть целым числом, а не {points!r}")
+    points = int(points)
     return ResultEntry(code, "completed", points=points, wins=wins)
 
 

@@ -147,10 +147,7 @@ def test_numeric_limits_match_schema() -> None:
     floats = consts(source("NeurotlonProtocol.cs"), "float")
     assert int(ints["ProtocolVersion"]) == LD["Launch"]["properties"]["protocol"]["const"] == 1
     assert int(ints["ResultReasonMaxLength"]) == LD["Result"]["properties"]["reason"]["maxLength"]
-    assert (
-        float(floats["ResultPointsMax"].rstrip("f"))
-        == LD["Entry"]["properties"]["points"]["maximum"]
-    )
+    assert int(ints["ResultPointsMax"]) == LD["Entry"]["properties"]["points"]["maximum"]
     duration = LD["Launch"]["properties"]["duration_s"]
     assert int(ints["DurationMinSeconds"]) == duration["minimum"]
     assert int(ints["DurationMaxSeconds"]) == duration["maximum"]
@@ -243,3 +240,11 @@ def test_unity_result_checks_max_points() -> None:
     text = source("NeurotlonResult.cs")
     assert "launch.MaxPoints" in text
     assert "!launch.IsPong" in text
+
+
+def test_unity_points_are_whole_numbers() -> None:
+    text = source("NeurotlonResult.cs")
+    assert re.search(r"public int points;", text)
+    assert "float points" not in text
+    assert "float points" not in source("NeurotlonProtocol.cs")
+    assert LD["Entry"]["properties"]["points"]["type"] == "integer"
