@@ -1,0 +1,280 @@
+.tablet {
+  --accent: #1d5fd1;
+  --bad: #b3261e;
+  --warn-bg: #fff3cd;
+  --warn-fg: #6b4e00;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 12px;
+  font-size: 1.125rem;
+  box-sizing: border-box;
+  touch-action: manipulation;
+}
+
+.tablet button,
+.tablet input,
+.tablet select,
+.tablet textarea {
+  font: inherit;
+  min-height: 56px;
+  padding: 8px 16px;
+  border-radius: 10px;
+  border: 2px solid #8a8f98;
+  box-sizing: border-box;
+}
+
+.tablet button {
+  cursor: pointer;
+  background: #eef0f4;
+  color: #111;
+}
+
+.tablet button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.tablet button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.tablet button.toggle.on {
+  background: #d7e6ff;
+  border-color: var(--accent);
+  font-weight: 700;
+}
+
+.card {
+  background: #fff;
+  color: #111;
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 12px;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 20%);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.row > button {
+  flex: 1 1 140px;
+}
+
+.grow {
+  flex: 1 1 200px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.error {
+  color: var(--bad);
+  font-weight: 600;
+  margin: 0;
+}
+
+.warning {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin: 0;
+}
+
+ul.warning {
+  padding-left: 32px;
+}
+
+.topbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 0 12px;
+}
+
+.topbar .queue {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+  flex-wrap: wrap;
+  position: relative;
+}
+
+.badge {
+  border-radius: 999px;
+  padding: 4px 14px;
+  font-weight: 700;
+}
+
+.badge.warn {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+}
+
+.badge.bad {
+  background: var(--bad);
+  color: #fff;
+}
+
+.errors {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 5;
+  list-style: none;
+  min-width: 320px;
+}
+
+.errors li {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+}
+
+.person {
+  border-left: 8px solid #2e7d32;
+  padding: 4px 12px;
+  background: #f4f6f8;
+  border-radius: 8px;
+}
+
+.person.warn {
+  border-color: #f2b705;
+}
+
+.person.bad {
+  border-color: var(--bad);
+}
+
+.person h2 {
+  margin: 4px 0;
+}
+
+.swatch {
+  display: inline-block;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  margin-right: 8px;
+  vertical-align: middle;
+  border: 1px solid #0006;
+}
+
+.chips {
+  display: flex;
+  gap: 12px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  flex-wrap: wrap;
+}
+
+.chips li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #e7efff;
+  border-radius: 999px;
+  padding-left: 16px;
+}
+
+.throws {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0;
+  list-style-position: inside;
+}
+
+.throws li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.elements {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.timer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.timer output {
+  font-size: 2.5rem;
+  font-variant-numeric: tabular-nums;
+  min-width: 5ch;
+}
+
+.timer output.over {
+  color: var(--bad);
+}
+
+.total {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.summary {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.summary li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 1.25rem;
+}
+
+.scanner video {
+  width: 100%;
+  max-height: 50vh;
+  background: #000;
+  border-radius: 10px;
+  object-fit: cover;
+}
+
+fieldset {
+  border: 2px solid #c7ccd4;
+  border-radius: 10px;
+}
+
+legend {
+  font-weight: 700;
+  padding: 0 8px;
+}
+
+@media (orientation: landscape) and (min-width: 900px) {
+  .tablet {
+    padding: 16px 24px;
+  }
+}
