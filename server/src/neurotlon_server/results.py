@@ -12,6 +12,7 @@ from neurotlon_server.audit import write_audit
 from neurotlon_server.caller import Caller
 from neurotlon_server.errors import ProblemError
 from neurotlon_server.models import (
+    Discipline,
     GameSession,
     Pair,
     Participant,
@@ -21,6 +22,9 @@ from neurotlon_server.models import (
 )
 
 HEARTBEAT_WINDOW = timedelta(seconds=30)
+# A session this much longer than the game is abandoned: a station that lost the game
+# process keeps sending heartbeats, and must not hold participants forever.
+SESSION_SLACK = timedelta(seconds=300)
 FINISHED_AT_TOLERANCE = timedelta(days=2)
 
 ParticipantCode = Annotated[str, StringConstraints(pattern=r"^NT(0[1-9]|[1-9][0-9])$")]
@@ -140,9 +144,10 @@ def is_busy(
 ) -> bool:
     """Open session on another station that still sends heartbeats."""
     query = (
-        select(GameSession.session_id)
+        select(GameSession.started_at, Discipline.game_duration_s)
         .join(session_participant, session_participant.c.session_id == GameSession.session_id)
         .join(Station, Station.id == GameSession.station_id)
+        .join(Discipline, Discipline.code == GameSession.discipline)
         .where(
             session_participant.c.participant_id == participant.id,
             GameSession.closed_at.is_(None),
@@ -153,7 +158,10 @@ def is_busy(
         query = query.where(GameSession.station_id != own_station_id)
     if exclude_session is not None:
         query = query.where(GameSession.session_id != exclude_session)
-    return db.scalars(query).first() is not None
+    return any(
+        now - started_at <= timedelta(seconds=duration_s) + SESSION_SLACK
+        for started_at, duration_s in db.execute(query)
+    )
 
 
 def participant_issues(
