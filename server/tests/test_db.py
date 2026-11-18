@@ -41,7 +41,9 @@ def engine(request: pytest.FixtureRequest, url: str) -> Iterator[Engine]:
         with schema_engine.begin() as conn:  # seed rows live in the migration only
             conn.execute(
                 text(
-                    "INSERT INTO discipline VALUES ('darts', 'D', '[]', 120, 300), "
+                    "INSERT INTO discipline "
+                    "(code, name, modalities, game_duration_s, physical_duration_s) "
+                    "VALUES ('darts', 'D', '[]', 120, 300), "
                     "('football', 'F', '[]', 120, 300), ('pong', 'P', '[]', 120, 300)"
                 )
             )

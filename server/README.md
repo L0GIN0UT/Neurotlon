@@ -74,6 +74,18 @@ uv run neurotlon-server create-superuser --login root
 - `POST /api/v1/stations/me/heartbeat` — состояние стенда; без heartbeat 30 с станция не блокирует
   участников (`busy_on_other_station`).
 
+## Табло, конфликты, настройки дисциплин
+
+- `GET /api/v1/scoreboard` и `GET /api/v1/scoreboard/stream` (SSE, событие `scoreboard` при изменении,
+  `: ping` раз в 15 с) — без входа, для экрана в зале; категории и резерва там нет.
+- Итоги считает `scoring.py` из результатов при каждом запросе; правило очков секции —
+  заглушка `PlaceholderScoring` (подключается в `app.py`). Понг: победы × `discipline.win_points`.
+- Два неаннулированных результата на одну секцию — конфликт, секция не засчитывается.
+  `GET /api/v1/conflicts` и `POST /api/v1/conflicts/resolve {keep_result_id, reason}` — админ,
+  судья, суперпользователь, волонтёр своей дисциплины.
+- `PATCH /api/v1/disciplines/{code}` — `game_duration_s`, `physical_duration_s`, `win_points`
+  (админ, судья, суперпользователь).
+
 ## Проверки
 
 ```bash

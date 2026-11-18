@@ -13,7 +13,9 @@ def write_audit(
     object_id: int | str,
     user_id: int | None,
     station_id: int | None = None,
+    before: dict[str, Any] | None = None,
     after: dict[str, Any] | None = None,
+    reason: str | None = None,
 ) -> None:
     """Callers must pass only non-secret fields (no passwords, hashes or tokens)."""
     db.add(
@@ -23,6 +25,8 @@ def write_audit(
             action=action,
             object_type=object_type,
             object_id=str(object_id),
+            before=before,
             after=after,
+            reason=reason,
         )
     )
