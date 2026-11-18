@@ -40,3 +40,63 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: deploy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/server.Dockerfile
+          tags: neurotlon-server:local
+          load: true
+          cache-from: type=gha,scope=server
+          cache-to: type=gha,mode=max,scope=server
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/web.Dockerfile
+          tags: neurotlon-web:local
+          load: true
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+      - name: Throwaway certificate and settings
+        run: |
+          mkdir -p certs backup
+          chmod 777 backup
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=localhost" \
+            -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" \
+            -keyout certs/server-key.pem -out certs/server.pem
+          chmod 644 certs/server-key.pem
+          printf 'HOST_NAME=localhost\nBACKUP_DIR=./backup\n' > .env
+      - name: Start the stack
+        run: docker compose up -d --no-build --wait --wait-timeout 120
+      - name: Check the site
+        run: |
+          curl -fsS --cacert certs/server.pem https://localhost/health
+          curl -fsS --cacert certs/server.pem https://localhost/board | grep -q '<div id="root">'
+          curl -fsS --cacert certs/server.pem https://localhost/tablet | grep -q '<div id="root">'
+          curl -fsS --cacert certs/server.pem https://localhost/api/v1/scoreboard
+          curl -fsSI --cacert certs/server.pem https://localhost/sw.js | grep -i 'cache-control: no-cache'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost/board)" = 301
+      - name: Backup writes a copy
+        run: |
+          docker compose exec -T backup neurotlon-server backup --db /data/neurotlon.db --to /backup --once
+          ls backup | grep -E '^neurotlon-[0-9]{8}-[0-9]{6}\.db$'
+      - name: Rehearsal against the running stack
+        run: |
+          printf 'ci-password\nci-password\n' | docker compose exec -T server neurotlon-server create-superuser --login root
+          docker compose exec -T -e NEUROTLON_REHEARSAL_PASSWORD=ci-password server \
+            neurotlon-rehearsal --base-url http://127.0.0.1:8000
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
