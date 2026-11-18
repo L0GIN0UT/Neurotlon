@@ -468,6 +468,95 @@ describe('offline', () => {
   })
 })
 
+async function recordDarts(server: Server) {
+  setEligibility(server)
+  await addParticipant('ID участника', '7')
+  fireEvent.click(screen.getByRole('button', { name: 'Далее' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Продолжить' }))
+  await screen.findByRole('heading', { name: 'Ввод результата' })
+  throwDart('10')
+  fireEvent.click(screen.getByRole('button', { name: 'К сводке' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Записать' }))
+}
+
+describe('queue ownership and storage', () => {
+  test('logout asks for confirmation while records are unsent', async () => {
+    const server = createServer('darts')
+    server.routes.set('POST /results', () => new Response('down', { status: 503 }))
+    server.routes.set('POST /auth/logout', () => new Response(null, { status: 204 }))
+    renderApp(server)
+    await login()
+    await recordDarts(server)
+    await screen.findByText('В очереди: 1')
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Выйти' }))
+    expect(confirm).toHaveBeenCalledTimes(1)
+    expect(screen.queryByLabelText('Логин')).toBeNull()
+    confirm.mockReturnValue(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Выйти' }))
+    expect(await screen.findByLabelText('Логин')).toBeDefined()
+    confirm.mockRestore()
+  })
+
+  test('records of another login are shown, not sent', async () => {
+    const server = createServer('darts')
+    const store = memoryStore()
+    await store.put({
+      sessionId: '11111111-1111-4111-8111-111111111111',
+      payload: {
+        session_id: '11111111-1111-4111-8111-111111111111',
+        discipline: 'darts',
+        section: 'physical',
+        finished_at: '2027-04-12T07:05:00.000Z',
+        entries: [{ participant_code: 'NT05', outcome: 'completed', points: 3 }],
+      },
+      queuedAt: '2027-04-12T07:05:00.000Z',
+      state: 'pending',
+      login: 'ann',
+    })
+    renderApp(server, store)
+    await login()
+    expect(await screen.findByText(/войдите под ann/)).toBeDefined()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000)
+    })
+    expect(server.bodies('POST /results')).toEqual([])
+    expect(await store.list()).toHaveLength(1)
+  })
+
+  test('a voided session on resend lands in errors with a clear text', async () => {
+    const server = createServer('darts')
+    let call = 0
+    server.routes.set('POST /results', () => {
+      call += 1
+      return call === 1 ? new Response('down', { status: 503 }) : problem(409, 'result_voided')
+    })
+    renderApp(server)
+    await login()
+    await recordDarts(server)
+    await screen.findByText('В очереди: 1')
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000)
+    })
+    fireEvent.click(await screen.findByRole('button', { name: 'Ошибки: 1' }))
+    const list = screen.getByRole('list', { name: 'Ошибки отправки' })
+    expect(within(list).getByText(/уже отменена/)).toBeDefined()
+  })
+
+  test('a storage failure is reported as not saved and can be retried', async () => {
+    const server = createServer('darts')
+    server.routes.set('POST /results', () => new Response('down', { status: 503 }))
+    const store = memoryStore()
+    store.put = () => Promise.reject(new DOMException('quota', 'QuotaExceededError'))
+    renderApp(server, store)
+    await login()
+    await recordDarts(server)
+    expect(await screen.findByText(/Не сохранено/)).toBeDefined()
+    expect(screen.getByRole('button', { name: 'Записать' })).toBeDefined()
+    expect(screen.queryByText('В очереди: 1')).toBeNull()
+  })
+})
+
 describe('participant input', () => {
   test('rejects text that is not an ID', async () => {
     const server = createServer('darts')

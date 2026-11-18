@@ -11,6 +11,8 @@ interface Props {
   winner: string | null
   busy: boolean
   error: string | null
+  /** Ошибку не исправить повтором: остаётся только начать заново. */
+  errorFinal: boolean
   onBack: () => void
   onSubmit: () => void
   onRestart: () => void
@@ -23,6 +25,7 @@ export function SummaryStep({
   winner,
   busy,
   error,
+  errorFinal,
   onBack,
   onSubmit,
   onRestart,
@@ -61,7 +64,7 @@ export function SummaryStep({
         </p>
       )}
       <div className="row">
-        {error ? (
+        {errorFinal ? (
           <button type="button" onClick={onRestart}>
             Вернуться к началу
           </button>

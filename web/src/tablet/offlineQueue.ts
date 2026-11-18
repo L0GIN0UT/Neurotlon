@@ -9,6 +9,8 @@ export interface QueueItem {
   payload: ResultSubmission
   queuedAt: string
   state: 'pending' | 'failed'
+  /** Чья запись: отправлять её может только тот же волонтёр. */
+  login?: string
   /** Текст ошибки сервера для состояния failed. */
   error?: string
 }
@@ -26,8 +28,20 @@ export type SendOutcome =
   | { kind: 'retry' }
 
 export interface QueueSnapshot {
+  /** Записи текущего волонтёра, ждущие отправки. */
   pending: readonly QueueItem[]
+  /** Записи текущего волонтёра, отклонённые сервером. */
   failed: readonly QueueItem[]
+  /** Записи другого логина: не отправляются и не показываются как свои. */
+  foreign: readonly QueueItem[]
+}
+
+/** Хранилище не приняло запись (например, нет места): результат не сохранён. */
+export class QueueSaveError extends Error {
+  constructor() {
+    super('queue save failed')
+    this.name = 'QueueSaveError'
+  }
 }
 
 export function memoryStore(): QueueStore {
@@ -76,13 +90,16 @@ export function createOfflineQueue(
   const listeners = new Set<() => void>()
   let loaded: Promise<void> | null = null
   let flushing = false
-  let snapshot: QueueSnapshot = { pending: [], failed: [] }
+  let currentLogin: string | null = null
+  let snapshot: QueueSnapshot = { pending: [], failed: [], foreign: [] }
 
   function publish() {
     const all = [...items.values()]
+    const mine = all.filter((i) => i.login === currentLogin)
     snapshot = {
-      pending: all.filter((i) => i.state === 'pending'),
-      failed: all.filter((i) => i.state === 'failed'),
+      pending: mine.filter((i) => i.state === 'pending'),
+      failed: mine.filter((i) => i.state === 'failed'),
+      foreign: all.filter((i) => i.login !== currentLogin),
     }
     listeners.forEach((listener) => listener())
   }
@@ -96,9 +113,18 @@ export function createOfflineQueue(
   }
 
   async function save(item: QueueItem) {
+    const previous = items.get(item.sessionId)
     items.set(item.sessionId, item)
     publish()
-    await store.put(item)
+    try {
+      await store.put(item)
+    } catch {
+      // не оставляем в памяти запись, которой нет в хранилище
+      if (previous) items.set(item.sessionId, previous)
+      else items.delete(item.sessionId)
+      publish()
+      throw new QueueSaveError()
+    }
   }
 
   /** Отправляет накопленное по порядку; на первой сетевой ошибке останавливается. */
@@ -115,7 +141,7 @@ export function createOfflineQueue(
           publish()
           await store.remove(item.sessionId)
         } else {
-          await save({ ...item, state: 'failed', error: outcome.message })
+          await save({ ...item, state: 'failed', error: outcome.message }).catch(() => undefined)
         }
       }
     } finally {
@@ -125,6 +151,11 @@ export function createOfflineQueue(
 
   return {
     flush,
+    /** Логин вошедшего волонтёра; null — никто не вошёл, ничего не отправляется. */
+    setLogin(login: string | null) {
+      currentLogin = login
+      publish()
+    },
     getSnapshot: () => snapshot,
     subscribe(listener: () => void) {
       listeners.add(listener)
@@ -140,6 +171,7 @@ export function createOfflineQueue(
         payload,
         queuedAt: now().toISOString(),
         state: 'pending',
+        ...(currentLogin === null ? {} : { login: currentLogin }),
       })
     },
     /** Результат, отклонённый сервером при прямой отправке. */
@@ -151,6 +183,7 @@ export function createOfflineQueue(
         queuedAt: now().toISOString(),
         state: 'failed',
         error: message,
+        ...(currentLogin === null ? {} : { login: currentLogin }),
       })
     },
     async dismiss(sessionId: string) {

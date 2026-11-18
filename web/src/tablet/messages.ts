@@ -29,6 +29,7 @@ const PROBLEM_TEXTS: Record<string, string> = {
   invalid_entries: 'Данные участников не подходят для этой секции',
   wrong_discipline: 'Это не ваша секция',
   unknown_participant: 'Участник с таким ID не найден',
+  result_voided: 'Эта запись уже отменена. Введите результат заново',
   conflict: 'Действие уже недоступно',
   forbidden: 'Нет доступа',
   too_many_attempts: 'Слишком много попыток, подождите несколько минут',

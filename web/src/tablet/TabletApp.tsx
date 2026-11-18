@@ -14,7 +14,7 @@ import { emptyDraft } from './entryForm.ts'
 import type { EntryDraft } from './entryForm.ts'
 import { createIdbStore } from './idbStore.ts'
 import { DISCIPLINE_NAMES, errorText } from './messages.ts'
-import { classifyFailure, createOfflineQueue, makeSender } from './offlineQueue.ts'
+import { QueueSaveError, classifyFailure, createOfflineQueue, makeSender } from './offlineQueue.ts'
 import type { QueueStore } from './offlineQueue.ts'
 import { PayloadError, buildSubmission } from './payload.ts'
 import type { EntryInput } from './payload.ts'
@@ -100,13 +100,27 @@ export function TabletApp({ fetchFn, store }: Props) {
     }
   }, [api])
 
-  const ready = auth.status === 'ready'
+  const login = auth.status === 'ready' ? auth.me.login : null
   useEffect(() => {
-    if (!ready) return
-    return queue.start()
-  }, [ready, queue])
+    if (login === null) return
+    queue.setLogin(login)
+    const stop = queue.start()
+    return () => {
+      stop()
+      queue.setLogin(null)
+    }
+  }, [login, queue])
 
   async function logout() {
+    const unsent = snapshot.pending.length + snapshot.failed.length
+    if (
+      unsent > 0 &&
+      !window.confirm(
+        `На планшете остались неотправленные записи (${unsent}). Выйти? Они сохранятся и отправятся после входа под этим логином.`,
+      )
+    ) {
+      return
+    }
     try {
       await api.logout()
     } catch {
@@ -166,6 +180,7 @@ function Flow({ api, queue, config }: FlowProps) {
   const [flow, setFlow] = useState<Flow>({ step: 'participants' })
   const [busy, setBusy] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  const [retryable, setRetryable] = useState(false)
   const { discipline, section } = config
 
   function startEntry(people: Person[]) {
@@ -177,6 +192,7 @@ function Flow({ api, queue, config }: FlowProps) {
   ): Promise<void> {
     setBusy(true)
     setSubmitError(null)
+    setRetryable(false)
     try {
       const payload = buildSubmission({
         sessionId: current.sessionId,
@@ -213,7 +229,14 @@ function Flow({ api, queue, config }: FlowProps) {
         }
       }
     } catch (e) {
-      setSubmitError(e instanceof PayloadError ? e.message : errorText(e))
+      if (e instanceof QueueSaveError) {
+        setRetryable(true)
+        setSubmitError(
+          'Не сохранено: на планшете нет места или хранилище недоступно. Нажмите «Записать» ещё раз.',
+        )
+      } else {
+        setSubmitError(e instanceof PayloadError ? e.message : errorText(e))
+      }
     } finally {
       setBusy(false)
     }
@@ -269,6 +292,7 @@ function Flow({ api, queue, config }: FlowProps) {
           winner={flow.winner}
           busy={busy}
           error={submitError}
+          errorFinal={submitError !== null && !retryable}
           onBack={() =>
             setFlow({
               step: 'entry',

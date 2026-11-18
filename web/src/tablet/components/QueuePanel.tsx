@@ -9,7 +9,8 @@ interface Props {
 /** Счётчик очереди в шапке и список отклонённых сервером результатов. */
 export function QueuePanel({ queue, snapshot }: Props) {
   const [open, setOpen] = useState(false)
-  const { pending, failed } = snapshot
+  const { pending, failed, foreign } = snapshot
+  const foreignLogins = [...new Set(foreign.map((i) => i.login ?? 'неизвестный логин'))]
   return (
     <div className="queue">
       {pending.length > 0 && <span className="badge warn">В очереди: {pending.length}</span>}
@@ -17,6 +18,11 @@ export function QueuePanel({ queue, snapshot }: Props) {
         <button type="button" className="badge bad" onClick={() => setOpen((v) => !v)}>
           Ошибки: {failed.length}
         </button>
+      )}
+      {foreign.length > 0 && (
+        <span className="badge warn" role="status">
+          Чужие записи ({foreign.length}) — войдите под {foreignLogins.join(', ')}
+        </span>
       )}
       {open && failed.length > 0 && (
         <ul className="card errors" aria-label="Ошибки отправки">
