@@ -97,6 +97,7 @@ src/tablet/offlineQueue.ts   очередь, повторы, список оши
 src/tablet/idbStore.ts       хранилище очереди в IndexedDB
 src/tablet/scoring/          заглушка подсчёта очков
 src/tablet/components/       шаги потока
+src/shared/icons/             иконки дисциплин (Tabler Icons, MIT)
 src/shared/                   HTTP-клиент, типы, тексты ошибок и вход, общие для страниц
 src/staff/                    админка и судья (api.ts, вкладки в admin/ и judge/)
 src/board/                    табло, оверлей OBS и подписка на SSE
@@ -104,3 +105,5 @@ src/test/                     общие помощники тестов (fake f
 ```
 
 Категория участника (с ОВЗ / без) в интерфейсе и запросах не используется.
+
+Иконки: Tabler Icons, MIT (`src/shared/icons/LICENSE`).

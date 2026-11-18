@@ -165,3 +165,41 @@ def test_server_cli_still_parses(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit):
         server_main(["backup"])  # --db and --to are required
     assert "--db" in capsys.readouterr().err
+
+
+def make_rehearsal() -> Rehearsal:
+    return Rehearsal(lambda: Http("http://unused"), "root", PASSWORD, Report(out=lambda _: None))
+
+
+def test_generated_points_are_small_and_realistic() -> None:
+    rehearsal = make_rehearsal()
+    bci = [rehearsal._points("bci") for _ in range(500)]
+    physical = [rehearsal._points("physical") for _ in range(500)]
+    for values in (bci, physical):
+        assert all(0 <= v <= 10 for v in values)
+        assert sum(3 <= v <= 9 for v in values) > 350  # most results are 3..9
+        assert 0 in values and 10 in values  # the edges happen
+    assert all(v == int(v) for v in physical)
+    assert any(v != int(v) for v in bci)  # BCI allows one decimal
+
+
+def test_generated_points_are_reproducible() -> None:
+    one, two = make_rehearsal(), make_rehearsal()
+    assert [one._points("bci") for _ in range(20)] == [two._points("bci") for _ in range(20)]
+
+
+def test_pong_entries_have_one_winner_and_table_tennis_points() -> None:
+    rehearsal = make_rehearsal()
+    rehearsal.pong_winner[("NT01", "NT02")] = "NT02"
+    for section in ("bci", "physical"):
+        entries = rehearsal._entries("pong", section, ("NT01", "NT02"))
+        by_code = {e["participant_code"]: e for e in entries}
+        assert by_code["NT02"]["wins"] == 1 and by_code["NT02"]["points"] == 11
+        assert by_code["NT01"]["wins"] == 0 and 0 <= by_code["NT01"]["points"] <= 9
+
+
+def test_other_points_stay_in_range_and_differ() -> None:
+    rehearsal = make_rehearsal()
+    for value in (0.0, 4.5, 9.0, 10.0):
+        other = rehearsal._other_points(value)
+        assert other != value and 0 <= other <= 10

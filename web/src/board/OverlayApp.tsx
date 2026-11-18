@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import type { CSSProperties } from 'react'
-import { DisciplineIcon } from './icons.tsx'
+import { DisciplineIcon } from '../shared/icons/DisciplineIcon.tsx'
 import { BOARD_DISCIPLINES, disciplineName, duelTeams, teamStyle } from './model.ts'
 import { OVERLAY_TOP, parseScale, parseView } from './overlayParams.ts'
 import { Top, Versus } from './parts.tsx'
