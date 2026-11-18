@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { DisciplineIcon } from './icons.tsx'
+import { DisciplineIcon } from '../shared/icons/DisciplineIcon.tsx'
 import { BOARD_DISCIPLINES, disciplineName, duelTeams, teamStyle } from './model.ts'
 import { Top, Versus } from './parts.tsx'
 import { useScoreboard } from './useScoreboard.ts'
