@@ -16,6 +16,7 @@ from neurotlon_server.db import create_engine_from_settings, create_session_fact
 from neurotlon_server.disciplines_api import router as disciplines_router
 from neurotlon_server.draw_api import router as draw_router
 from neurotlon_server.errors import PROBLEM_JSON, forbidden, install_error_handlers
+from neurotlon_server.export_api import router as export_router
 from neurotlon_server.models import utcnow
 from neurotlon_server.participants import router as participants_router
 from neurotlon_server.results_admin_api import router as results_admin_router
@@ -84,6 +85,7 @@ def create_app(
     app.include_router(corrections_router)
     app.include_router(disciplines_router)
     app.include_router(results_admin_router)
+    app.include_router(export_router)
 
     @app.get("/health")
     def health() -> dict[str, str]:

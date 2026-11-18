@@ -178,6 +178,45 @@ paths:
                 $ref: "#/components/schemas/Problem"
         "422":
           $ref: "#/components/responses/Problem"
+    get:
+      operationId: listResults
+      summary: Поиск результатов (судья, админ, суперпользователь)
+      security:
+        - volunteerSession: []
+      parameters:
+        - name: participant
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: discipline
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Discipline"
+        - name: section
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/Section"
+        - name: session_id
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/SessionId"
+      responses:
+        "200":
+          description: Результаты, в том числе аннулированные (`voided`)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/StoredResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Problem"
 
   /results/{session_id}/undo:
     post:
@@ -314,6 +353,141 @@ paths:
           description: Принято
         "401":
           $ref: "#/components/responses/Unauthorized"
+
+  /stations:
+    get:
+      operationId: listStations
+      summary: Станции и их состояние (админка)
+      description: |
+        Админ и суперпользователь. `online` — heartbeat не старше 30 с.
+        Токены не возвращаются: токен виден один раз при создании и ротации.
+      security:
+        - volunteerSession: []
+      responses:
+        "200":
+          description: Список станций
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/StationInfo"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Problem"
+
+  /users:
+    get:
+      operationId: listUsers
+      summary: Аккаунты (только суперпользователь)
+      security:
+        - volunteerSession: []
+      responses:
+        "200":
+          description: Список аккаунтов без паролей
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/UserInfo"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Problem"
+
+  /results/lock:
+    post:
+      operationId: lockResults
+      summary: Зафиксировать итоги
+      description: |
+        Судья, админ, суперпользователь. Все подтверждённые неаннулированные
+        результаты становятся `locked`; событие `result.lock` пишется в аудит.
+        Повтор безопасен (`locked: 0`).
+      security:
+        - volunteerSession: []
+      responses:
+        "200":
+          description: Сколько результатов заблокировано
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [locked]
+                additionalProperties: false
+                properties:
+                  locked:
+                    type: integer
+                    minimum: 0
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Problem"
+
+  /results/{id}:
+    patch:
+      operationId: correctResult
+      summary: Исправление результата судьёй или админом
+      description: |
+        Судья, админ и суперпользователь правят `confirmed`; `locked` — только
+        админ и суперпользователь. Проверки как при приёме результата; смена
+        `outcome` сбрасывает поля другого исхода. На понге победителя меняют двумя
+        правками (сумма `wins` в матче не больше 1). `version` растёт на 1,
+        в аудит пишутся значения до и после и `change_reason`.
+      security:
+        - volunteerSession: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResultPatch"
+      responses:
+        "200":
+          description: Результат после правки
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoredResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "409":
+          $ref: "#/components/responses/Problem"
+        "422":
+          $ref: "#/components/responses/Problem"
+
+  /export.xlsx:
+    get:
+      operationId: exportXlsx
+      summary: Сводная таблица в XLSX
+      description: |
+        Админ, суперпользователь, судья. Листы «Итоги» и «Участники»; считается
+        тем же кодом, что и табло. Категории в файле нет.
+      security:
+        - volunteerSession: []
+      responses:
+        "200":
+          description: Файл XLSX
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Problem"
 
 components:
   securitySchemes:
@@ -629,6 +803,127 @@ components:
             enum: [eeg, emg, emg_left, emg_right]
           additionalProperties:
             $ref: "#/components/schemas/SensorState"
+
+    StationInfo:
+      type: object
+      required: [id, name, discipline, online, last_heartbeat_at, last_state, queue_length]
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        discipline:
+          $ref: "#/components/schemas/Discipline"
+        online:
+          type: boolean
+          description: Последний heartbeat не старше 30 с.
+        last_heartbeat_at:
+          type: [string, "null"]
+          format: date-time
+        last_state:
+          type: [string, "null"]
+        queue_length:
+          type: integer
+          minimum: 0
+
+    UserInfo:
+      type: object
+      required: [id, login, role, discipline, is_active]
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+        login:
+          type: string
+        role:
+          type: string
+          enum: [superuser, admin, judge, volunteer]
+        discipline:
+          oneOf:
+            - $ref: "#/components/schemas/Discipline"
+            - type: "null"
+        is_active:
+          type: boolean
+
+    StoredResult:
+      type: object
+      required:
+        - id
+        - session_id
+        - participant_code
+        - discipline
+        - section
+        - outcome
+        - points
+        - wins
+        - reason
+        - comment
+        - status
+        - source
+        - finished_at
+        - version
+        - voided
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+        session_id:
+          type: string
+        participant_code:
+          $ref: "#/components/schemas/ParticipantCode"
+        discipline:
+          $ref: "#/components/schemas/Discipline"
+        section:
+          $ref: "#/components/schemas/Section"
+        outcome:
+          $ref: "#/components/schemas/Outcome"
+        points:
+          type: [number, "null"]
+        wins:
+          type: [integer, "null"]
+        reason:
+          type: [string, "null"]
+        comment:
+          type: [string, "null"]
+        status:
+          $ref: "#/components/schemas/ResultStatus"
+        source:
+          type: string
+        finished_at:
+          type: string
+          format: date-time
+        version:
+          type: integer
+          minimum: 1
+        voided:
+          type: boolean
+
+    ResultPatch:
+      type: object
+      required: [change_reason]
+      additionalProperties: false
+      properties:
+        points:
+          type: number
+          minimum: 0
+          maximum: 1000
+        wins:
+          type: integer
+          minimum: 0
+          maximum: 1
+        outcome:
+          $ref: "#/components/schemas/Outcome"
+        reason:
+          $ref: "#/components/schemas/NotCompletedReason"
+        comment:
+          type: [string, "null"]
+          maxLength: 200
+        change_reason:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Почему исправлено; попадает в журнал аудита.
 
     ProblemCode:
       type: string

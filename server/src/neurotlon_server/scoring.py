@@ -54,6 +54,7 @@ class ParticipantScore:
     sections_passed: int = 0
     conflicts: int = 0
     by_discipline: dict[str, float] = field(default_factory=dict)
+    by_section: dict[tuple[str, str], float] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -114,6 +115,7 @@ def score_participants(
         total = bci = physical = 0.0
         passed = conflicts = 0
         by_discipline: dict[str, float] = {}
+        by_section: dict[tuple[str, str], float] = {}
         for rows in per_person.get(person.id, []):
             if len(rows) > 1:  # conflict: counts as nothing until resolved
                 conflicts += 1
@@ -127,6 +129,7 @@ def score_participants(
             else:
                 physical += points
             by_discipline[row.discipline] = by_discipline.get(row.discipline, 0.0) + points
+            by_section[(row.discipline, row.section)] = points
         scores[person.id] = ParticipantScore(
             person.id,
             round(total, PRECISION),
@@ -135,6 +138,7 @@ def score_participants(
             passed,
             conflicts,
             {code: round(points, PRECISION) for code, points in by_discipline.items()},
+            {key: round(points, PRECISION) for key, points in by_section.items()},
         )
     return scores
 
