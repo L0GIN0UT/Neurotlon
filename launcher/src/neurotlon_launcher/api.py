@@ -136,7 +136,6 @@ class HttpStationApi:
         self._client = client or httpx2.Client(base_url=base_url, timeout=timeout_s)
         self._headers = {"Authorization": f"Bearer {token}"}
         self._cache_path = cache_path
-        self._timeout_s = timeout_s
 
     def close(self) -> None:
         self._client.close()
@@ -156,7 +155,6 @@ class HttpStationApi:
                 params=params,
                 json=json_body,
                 headers=self._headers,
-                timeout=self._timeout_s,
             )
         except httpx2.HTTPError as exc:
             raise Offline(str(exc) or type(exc).__name__) from exc
