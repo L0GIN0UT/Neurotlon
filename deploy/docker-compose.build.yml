@@ -1,0 +1,11 @@
+# Adds the build instructions. Only for the machine that has the repository and internet:
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml build
+services:
+  server:
+    build:
+      context: ..
+      dockerfile: deploy/server.Dockerfile
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/web.Dockerfile
