@@ -5,7 +5,8 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.engine import CursorResult
 
 from neurotlon_server.audit import write_audit
 from neurotlon_server.auth import Db, Now, require_role
@@ -80,16 +81,39 @@ def undo_result(session_id: str, db: Db, now: Now, user: Volunteer) -> Response:
     )
     if not rows:
         raise conflict("Result is already undone")
-    for row in rows:
-        row.voided_at = now
-        row.voided_by = user.id
-        row.void_reason = "undo"
+    if any(r.status == "locked" for r in rows):
+        raise conflict("Result is locked")
+    before = [
+        {
+            "id": r.id,
+            "status": r.status,
+            "outcome": r.outcome,
+            "points": r.points,
+            "wins": r.wins,
+        }
+        for r in rows
+    ]
+    # Guarded update: of two parallel undos only one voids the rows.
+    updated = db.execute(
+        update(SectionResult)
+        .where(
+            SectionResult.id.in_([r.id for r in rows]),
+            SectionResult.voided_at.is_(None),
+            SectionResult.status != "locked",
+        )
+        .values(voided_at=now, voided_by=user.id, void_reason="undo")
+    )
+    assert isinstance(updated, CursorResult)
+    if updated.rowcount != len(rows):
+        db.rollback()
+        raise conflict("Result changed concurrently")
     write_audit(
         db,
         action="result.undo",
         object_type="game_session",
         object_id=session_id,
         user_id=user.id,
+        before={"rows": before},
         after={"voided": [r.id for r in rows]},
         reason="undo",
     )
@@ -100,6 +124,19 @@ def undo_result(session_id: str, db: Db, now: Now, user: Volunteer) -> Response:
 @router.post("/corrections", status_code=201)
 def create_correction(body: CorrectionIn, db: Db, now: Now, user: Volunteer) -> CorrectionOut:
     _own_session(db, user, body.session_id)
+    rows = list(
+        db.scalars(
+            select(SectionResult.voided_at).where(SectionResult.session_id == body.session_id)
+        )
+    )
+    if not rows or all(v is not None for v in rows):
+        raise conflict("Result is voided or missing")
+    if db.scalars(
+        select(CorrectionRequest.id).where(
+            CorrectionRequest.session_id == body.session_id, CorrectionRequest.status == "open"
+        )
+    ).first():
+        raise conflict("An open correction request already exists")
     row = CorrectionRequest(
         session_id=body.session_id, user_id=user.id, comment=body.comment, created_at=now
     )

@@ -169,7 +169,13 @@ paths:
         "403":
           $ref: "#/components/responses/Problem"
         "409":
-          $ref: "#/components/responses/Problem"
+          description: |
+            `session_conflict` — другое тело с тем же `session_id`;
+            `result_voided` — сессия уже отменена (undo), нужен новый `session_id`.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
         "422":
           $ref: "#/components/responses/Problem"
 
@@ -638,6 +644,7 @@ components:
         - session_conflict
         - busy_on_other_station
         - invalid_entries
+        - result_voided
 
     Problem:
       type: object
