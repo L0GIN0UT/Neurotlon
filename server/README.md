@@ -59,6 +59,21 @@ uv run neurotlon-server create-superuser --login root
 
 В журнал аудита попадают только `seed`, `m`, `team_count`.
 
+## API станций и планшетов
+
+Контракт — `shared/openapi.yaml`. Вызывающий — станция (заголовок `Authorization: Bearer <токен>`,
+секция `bci`) или волонтёр (cookie, секция `physical`); остальные роли получают `403 forbidden`,
+чужая дисциплина или секция — `403 wrong_discipline`.
+
+- `GET /api/v1/me/config` — дисциплина, секция, время сессии.
+- `GET /api/v1/participants/{code}/eligibility` — данные для окна «Это я» и список проблем.
+- `POST /api/v1/sessions` — открыть сессию (только станция); повтор безопасен.
+- `POST /api/v1/results` — результат сессии; идемпотентно по `session_id` (тот же хеш тела — `200`
+  с тем же ответом, другое тело — `409 session_conflict`). Проблемы (`warnings`) не блокируют приём:
+  результат из офлайн-буфера записывается всегда. Статус: станция — `entered`, волонтёр — `confirmed`.
+- `POST /api/v1/stations/me/heartbeat` — состояние стенда; без heartbeat 30 с станция не блокирует
+  участников (`busy_on_other_station`).
+
 ## Проверки
 
 ```bash

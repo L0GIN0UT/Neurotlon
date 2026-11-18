@@ -154,6 +154,9 @@ class GameSession(Base):
     discipline: Mapped[str] = mapped_column(ForeignKey("discipline.code"))
     started_at: Mapped[datetime]
     closed_at: Mapped[datetime | None]
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("user.id"))
+    payload_hash: Mapped[str | None] = mapped_column(Text)
+    warnings: Mapped[list[dict[str, str]] | None] = mapped_column(JSON(none_as_null=True))
 
 
 session_participant = Table(
