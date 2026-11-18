@@ -6,10 +6,12 @@ from dataclasses import dataclass
 OVZ = "ovz"
 GENERAL = "general"
 
+# The first two teams are red and blue (default names below); the admin can rename and recolour.
+DEFAULT_NAMES: tuple[str, ...] = ("Красные", "Синие")
 PALETTE: tuple[str, ...] = (
     "#E6194B",
-    "#3CB44B",
     "#4363D8",
+    "#3CB44B",
     "#F58231",
     "#911EB4",
     "#42D4F4",
@@ -123,7 +125,10 @@ def run_draw(
             for slot, cat in enumerate(pattern, start=1)
         )
         color = PALETTE[(position - 1) % len(PALETTE)]
-        teams.append(TeamResult(position, f"Команда {position}", color, members))
+        name = (
+            DEFAULT_NAMES[position - 1] if position <= len(DEFAULT_NAMES) else f"Команда {position}"
+        )
+        teams.append(TeamResult(position, name, color, members))
 
     duels = []
     for i in range(0, t, 2):

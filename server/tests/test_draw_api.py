@@ -256,3 +256,79 @@ def test_teams_hide_category(admin: TestClient, db: Session) -> None:
 
 def test_teams_empty(admin: TestClient) -> None:
     assert admin.get(f"{API}/teams").json() == {"teams": [], "duels": []}
+
+
+def drawn_team_id(client: TestClient, db: Session, number: int = 1) -> int:
+    check_in(db, 4, 4)
+    client.post(f"{API}/draw", json={"m": 1, "seed": 9})
+    return db.scalars(select(Team.id).where(Team.number == number)).one()
+
+
+def test_default_team_names_and_colors(admin: TestClient, db: Session) -> None:
+    check_in(db, 4, 4)
+    admin.post(f"{API}/draw", json={"m": 2, "seed": 9})
+    teams = admin.get(f"{API}/teams").json()["teams"]
+    assert [(t["name"], t["color"]) for t in teams] == [
+        ("Красные", "#E6194B"),
+        ("Синие", "#4363D8"),
+    ]
+
+
+def test_patch_team_renames_audits_and_dirties_scoreboard(
+    app: FastAPI, admin: TestClient, db: Session
+) -> None:
+    team_id = drawn_team_id(admin, db)
+    assert admin.get(f"{API}/scoreboard").json()["teams"][0]["name"]
+    response = admin.patch(f"{API}/teams/{team_id}", json={"name": "  Огонь  ", "color": "#ff8800"})
+    assert response.status_code == 200
+    assert response.json() == {"id": team_id, "number": 1, "name": "Огонь", "color": "#ff8800"}
+    board = admin.get(f"{API}/scoreboard").json()["teams"]
+    assert [(t["name"], t["color"]) for t in board if t["number"] == 1] == [("Огонь", "#ff8800")]
+    row = db.scalars(select(AuditLog).where(AuditLog.action == "team.update")).one()
+    assert row.object_id == str(team_id)
+    assert row.before is not None and row.before["name"] == "Красные"
+    assert row.after == {"name": "Огонь", "color": "#ff8800"}
+
+
+def test_patch_team_role_matrix(app: FastAPI, root: TestClient, db: Session) -> None:
+    team_id = drawn_team_id(root, db)
+    body = {"name": "Team", "color": "#112233"}
+    url = f"{API}/teams/{team_id}"
+    make_user(db, "judy", role="judge")
+    make_user(db, "vol", role="volunteer", discipline="pong")
+    assert TestClient(app).patch(url, json=body).status_code == 401
+    assert login_as(app, "judy").patch(url, json=body).status_code == 403
+    assert login_as(app, "vol").patch(url, json=body).status_code == 403
+    assert root.patch(url, json=body).status_code == 200
+    assert root.patch(f"{API}/teams/99999", json=body).status_code == 404
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"name": "", "color": "#112233"},
+        {"name": "   ", "color": "#112233"},
+        {"name": "x" * 25, "color": "#112233"},
+        {"name": "ok", "color": "red"},
+        {"name": "ok", "color": "#12345"},
+        {"name": "ok", "color": "#1234567"},
+        {"name": "ok"},
+        {"color": "#112233"},
+        {"name": "ok", "color": "#112233", "extra": 1},
+    ],
+)
+def test_patch_team_validation(admin: TestClient, db: Session, body: dict[str, object]) -> None:
+    team_id = drawn_team_id(admin, db)
+    assert admin.patch(f"{API}/teams/{team_id}", json=body).status_code == 422
+    assert db.scalars(select(AuditLog).where(AuditLog.action == "team.update")).first() is None
+
+
+def test_patch_team_accepts_boundary_name(admin: TestClient, db: Session) -> None:
+    team_id = drawn_team_id(admin, db)
+    response = admin.patch(f"{API}/teams/{team_id}", json={"name": "я" * 24, "color": "#AbCdEf"})
+    assert response.status_code == 200
+
+
+def test_teams_listing_includes_id(admin: TestClient, db: Session) -> None:
+    team_id = drawn_team_id(admin, db)
+    assert team_id in [t["id"] for t in admin.get(f"{API}/teams").json()["teams"]]

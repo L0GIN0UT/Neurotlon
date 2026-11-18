@@ -2,7 +2,7 @@ import secrets
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from sqlalchemy import delete, func, select, update
 
 from neurotlon_server.audit import write_audit
@@ -32,6 +32,13 @@ class DrawRequest(BaseModel):
 
     m: int = Field(ge=1)
     seed: int | None = Field(default=None, ge=0, le=MAX_SEED)
+
+
+class TeamPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=24)]
+    color: Annotated[str, StringConstraints(pattern=r"^#[0-9a-fA-F]{6}$")]
 
 
 def _checked_in(db: Db) -> list[tuple[str, str]]:
@@ -217,6 +224,7 @@ def get_teams(db: Db, user: Viewer) -> dict[str, Any]:
     return {
         "teams": [
             {
+                "id": t.id,
                 "number": t.number,
                 "name": t.name,
                 "color": t.color,
@@ -233,3 +241,25 @@ def get_teams(db: Db, user: Viewer) -> dict[str, Any]:
         ],
         "duels": duels,
     }
+
+
+@router.patch("/teams/{team_id}")
+def patch_team(team_id: int, body: TeamPatch, db: Db, actor: Manager) -> dict[str, Any]:
+    """Name and colour of a team; the scoreboard cache is marked dirty by the write guard."""
+    team = db.get(Team, team_id)
+    if team is None:
+        raise not_found("Team not found")
+    before = {"name": team.name, "color": team.color}
+    team.name = body.name
+    team.color = body.color
+    write_audit(
+        db,
+        action="team.update",
+        object_type="team",
+        object_id=team.id,
+        user_id=actor.id,
+        before=before,
+        after={"name": team.name, "color": team.color},
+    )
+    db.commit()
+    return {"id": team.id, "number": team.number, "name": team.name, "color": team.color}
