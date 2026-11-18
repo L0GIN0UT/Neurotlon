@@ -1,0 +1,59 @@
+# Neurotlon on the admin PC. Run from this folder after filling in .env (see .env.example).
+#   docker compose up -d
+# The images are built beforehand (docker-compose.build.yml) and loaded with `docker load`
+# (no internet in the hall).
+name: neurotlon
+
+services:
+  server:
+    image: neurotlon-server:local
+    restart: unless-stopped
+    environment:
+      NEUROTLON_DATABASE_URL: sqlite:////data/neurotlon.db
+    volumes:
+      # A named volume (ext4 inside the Docker VM), not a Windows folder: SQLite WAL needs
+      # shared memory that bind mounts from Windows do not provide.
+      - neurotlon-data:/data
+    stop_grace_period: 20s
+
+  web:
+    image: neurotlon-web:local
+    restart: unless-stopped
+    depends_on:
+      server:
+        condition: service_healthy
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./certs:/etc/nginx/certs:ro
+
+  backup:
+    # The same image as the server: it only runs another command.
+    image: neurotlon-server:local
+    restart: unless-stopped
+    depends_on:
+      server:
+        condition: service_healthy
+    command:
+      - neurotlon-server
+      - backup
+      - --db
+      - /data/neurotlon.db
+      - --to
+      - /backup
+      - --every
+      - "60"
+      - --keep
+      - "120"
+    healthcheck:
+      disable: true
+    volumes:
+      # Read access is enough for the Backup API, but SQLite in WAL mode opens the index
+      # file in the data folder, so the volume is not mounted read-only.
+      - neurotlon-data:/data
+      - ${BACKUP_DIR:-./backup}:/backup
+
+volumes:
+  neurotlon-data:
+    name: neurotlon-data

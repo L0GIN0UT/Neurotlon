@@ -42,3 +42,9 @@ launcher.toml
 
 # Claude Code agent worktrees
 .claude/worktrees/
+
+# Deployment: secrets, data and the offline bundle
+deploy/certs/
+deploy/bundle/
+deploy/data/
+deploy/backup/

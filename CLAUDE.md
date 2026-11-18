@@ -19,7 +19,7 @@
 | `bci-bridge/` | связь с BrainBit / Callibri, сигнал 0…1 для игр | Python 3.12 |
 | `games/` | дартс, футбол, понг | Python 3.12, pygame-ce; игры на Unity — отдельные сборки по `shared/game-launch.md` |
 | `shared/` | контракты: OpenAPI, протокол мост → игра, формат результата и ID | JSON Schema |
-| `deploy/` | установка на ПК админа | Docker Compose |
+| `deploy/` | установка на ПК админа и стенды, сертификаты, офлайн-пакет | Docker Compose, Nginx, PowerShell |
 | `docs/` | документация и схемы Mermaid | — |
 
 Инструменты: Python — `uv`, `pytest`, `ruff`, `mypy`; web — `npm`, `vitest`, `oxlint`, `tsc`.

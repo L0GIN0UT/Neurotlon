@@ -12,10 +12,12 @@ dependencies = [
     "reportlab>=5.1.0",
     "segno>=1.6.6",
     "sqlalchemy>=2.0",
+    "uvicorn>=0.30",
 ]
 
 [project.scripts]
 neurotlon-server = "neurotlon_server.cli:main"
+neurotlon-rehearsal = "neurotlon_server.rehearsal:main"
 
 [build-system]
 requires = ["hatchling"]
