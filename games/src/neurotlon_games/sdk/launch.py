@@ -35,6 +35,7 @@ class LaunchInfo:
     bridge_port: int
     result_path: Path
     fullscreen: bool = True
+    max_points: int | None = None  # лимит очков за секцию (дартс, футбол); нет у понга
 
     @property
     def signals(self) -> tuple[str, ...]:
@@ -76,6 +77,7 @@ class LaunchInfo:
             bridge_port=bridge["port"],
             result_path=Path(data["result_path"]),
             fullscreen=bool(data.get("fullscreen", True)),
+            max_points=data.get("max_points"),
         )
 
     @classmethod

@@ -40,6 +40,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="duration_s в launch.json, от 10 (по умолчанию 10)",
     )
     parser.add_argument(
+        "--max-points",
+        type=int,
+        default=None,
+        help="max_points в launch.json: лимит очков за секцию дартса и футбола (по умолчанию нет)",
+    )
+    parser.add_argument(
         "--grace-s",
         type=float,
         default=120.0,
@@ -88,10 +94,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error("после `--` нужна команда запуска игры")
     if args.duration_s < 10 or args.time_scale <= 0 or args.bridge_speed <= 0:
         parser.error("duration-s не меньше 10, time-scale и bridge-speed больше 0")
+    if args.max_points is not None and not 1 <= args.max_points <= 1000:
+        parser.error("max-points от 1 до 1000")
     options = Options(
         discipline=args.discipline,
         command=tuple(command),
         duration_s=args.duration_s,
+        max_points=args.max_points,
         grace_s=args.grace_s,
         bridge_speed=args.bridge_speed,
         time_scale=args.time_scale,

@@ -39,6 +39,7 @@
    ```
 
    В понге игрок с `side == "left"` управляется сигналом `emg_left`, с `"right"` — `emg_right` (`Launch.SignalOf(participant)`). В `BuildResult` у обоих `wins`: 1 у победителя, 0 у проигравшего.
+   В дартсе и футболе `points` не больше `Launch.MaxPoints` (лимит очков за секцию из `launch.json`, 0 — лимита нет): иначе `NeurotlonResult.WriteFinished` бросит `NeurotlonResultException`. В понге лимита нет.
 4. **Настройки сборки** (`File → Build Settings`, `Player Settings`):
    - платформа **Windows**, Architecture x86_64, Mono или IL2CPP;
    - `Resolution and Presentation → Fullscreen Mode = Fullscreen Window`, `Run In Background` включён (кит включает его и из кода);

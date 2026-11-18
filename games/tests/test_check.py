@@ -196,3 +196,19 @@ def test_cli_requires_command_and_valid_duration() -> None:
     with pytest.raises(SystemExit) as exc:
         main(["--discipline", "darts", "--duration-s", "3", "--", "x"])
     assert exc.value.code == 2
+
+
+def test_points_above_max_points_fail_the_check() -> None:
+    report = check("darts", [*FAKE, "--mode", "points-over-limit"], max_points=10, grace_s=20)
+    assert statuses(report)["записи"] == "FAIL"
+    assert "лимита" in details(report, "записи")
+
+
+def test_points_over_limit_pass_without_max_points() -> None:
+    report = check("darts", [*FAKE, "--mode", "points-over-limit"], grace_s=20)
+    assert statuses(report)["записи"] == "PASS"
+
+
+def test_max_points_option_is_validated() -> None:
+    with pytest.raises(SystemExit):
+        main(["--discipline", "darts", "--max-points", "0", "--", *STUB])

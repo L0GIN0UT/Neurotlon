@@ -66,6 +66,7 @@ namespace Neurotlon
         // Лимиты схемы Result
         public const int ResultReasonMaxLength = 200;
         public const float ResultPointsMax = 1000f;
+        public const int MaxPointsMax = 1000;
         public const int DurationMinSeconds = 10;
         public const int DurationMaxSeconds = 3600;
 

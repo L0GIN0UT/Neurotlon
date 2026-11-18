@@ -404,3 +404,30 @@ def test_sdk_import_does_not_load_pygame() -> None:
 
 def test_fake_bridge_is_a_bridge() -> None:
     assert FakeBridge(("emg",)).connected
+
+
+def test_launch_reads_max_points() -> None:
+    assert LaunchInfo.from_dict(launch_dict(max_points=10)).max_points == 10
+    assert LaunchInfo.from_dict(launch_dict()).max_points is None
+
+
+def test_launch_rejects_bad_max_points() -> None:
+    for bad in (0, 1001):
+        with pytest.raises(LaunchError):
+            LaunchInfo.from_dict(launch_dict(max_points=bad))
+
+
+def test_writer_refuses_points_above_max_points(tmp_path: Path) -> None:
+    launch = make_launch("darts", tmp_path / "result.json", max_points=10)
+    with pytest.raises(ResultError, match="лимита"):
+        ResultWriter(launch).write_finished([completed("NT07", 10.5)])
+    assert not (tmp_path / "result.json").exists()
+    ResultWriter(launch).write_finished([completed("NT07", 10)])
+    assert (tmp_path / "result.json").exists()
+
+
+def test_writer_pong_points_ignore_max_points(tmp_path: Path) -> None:
+    launch = make_launch("pong", tmp_path / "result.json", max_points=10)
+    ResultWriter(launch).write_finished(
+        [completed("NT03", 50, wins=1), completed("NT14", 7, wins=0)]
+    )

@@ -112,6 +112,8 @@ namespace Neurotlon
             {
                 if (float.IsNaN(e.points) || e.points < 0f || e.points > NeurotlonProtocol.ResultPointsMax)
                     return e.participant_code + ": points должно быть от 0 до 1000";
+                if (!launch.IsPong && launch.MaxPoints > 0 && e.points > launch.MaxPoints)
+                    return e.participant_code + ": points больше лимита секции " + launch.MaxPoints;
                 if (e.HasWins && !launch.IsPong) return "wins допустимы только в понге, а не в " + launch.Discipline;
                 if (e.HasWins && e.wins > 1) return e.participant_code + ": wins только 0 или 1";
                 return null;
