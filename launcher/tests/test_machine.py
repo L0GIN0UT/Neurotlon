@@ -18,8 +18,7 @@ from neurotlon_launcher.machine import (
     StationMachine,
     TechnicalProblem,
 )
-
-from .fakes import FakeApi, FakeQueue, FakeRunner, Ids, Time, eligibility
+from neurotlon_launcher.testing import FakeApi, FakeQueue, FakeRunner, Ids, Time, eligibility
 
 DARTS_DONE = Finished((GameEntry("NT07", "completed", 42.5),))
 PONG_DONE = Finished(
