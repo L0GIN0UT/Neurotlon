@@ -76,6 +76,9 @@ export function BoardApp({ createSource }: Props) {
           </div>
         </>
       )}
+      {board !== null && board.teams.length > 2 && (
+        <p className="notice">Табло показывает первые две команды</p>
+      )}
       {connection === 'offline' && (
         <p className="status" role="status">
           Нет связи с сервером, показаны последние данные

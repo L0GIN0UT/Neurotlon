@@ -112,6 +112,23 @@ describe('табло', () => {
     expect(flags[0]?.closest('li')?.textContent).toContain('NT02')
   })
 
+  test('игрок в конфликте идёт без номера места', () => {
+    render(<BoardApp createSource={createSource} />)
+    push(snapshot)
+    const pending = screen.getByText('нужно решение').closest('li')
+    expect(pending?.querySelector('.place')?.textContent).toBe('')
+    expect(pending?.textContent).toBe('NT02нужно решение0')
+  })
+
+  test('при трёх и более командах — пометка, что показаны первые две', () => {
+    render(<BoardApp createSource={createSource} />)
+    push(snapshot)
+    expect(screen.queryByText('Табло показывает первые две команды')).toBeNull()
+    push({ teams: [...snapshot.teams, team(3, 'Зелёные', '#3cb44b')] })
+    expect(screen.getByText('Табло показывает первые две команды')).toBeDefined()
+    expect(screen.queryByText('Зелёные')).toBeNull()
+  })
+
   test('обновляется по новому событию', () => {
     render(<BoardApp createSource={createSource} />)
     push(snapshot)

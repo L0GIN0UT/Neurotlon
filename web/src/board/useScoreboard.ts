@@ -3,7 +3,8 @@ import { useEffect, useState } from 'react'
 // Публичное табло: категории (ОВЗ) и резерва в ответе нет (server/scoreboard_api.py).
 /** Строка топа игроков в дисциплине: очки физической + BCI секций. */
 export interface BoardTop {
-  rank: number
+  /** Место 1..5; null у игрока в конфликте: места не занимает. */
+  rank: number | null
   number: number
   label: string
   points: number

@@ -206,6 +206,15 @@ body.board-body {
   text-align: center;
 }
 
+.board .notice {
+  position: fixed;
+  left: 2vw;
+  bottom: 0.4vh;
+  margin: 0;
+  font-size: 2vh;
+  color: #9fb0d6;
+}
+
 .board .status {
   position: fixed;
   right: 2vh;

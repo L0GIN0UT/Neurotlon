@@ -41,7 +41,7 @@ export const snapshot: Scoreboard = {
       {
         darts: [
           { rank: 1, number: 2, label: 'Аня', points: 80, pending: false },
-          { rank: 2, number: 1, label: 'NT02', points: 0, pending: true },
+          { rank: null, number: 1, label: 'NT02', points: 0, pending: true },
         ],
         pong: [{ rank: 1, number: 3, label: 'Вера', points: 10, pending: false }],
       },

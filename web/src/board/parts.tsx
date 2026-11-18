@@ -6,8 +6,11 @@ export function Top({ rows, side }: { rows: BoardTop[]; side: 'a' | 'b' }) {
   return (
     <ol className={`top side-${side}`}>
       {rows.map((row) => (
-        <li key={row.rank} className={row.pending ? 'player pending' : 'player'}>
-          <span className="place">{row.rank}</span>
+        <li
+          key={row.rank ?? `pending-${row.number}`}
+          className={row.pending ? 'player pending' : 'player'}
+        >
+          <span className="place">{row.rank ?? ''}</span>
           <span className="label">{row.label}</span>
           {row.pending && <span className="flag">нужно решение</span>}
           <span className="points">{formatPoints(row.points)}</span>
