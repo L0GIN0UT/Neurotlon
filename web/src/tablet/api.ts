@@ -19,6 +19,8 @@ export interface DisciplineConfig {
   discipline: Discipline
   section: Section
   duration_s: number
+  /** Лимит очков за секцию дартса и футбола; у понга null. Нет в старой копии настроек. */
+  max_points?: number | null
 }
 
 export interface Eligibility {

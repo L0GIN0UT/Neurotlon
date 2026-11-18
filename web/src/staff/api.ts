@@ -72,6 +72,8 @@ export interface DisciplineSettings {
   game_duration_s: number
   physical_duration_s: number
   win_points: number
+  /** Лимит очков за секцию дартса и футбола; понг им не ограничен. */
+  max_section_points: number
 }
 
 export interface UserInfo {

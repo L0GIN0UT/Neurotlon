@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { Correction } from '../../shared/types.ts'
+import type { Correction, Discipline } from '../../shared/types.ts'
 import type { StaffApi, StoredResult } from '../api.ts'
 import { ErrorText } from '../ui.tsx'
 import { formatTime } from '../format.ts'
@@ -9,9 +9,11 @@ import { ResultEditor } from './ResultEditor.tsx'
 interface Props {
   api: StaffApi
   canEditLocked: boolean
+  /** Лимит очков за секцию по дисциплинам. */
+  limits?: Partial<Record<Discipline, number>>
 }
 
-export function CorrectionsPanel({ api, canEditLocked }: Props) {
+export function CorrectionsPanel({ api, canEditLocked, limits = {} }: Props) {
   const list = useLoader(() => api.corrections('open'))
   const corrections = list.data ?? []
   return (
@@ -24,6 +26,7 @@ export function CorrectionsPanel({ api, canEditLocked }: Props) {
           api={api}
           correction={correction}
           canEditLocked={canEditLocked}
+          limits={limits}
           onDone={list.reload}
         />
       ))}
@@ -36,7 +39,7 @@ interface CardProps extends Props {
   onDone: () => void
 }
 
-function CorrectionCard({ api, correction, canEditLocked, onDone }: CardProps) {
+function CorrectionCard({ api, correction, canEditLocked, limits = {}, onDone }: CardProps) {
   const action = useAction()
   const [rows, setRows] = useState<StoredResult[] | null>(null)
   const label = `Запрос ${correction.id}`
@@ -74,6 +77,7 @@ function CorrectionCard({ api, correction, canEditLocked, onDone }: CardProps) {
           api={api}
           row={row}
           canEditLocked={canEditLocked}
+          maxPoints={limits[row.discipline] ?? null}
           onSaved={(saved) =>
             setRows((current) => current?.map((r) => (r.id === saved.id ? saved : r)) ?? null)
           }

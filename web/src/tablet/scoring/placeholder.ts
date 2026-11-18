@@ -1,20 +1,20 @@
-// Заглушка до утверждения методики подсчёта очков (решение 14).
-// Единственное место, где бросок или элемент превращается в очки:
-// когда методика будет утверждена, меняется только этот файл.
+// Очки за секцию вводит волонтёр как есть: один показатель, а не броски и элементы.
+// Физические секции оцениваются по той же шкале, что и BCI: не больше лимита дисциплины
+// (`max_points` из /me/config, по умолчанию 10; сервер проверяет его и сам). Понг — исключение:
+// там `points` — счёт игры, а очки секции считаются по победам.
+// Если методику подсчёта (решение 14) придётся менять, меняется только этот файл.
 
-export const THROW_MAX = 60
-export const ELEMENT_COUNT = 4
-export const ACCURACY_MAX = 100
 export const POINTS_MAX = 1000
+export const POINTS_STEP = 0.5
 
-/** Дартс: очки = сумма бросков. */
-export function dartsPoints(throws: readonly number[]): number {
-  return throws.reduce((sum, value) => sum + value, 0)
+/** Верхняя граница очков секции: лимит дисциплины или потолок схемы, если лимит неизвестен. */
+export function sectionLimit(maxPoints: number | null | undefined): number {
+  return maxPoints ?? POINTS_MAX
 }
 
-/** Футбол (полоса): очки = число выполненных элементов + очки за точность. */
-export function footballPoints(elements: readonly boolean[], accuracy: number): number {
-  return elements.filter(Boolean).length + accuracy
+/** Дартс и футбол: очки за секцию. */
+export function sectionPoints(points: number): number {
+  return points
 }
 
 /** Понг: очки игрока вводит волонтёр как есть. */
