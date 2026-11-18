@@ -32,6 +32,7 @@ dev = [
     "ruff>=0.8",
     "scipy-stubs>=1.18.1.1",
     "types-jsonschema>=4.26.0.20261006",
+    "types-openpyxl>=3.1.5.20261017",
     "types-pyyaml>=6.0.12.20261113",
 ]
 

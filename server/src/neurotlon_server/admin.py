@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Annotated, Literal, Self
 
 from fastapi import APIRouter, Depends, Response
@@ -10,6 +11,7 @@ from neurotlon_server.audit import write_audit
 from neurotlon_server.auth import Db, Now, require_role
 from neurotlon_server.errors import conflict, not_found
 from neurotlon_server.models import Station, User, WebSession
+from neurotlon_server.results import HEARTBEAT_WINDOW
 from neurotlon_server.security import hash_password, hash_token, new_token
 from neurotlon_server.users import LoginTakenError, create_user, normalize_login
 
@@ -48,6 +50,20 @@ class UserOut(BaseModel):
     login: str
     role: str
     discipline: str | None
+
+
+class UserListItem(UserOut):
+    is_active: bool
+
+
+class StationListItem(BaseModel):
+    id: int
+    name: str
+    discipline: str
+    online: bool
+    last_heartbeat_at: datetime | None
+    last_state: str | None
+    queue_length: int
 
 
 class UserPatch(BaseModel):
@@ -89,6 +105,16 @@ def _revoke_sessions(db: Session, user_id: int, now: Now) -> int:
         .values(revoked_at=now)
     )
     return int(result.rowcount)  # type: ignore[attr-defined]
+
+
+@router.get("/users")
+def list_users(db: Db, actor: Superuser) -> list[UserListItem]:
+    return [
+        UserListItem(
+            id=u.id, login=u.login, role=u.role, discipline=u.discipline, is_active=u.is_active
+        )
+        for u in db.scalars(select(User).order_by(User.id))
+    ]
 
 
 @router.post("/users", status_code=201)
@@ -152,6 +178,27 @@ def patch_user(user_id: int, body: UserPatch, db: Db, now: Now, actor: Superuser
 
 def _station_out(station: Station, token: str) -> StationOut:
     return StationOut(id=station.id, name=station.name, discipline=station.discipline, token=token)
+
+
+def _is_online(station: Station, now: datetime) -> bool:
+    beat = station.last_heartbeat_at
+    return beat is not None and now - beat <= HEARTBEAT_WINDOW
+
+
+@router.get("/stations")
+def list_stations(db: Db, now: Now, actor: StationManager) -> list[StationListItem]:
+    return [
+        StationListItem(
+            id=s.id,
+            name=s.name,
+            discipline=s.discipline,
+            online=_is_online(s, now),
+            last_heartbeat_at=s.last_heartbeat_at,
+            last_state=s.last_state,
+            queue_length=s.queue_length,
+        )
+        for s in db.scalars(select(Station).order_by(Station.id))
+    ]
 
 
 @router.post("/stations", status_code=201)

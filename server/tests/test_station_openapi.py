@@ -63,3 +63,24 @@ def test_problem_matches_schema(spec: dict[str, Any], client: TestClient, db: Se
     )
     assert response.status_code == 404
     validate(spec, "Problem", response.json())
+
+
+def test_staff_endpoints_match_schema(
+    spec: dict[str, Any], app: FastAPI, client: TestClient, db: Session
+) -> None:
+    seed_people(db)
+    make_user(db, "root", role="superuser")
+    _, headers = make_station(db, "d1", "darts")
+    client.post(f"{API}/results", json=darts_body(), headers=headers)
+    root = login_as(app, "root")
+    for row in root.get(f"{API}/stations").json():
+        validate(spec, "StationInfo", row)
+    for row in root.get(f"{API}/users").json():
+        validate(spec, "UserInfo", row)
+    found = root.get(f"{API}/results").json()["items"]
+    assert found
+    for row in found:
+        validate(spec, "StoredResult", row)
+    patch = {"points": 40, "change_reason": "recount"}
+    validate(spec, "ResultPatch", patch)
+    validate(spec, "StoredResult", root.patch(f"{API}/results/{found[0]['id']}", json=patch).json())

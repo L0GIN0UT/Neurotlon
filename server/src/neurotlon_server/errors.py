@@ -6,15 +6,24 @@ PROBLEM_JSON = "application/problem+json"
 
 
 class ProblemError(Exception):
-    def __init__(self, status: int, code: str, title: str, detail: str | None = None) -> None:
+    def __init__(
+        self,
+        status: int,
+        code: str,
+        title: str,
+        detail: str | None = None,
+        extra: dict[str, int] | None = None,
+    ) -> None:
         super().__init__(title)
         self.status = status
         self.code = code
         self.title = title
         self.detail = detail
+        self.extra = extra or {}
 
     def body(self) -> dict[str, str | int]:
         body: dict[str, str | int] = {
+            **self.extra,
             "type": "about:blank",
             "title": self.title,
             "status": self.status,
