@@ -5,6 +5,7 @@ from datetime import datetime
 
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
 
 from neurotlon_server.admin import router as admin_router
 from neurotlon_server.auth import LoginThrottle
@@ -88,8 +89,13 @@ def create_app(
     app.include_router(export_router)
 
     @app.get("/health")
-    def health() -> dict[str, str]:
-        return {"status": "ok"}
+    def health() -> Response:
+        try:
+            with app.state.session_factory() as db:
+                db.execute(text("SELECT 1"))
+        except Exception:
+            return JSONResponse({"status": "error"}, status_code=503)
+        return JSONResponse({"status": "ok"})
 
     return app
 
