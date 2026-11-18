@@ -2,60 +2,12 @@ import { act, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { FakeEventSource } from '../test/fakeServer.ts'
 import { BoardApp } from './BoardApp.tsx'
+import { rows, snapshot, team } from './fixtures.ts'
 import { formatPoints, textOn } from './format.ts'
 import { retryDelay } from './useScoreboard.ts'
-import type { BoardTeam, EventSourceLike, Scoreboard } from './useScoreboard.ts'
+import type { EventSourceLike, Scoreboard } from './useScoreboard.ts'
 
 const createSource = (url: string) => new FakeEventSource(url) as unknown as EventSourceLike
-
-function team(number: number, name: string, color: string, members: number, total = 0): BoardTeam {
-  return {
-    rank: number,
-    number,
-    name,
-    color,
-    total,
-    by_discipline: { darts: total, football: 0, pong: 0 },
-    sections_passed: 0,
-    finished: false,
-    members: Array.from({ length: members }, (_, i) => ({
-      label: `NT${String(number * 10 + i).padStart(2, '0')}`,
-      total: i,
-      sections_passed: i % 7,
-      pending: false,
-    })),
-  }
-}
-
-const snapshot: Scoreboard = {
-  teams: [
-    {
-      rank: 1,
-      number: 1,
-      name: 'Альфа',
-      color: '#aa00bb',
-      total: 120.5,
-      by_discipline: { darts: 80, football: 40.5, pong: 0 },
-      sections_passed: 3,
-      finished: false,
-      members: [
-        { label: 'Аня', total: 80, sections_passed: 2, pending: false },
-        { label: 'NT02', total: 40.5, sections_passed: 1, pending: true },
-      ],
-    },
-    {
-      rank: 2,
-      number: 2,
-      name: 'Бета',
-      color: '#ffd400',
-      total: 10,
-      by_discipline: { darts: 0, football: 0, pong: 10 },
-      sections_passed: 1,
-      finished: false,
-      members: [{ label: 'Боря', total: 10, sections_passed: 1, pending: false }],
-    },
-  ],
-}
 
 function current(): FakeEventSource {
   const last = FakeEventSource.instances.at(-1)
@@ -65,6 +17,10 @@ function current(): FakeEventSource {
 
 function push(board: Scoreboard) {
   act(() => current().emit('scoreboard', board))
+}
+
+function versus(name: string): string | undefined {
+  return screen.getByRole('region', { name }).querySelector('.versus')?.textContent ?? undefined
 }
 
 beforeEach(() => {
@@ -83,25 +39,72 @@ describe('табло', () => {
     expect(screen.getByText('Подключаемся к табло…')).toBeDefined()
   })
 
-  test('рисует команды, места, итоги по дисциплинам и участников', () => {
+  test('три зоны: шапка со счётом дуэли и три полосы дисциплин по порядку', () => {
     render(<BoardApp createSource={createSource} />)
     push(snapshot)
 
-    const alpha = screen.getByRole('region', { name: 'Альфа' })
-    expect(within(alpha).getByText('120,5')).toBeDefined()
-    expect(within(alpha).getByText('Дартс')).toBeDefined()
-    expect(within(alpha).getByText('Футбол')).toBeDefined()
-    expect(within(alpha).getByText('Понг')).toBeDefined()
-    expect(within(alpha).getByText('40,5', { selector: 'strong' })).toBeDefined()
-    expect(within(alpha).getByText('Аня')).toBeDefined()
-    expect(within(alpha).getByText('2/6')).toBeDefined()
+    const header = screen.getByLabelText('Счёт дуэли')
+    expect(within(header).getByText('Красные')).toBeDefined()
+    expect(within(header).getByText('Синие')).toBeDefined()
+    expect(within(header).getByText('VS')).toBeDefined()
 
-    const beta = screen.getByRole('region', { name: 'Бета' })
-    expect(within(beta).getByText('Боря')).toBeDefined()
-    expect(alpha.style.getPropertyValue('--team')).toBe('#aa00bb')
+    const bands = Array.from(document.querySelectorAll('.band'))
+    expect(bands.map((band) => band.getAttribute('data-discipline'))).toEqual([
+      'darts',
+      'football',
+      'pong',
+    ])
+    expect(bands.map((band) => band.getAttribute('aria-label'))).toEqual(['Дартс', 'Футбол', 'Понг'])
+    for (const band of bands) expect(band.querySelector('svg[data-icon]')).not.toBeNull()
   })
 
-  test('помечает участника, которому нужно решение судьи', () => {
+  test('VS в шапке показывает duel_score с сервера, а не очки', () => {
+    render(<BoardApp createSource={createSource} />)
+    push(snapshot)
+    expect(screen.getByLabelText('Победы команды A').textContent).toBe('2')
+    expect(screen.getByLabelText('Победы команды B').textContent).toBe('1')
+  })
+
+  test('названия и счёт дуэли окрашены в цвет команды', () => {
+    render(<BoardApp createSource={createSource} />)
+    push(snapshot)
+    const header = screen.getByLabelText('Счёт дуэли')
+    const red = within(header).getByText('Красные')
+    const blue = within(header).getByText('Синие')
+    expect(red.style.getPropertyValue('--team')).toBe('#e6194b')
+    expect(blue.style.getPropertyValue('--team')).toBe('#4363d8')
+  })
+
+  test('в центре полосы — сумма очков команд в дисциплине: A vs B', () => {
+    render(<BoardApp createSource={createSource} />)
+    push(snapshot)
+    expect(versus('Дартс')).toBe('80vs15')
+    expect(versus('Футбол')).toBe('40,5vs0')
+    expect(versus('Понг')).toBe('10vs20')
+  })
+
+  test('слева игроки A, справа B; у каждого место, имя и очки в этой дисциплине', () => {
+    render(<BoardApp createSource={createSource} />)
+    push(snapshot)
+    const darts = screen.getByRole('region', { name: 'Дартс' })
+    const left = darts.querySelector<HTMLElement>('.top.side-a')
+    const right = darts.querySelector<HTMLElement>('.top.side-b')
+    if (!left || !right) throw new Error('нет списков игроков')
+    expect(within(left).getByText('Аня').closest('li')?.textContent).toBe('1Аня80')
+    expect(within(right).getByText('Боря').closest('li')?.textContent).toBe('1Боря15')
+    expect(within(left).queryByText('Боря')).toBeNull()
+    expect(within(screen.getByRole('region', { name: 'Понг' })).getByText('Вера')).toBeDefined()
+    expect(within(screen.getByRole('region', { name: 'Футбол' })).queryAllByRole('listitem')).toHaveLength(0)
+  })
+
+  test('нет общего списка с итогом: игрок виден только в своих дисциплинах', () => {
+    render(<BoardApp createSource={createSource} />)
+    push(snapshot)
+    expect(screen.getAllByText('Аня')).toHaveLength(1)
+    expect(document.querySelectorAll('.members')).toHaveLength(0)
+  })
+
+  test('помечает игрока, чья секция в дисциплине в конфликте', () => {
     render(<BoardApp createSource={createSource} />)
     push(snapshot)
     const flags = screen.getAllByText('нужно решение')
@@ -114,10 +117,16 @@ describe('табло', () => {
     push(snapshot)
     expect(screen.queryByText('Гамма')).toBeNull()
 
-    push({ teams: [{ ...team(1, 'Гамма', '#00aa11', 1, 300), rank: 1 }] })
-    expect(screen.getByRole('region', { name: 'Гамма' })).toBeDefined()
-    expect(screen.queryByRole('region', { name: 'Альфа' })).toBeNull()
-    expect(screen.getAllByText('300').length).toBeGreaterThan(0)
+    push({
+      teams: [
+        team(1, 'Гамма', '#00aa11', { darts: rows('Г', 1) }, { duel_score: 5, by_discipline: { darts: 300, football: 0, pong: 0 } }),
+        team(2, 'Дельта', '#123456'),
+      ],
+    })
+    expect(screen.getByText('Гамма')).toBeDefined()
+    expect(screen.queryByText('Красные')).toBeNull()
+    expect(screen.getByLabelText('Победы команды A').textContent).toBe('5')
+    expect(versus('Дартс')).toBe('300vs0')
   })
 
   test('без жеребьёвки показывает ожидание', () => {
@@ -126,13 +135,21 @@ describe('табло', () => {
     expect(screen.getByText('Ждём жеребьёвки')).toBeDefined()
   })
 
-  test('2 команды по 10 участников помещаются целиком', () => {
+  test('команды A и B — первые две по номеру, а не по месту', () => {
     render(<BoardApp createSource={createSource} />)
-    push({ teams: [team(1, 'Альфа', '#aa00bb', 10), team(2, 'Бета', '#ffd400', 10)] })
-    const rows = document.querySelectorAll('.member')
-    expect(rows).toHaveLength(20)
-    const alpha = screen.getByRole('region', { name: 'Альфа' })
-    expect(alpha.style.getPropertyValue('--rows')).toBe('10')
+    push({
+      teams: [team(2, 'Синие', '#4363d8', {}, { rank: 1 }), team(1, 'Красные', '#e6194b', {}, { rank: 2 })],
+    })
+    expect(document.querySelector('.name-a')?.textContent).toBe('Красные')
+    expect(document.querySelector('.name-b')?.textContent).toBe('Синие')
+  })
+
+  test('по 5 игроков на команду в каждой из трёх полос помещаются целиком', () => {
+    render(<BoardApp createSource={createSource} />)
+    const full = { darts: rows('А', 5), football: rows('Б', 5), pong: rows('В', 5) }
+    push({ teams: [team(1, 'Красные', '#e6194b', full), team(2, 'Синие', '#4363d8', full)] })
+    expect(document.querySelectorAll('.player')).toHaveLength(30)
+    expect(document.querySelectorAll('.band')).toHaveLength(3)
   })
 
   test('обрыв: показывает предупреждение, данные остаются, браузер переподключается сам', () => {
@@ -140,7 +157,7 @@ describe('табло', () => {
     push(snapshot)
     act(() => current().failReconnecting())
     expect(screen.getByRole('status').textContent).toContain('Нет связи')
-    expect(screen.getByRole('region', { name: 'Альфа' })).toBeDefined()
+    expect(screen.getByText('Красные')).toBeDefined()
     expect(FakeEventSource.instances).toHaveLength(1)
 
     push(snapshot)
@@ -176,8 +193,8 @@ describe('табло', () => {
     expect(FakeEventSource.instances).toHaveLength(3)
 
     // новый поток доставляет данные, предупреждение исчезает
-    push({ teams: [team(1, 'Дельта', '#123456', 2, 5)] })
-    expect(screen.getByRole('region', { name: 'Дельта' })).toBeDefined()
+    push({ teams: [team(1, 'Дельта', '#123456'), team(2, 'Омега', '#654321')] })
+    expect(screen.getByText('Дельта')).toBeDefined()
     expect(screen.queryByRole('status')).toBeNull()
   })
 
@@ -201,13 +218,12 @@ describe('табло', () => {
       source.emit('scoreboard', 'not-a-board')
       source.emit('scoreboard', { nothing: true })
     })
-    expect(screen.getByRole('region', { name: 'Альфа' })).toBeDefined()
+    expect(screen.getByText('Красные')).toBeDefined()
   })
 
   test('на табло нет категории: ни «ОВЗ», ни ovz, ни general', () => {
     render(<BoardApp createSource={createSource} />)
     push(snapshot)
-    push({ teams: [team(1, 'Альфа', '#aa00bb', 10), team(2, 'Бета', '#ffd400', 10)] })
     for (const text of [document.body.innerHTML, document.body.textContent ?? '']) {
       const lower = text.toLowerCase()
       expect(lower).not.toContain('овз')
