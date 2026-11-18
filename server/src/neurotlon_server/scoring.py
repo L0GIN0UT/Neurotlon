@@ -7,7 +7,6 @@ from typing import Protocol
 
 COUNTED_STATUSES = frozenset({"confirmed", "locked"})
 SECTIONS = ("bci", "physical")
-PRECISION = 6  # float sums: 0.1 + 0.2 and 0.3 must rank equal
 
 
 @dataclass(frozen=True)
@@ -17,7 +16,7 @@ class ResultIn:
     discipline: str
     section: str
     outcome: str
-    points: float | None
+    points: int | None
     wins: int | None
     status: str
     voided: bool = False
@@ -50,13 +49,13 @@ class DisciplineIn:
 @dataclass(frozen=True)
 class ParticipantScore:
     participant_id: int
-    total: float = 0.0
-    bci_points: float = 0.0
-    physical_points: float = 0.0
+    total: int = 0
+    bci_points: int = 0
+    physical_points: int = 0
     sections_passed: int = 0
     conflicts: int = 0
-    by_discipline: dict[str, float] = field(default_factory=dict)
-    by_section: dict[tuple[str, str], float] = field(default_factory=dict)
+    by_discipline: dict[str, int] = field(default_factory=dict)
+    by_section: dict[tuple[str, str], int] = field(default_factory=dict)
     passed_by_discipline: dict[str, int] = field(default_factory=dict)
     conflicts_by_discipline: dict[str, int] = field(default_factory=dict)
 
@@ -68,7 +67,7 @@ class TopEntry:
     rank: int | None  # None: undecided (conflict), not placed
     participant_id: int
     number: int
-    points: float
+    points: int
     sections_passed: int
     pending: bool
 
@@ -77,11 +76,11 @@ class TopEntry:
 class TeamScore:
     team_id: int
     rank: int
-    total: float
+    total: int
     sections_passed: int
-    bci_points: float
-    physical_points: float
-    by_discipline: dict[str, float]
+    bci_points: int
+    physical_points: int
+    by_discipline: dict[str, int]
     finished: bool
     members: list[ParticipantScore]
 
@@ -144,16 +143,16 @@ def top_players(
     counted = []
     pending = []
     for m in members:
-        row = (m, m.by_discipline.get(discipline, 0.0), m.passed_by_discipline.get(discipline, 0))
+        row = (m, m.by_discipline.get(discipline, 0), m.passed_by_discipline.get(discipline, 0))
         if m.conflicts_by_discipline.get(discipline):
             pending.append(row)
         elif discipline in m.by_discipline:
             counted.append(row)
 
-    def order(r: tuple[ParticipantScore, float, int]) -> tuple[float, int, int]:
+    def order(r: tuple[ParticipantScore, int, int]) -> tuple[int, int, int]:
         return (-r[1], -r[2], numbers.get(r[0].participant_id, 0))
 
-    def entry(rank: int | None, r: tuple[ParticipantScore, float, int]) -> TopEntry:
+    def entry(rank: int | None, r: tuple[ParticipantScore, int, int]) -> TopEntry:
         m, points, passed = r
         return TopEntry(
             rank=rank,
@@ -174,7 +173,7 @@ def top_players(
 class SectionScoring(Protocol):
     """Points for one counted section result."""
 
-    def score(self, result: ResultIn, discipline: DisciplineIn) -> float: ...
+    def score(self, result: ResultIn, discipline: DisciplineIn) -> int: ...
 
 
 class PlaceholderScoring:
@@ -183,12 +182,12 @@ class PlaceholderScoring:
     Заменяется реализацией SectionScoring без изменения остального расчёта.
     """
 
-    def score(self, result: ResultIn, discipline: DisciplineIn) -> float:
+    def score(self, result: ResultIn, discipline: DisciplineIn) -> int:
         if result.outcome != "completed":
-            return 0.0
+            return 0
         if discipline.code == "pong":
-            return float((result.wins or 0) * discipline.win_points)
-        return float(result.points or 0.0)
+            return (result.wins or 0) * discipline.win_points
+        return result.points or 0
 
 
 def score_participants(
@@ -204,10 +203,10 @@ def score_participants(
 
     scores: dict[int, ParticipantScore] = {}
     for person in participants:
-        total = bci = physical = 0.0
+        total = bci = physical = 0
         passed = conflicts = 0
-        by_discipline: dict[str, float] = {}
-        by_section: dict[tuple[str, str], float] = {}
+        by_discipline: dict[str, int] = {}
+        by_section: dict[tuple[str, str], int] = {}
         passed_by: dict[str, int] = {}
         conflicts_by: dict[str, int] = {}
         for rows in per_person.get(person.id, []):
@@ -226,24 +225,24 @@ def score_participants(
                 bci += points
             else:
                 physical += points
-            by_discipline[row.discipline] = by_discipline.get(row.discipline, 0.0) + points
+            by_discipline[row.discipline] = by_discipline.get(row.discipline, 0) + points
             by_section[(row.discipline, row.section)] = points
         scores[person.id] = ParticipantScore(
             person.id,
-            round(total, PRECISION),
-            round(bci, PRECISION),
-            round(physical, PRECISION),
+            total,
+            bci,
+            physical,
             passed,
             conflicts,
-            {code: round(points, PRECISION) for code, points in by_discipline.items()},
-            {key: round(points, PRECISION) for key, points in by_section.items()},
+            by_discipline,
+            by_section,
             passed_by,
             conflicts_by,
         )
     return scores
 
 
-def _sort_key(team: TeamScore) -> tuple[float, int, float, float]:
+def _sort_key(team: TeamScore) -> tuple[int, int, int, int]:
     return (team.total, team.sections_passed, team.bci_points, team.physical_points)
 
 
@@ -267,17 +266,17 @@ def score_teams(
     unranked: list[tuple[TeamIn, TeamScore]] = []
     for team in teams:
         group = members.get(team.id, [])
-        by_discipline: dict[str, float] = {d.code: 0.0 for d in discipline_list}
+        by_discipline: dict[str, int] = {d.code: 0 for d in discipline_list}
         for member in group:
             for code, points in member.by_discipline.items():
-                by_discipline[code] = round(by_discipline.get(code, 0.0) + points, PRECISION)
+                by_discipline[code] = by_discipline.get(code, 0) + points
         score = TeamScore(
             team_id=team.id,
             rank=0,
-            total=round(sum(m.total for m in group), PRECISION),
+            total=sum(m.total for m in group),
             sections_passed=sum(m.sections_passed for m in group),
-            bci_points=round(sum(m.bci_points for m in group), PRECISION),
-            physical_points=round(sum(m.physical_points for m in group), PRECISION),
+            bci_points=sum(m.bci_points for m in group),
+            physical_points=sum(m.physical_points for m in group),
             by_discipline=by_discipline,
             finished=bool(group) and all(m.sections_passed == sections_needed for m in group),
             members=group,

@@ -9,7 +9,6 @@ from sqlalchemy import (
     CheckConstraint,
     Column,
     DateTime,
-    Float,
     ForeignKey,
     Index,
     Integer,
@@ -214,7 +213,7 @@ class SectionResult(Base):
     discipline: Mapped[str] = mapped_column(ForeignKey("discipline.code"))
     section: Mapped[str] = mapped_column(String)
     outcome: Mapped[str] = mapped_column(String)
-    points: Mapped[float | None] = mapped_column(Float)
+    points: Mapped[int | None] = mapped_column(Integer)
     wins: Mapped[int | None]
     reason: Mapped[str | None] = mapped_column(String)
     comment: Mapped[str | None] = mapped_column(Text)

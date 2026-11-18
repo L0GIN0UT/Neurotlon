@@ -71,7 +71,7 @@ def _result(**overrides: Any) -> dict[str, Any]:
         "discipline": "darts",
         "section": "bci",
         "outcome": "completed",
-        "points": 10.0,
+        "points": 10,
         "source": "station",
         "finished_at": NOW,
         "created_at": NOW,
@@ -237,13 +237,13 @@ def test_section_result_defaults(engine: Engine) -> None:
     [
         {"points": None},  # completed needs points
         {"reason": "health"},  # completed forbids reason
-        {"points": -1.0},
+        {"points": -1},
         {"section": "other"},
         {"status": "done"},
         {"source": "robot"},
         {"outcome": "unknown"},
         {"outcome": "not_completed", "points": None, "reason": None},
-        {"outcome": "not_completed", "points": 1.0, "reason": "health"},
+        {"outcome": "not_completed", "points": 1, "reason": "health"},
         {"outcome": "not_completed", "points": None, "reason": "health", "wins": 1},
         {"outcome": "not_completed", "points": None, "reason": "bad"},
         {"wins": -1},

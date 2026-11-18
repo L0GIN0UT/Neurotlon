@@ -21,7 +21,7 @@ Resolver = Annotated[User, Depends(require_role("superuser", "admin", "judge", "
 
 class ConflictResultOut(BaseModel):
     id: int
-    points: float | None
+    points: int | None
     wins: int | None
     outcome: str
     reason: str | None

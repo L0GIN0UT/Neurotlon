@@ -24,7 +24,7 @@ DISCIPLINE_TITLES = {"darts": "Дартс", "football": "Футбол", "pong": 
 SECTION_TITLES = {"bci": "BCI", "physical": "физическая"}
 
 
-def _write(sheet: Worksheet, row: list[str | float | int | None], bold: bool = False) -> None:
+def _write(sheet: Worksheet, row: list[str | int | None], bold: bool = False) -> None:
     sheet.append(row)
     for cell in sheet[sheet.max_row]:
         if isinstance(cell.value, str):
@@ -57,7 +57,7 @@ def build_workbook(db: Session, scoring: SectionScoring) -> Workbook:
                 score.rank,
                 team.name,
                 score.total,
-                *[score.by_discipline.get(c, 0.0) for c in codes],
+                *[score.by_discipline.get(c, 0) for c in codes],
                 score.sections_passed,
             ],
         )

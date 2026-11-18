@@ -20,7 +20,7 @@ def res(
     discipline: str = "darts",
     section: str = "bci",
     outcome: str = "completed",
-    points: float | None = 0.0,
+    points: int | None = 0,
     wins: int | None = None,
     status: str = "confirmed",
     voided: bool = False,
@@ -38,8 +38,8 @@ def person(id: int, team: int | None = 1) -> ParticipantIn:
 class FakeScoring:
     """Independent of the placeholder rule: a section is worth its `points` field."""
 
-    def score(self, result: ResultIn, discipline: DisciplineIn) -> float:
-        return result.points or 0.0
+    def score(self, result: ResultIn, discipline: DisciplineIn) -> int:
+        return result.points or 0
 
 
 FAKE = FakeScoring()
@@ -51,11 +51,11 @@ def score_one(*results: ResultIn) -> ParticipantScore:
 
 def test_darts_and_football_use_points() -> None:
     score = score_one(
-        res(1, points=42.5), res(2, discipline="football", section="physical", points=7)
+        res(1, points=42), res(2, discipline="football", section="physical", points=7)
     )
-    assert score.total == 49.5
-    assert (score.bci_points, score.physical_points, score.sections_passed) == (42.5, 7, 2)
-    assert score.by_discipline == {"darts": 42.5, "football": 7}
+    assert score.total == 49
+    assert (score.bci_points, score.physical_points, score.sections_passed) == (42, 7, 2)
+    assert score.by_discipline == {"darts": 42, "football": 7}
 
 
 def test_placeholder_pong_is_wins_times_win_points_and_ignores_points() -> None:
@@ -68,7 +68,7 @@ def test_placeholder_pong_is_wins_times_win_points_and_ignores_points() -> None:
 
 def test_placeholder_darts_football_points_and_not_completed() -> None:
     scoring = PlaceholderScoring()
-    assert scoring.score(res(1, points=42.5), DisciplineIn("darts", 10)) == 42.5
+    assert scoring.score(res(1, points=42), DisciplineIn("darts", 10)) == 42
     assert scoring.score(res(2, discipline="football", points=7), DISCIPLINES[1]) == 7
     skipped = res(3, outcome="not_completed", points=None)
     assert scoring.score(skipped, DISCIPLINES[0]) == 0
@@ -184,19 +184,6 @@ def test_team_without_members_is_not_finished() -> None:
     assert (team.finished, team.total) == (False, 0)
 
 
-def test_float_noise_does_not_break_ties() -> None:
-    people = [person(1, 1), person(2, 2)]
-    results = [
-        res(1, 1, points=0.1),
-        res(2, 1, "football", points=0.2),
-        res(3, 2, points=0.3),
-        res(4, 2, "football", points=0.0),
-    ]
-    ranked = score_teams(results, people, _teams(1, 2), DISCIPLINES, FAKE)
-    assert [score.rank for _, score in ranked] == [1, 1]
-    assert [score.total for _, score in ranked] == [0.3, 0.3]
-
-
 def pong(id: int, participant: int, wins: int, session: str, **extra: object) -> ResultIn:
     return res(id, participant, "pong", wins=wins, session=session, points=None, **extra)  # type: ignore[arg-type]
 
@@ -286,7 +273,7 @@ def test_top_players_tie_breaks_by_sections_then_number() -> None:
 
 
 def test_top_players_pending_take_no_place_and_follow_the_top() -> None:
-    results = [res(i, i, points=float(i)) for i in range(1, 8)]
+    results = [res(i, i, points=i) for i in range(1, 8)]
     results += [res(20, 8, points=1), res(21, 8, points=2, session="again")]
     results += [res(30, 9, points=1), res(31, 9, points=2, session="again")]
     numbers = {i: i for i in range(1, 10)}

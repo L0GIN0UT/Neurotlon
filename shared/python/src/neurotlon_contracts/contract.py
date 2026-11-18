@@ -63,7 +63,7 @@ def schema_problem(name: str, data: object) -> str | None:
 
 
 def points_limit_problem(
-    discipline: str, points: Sequence[tuple[str, float]], max_points: int | None
+    discipline: str, points: Sequence[tuple[str, int]], max_points: int | None
 ) -> str | None:
     """Дартс и футбол: `points` не больше лимита секции; у понга `points` — счёт игры."""
     if max_points is None or discipline == "pong":

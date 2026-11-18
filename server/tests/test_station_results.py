@@ -40,7 +40,7 @@ def test_darts_single_result(client: TestClient, db: Session) -> None:
     assert body["warnings"] == []
     row = db.scalars(select(SectionResult)).one()
     assert (row.points, row.source, row.station_id, row.section) == (
-        4.5,
+        4,
         "station",
         station_id,
         "bci",
@@ -185,7 +185,7 @@ def test_conflicting_replay_is_409(client: TestClient, db: Session) -> None:
     response = client.post(f"{API}/results", json=other, headers=headers)
     assert response.status_code == 409
     assert response.json()["code"] == "session_conflict"
-    assert db.scalars(select(SectionResult)).one().points == 4.5
+    assert db.scalars(select(SectionResult)).one().points == 4
 
 
 def test_session_opened_by_start_then_submitted(client: TestClient, db: Session) -> None:
@@ -316,14 +316,14 @@ def test_audit_has_content_and_no_category(client: TestClient, db: Session) -> N
             {
                 "participant_code": "NT03",
                 "outcome": "completed",
-                "points": 11.0,
+                "points": 11,
                 "wins": 1,
                 "reason": None,
             },
             {
                 "participant_code": "NT04",
                 "outcome": "completed",
-                "points": 7.0,
+                "points": 7,
                 "wins": 0,
                 "reason": None,
             },

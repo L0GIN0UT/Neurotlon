@@ -27,7 +27,7 @@ def _rows(db: Session) -> int:
     )
 
 
-@pytest.mark.parametrize("points", [1000.5, 10**30, -0.1])
+@pytest.mark.parametrize("points", [1001, 10**30, -1, 7.5, 0.1])
 def test_points_out_of_range_is_422(client: TestClient, db: Session, points: float) -> None:
     seed_people(db)
     _, headers = make_station(db, "d1", "darts")
@@ -222,3 +222,13 @@ def test_draw_never_gives_one_participant_two_pairs(app: FastAPI, db: Session) -
     ids = [x for p in db.scalars(select(Pair)) for x in (p.participant_a_id, p.participant_b_id)]
     assert ids
     assert len(ids) == len(set(ids))
+
+
+def test_whole_float_points_are_stored_as_integer(client: TestClient, db: Session) -> None:
+    seed_people(db)
+    _, headers = make_station(db, "d1", "darts")
+    body = darts_body()
+    body["entries"][0]["points"] = 7.0
+    assert client.post(f"{API}/results", json=body, headers=headers).status_code == 201
+    row = db.scalars(select(SectionResult)).one()
+    assert row.points == 7 and isinstance(row.points, int)

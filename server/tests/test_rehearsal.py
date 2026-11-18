@@ -176,11 +176,10 @@ def test_generated_points_are_small_and_realistic() -> None:
     bci = [rehearsal._points("bci") for _ in range(500)]
     physical = [rehearsal._points("physical") for _ in range(500)]
     for values in (bci, physical):
+        assert all(isinstance(v, int) for v in values)
         assert all(0 <= v <= 10 for v in values)
         assert sum(3 <= v <= 9 for v in values) > 350  # most results are 3..9
         assert 0 in values and 10 in values  # the edges happen
-    assert all(v == int(v) for v in physical)
-    assert any(v != int(v) for v in bci)  # BCI allows one decimal
 
 
 def test_generated_points_are_reproducible() -> None:
@@ -200,6 +199,6 @@ def test_pong_entries_have_one_winner_and_table_tennis_points() -> None:
 
 def test_other_points_stay_in_range_and_differ() -> None:
     rehearsal = make_rehearsal()
-    for value in (0.0, 4.5, 9.0, 10.0):
+    for value in (0, 5, 9, 10):
         other = rehearsal._other_points(value)
         assert other != value and 0 <= other <= 10

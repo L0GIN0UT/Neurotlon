@@ -20,7 +20,7 @@ def test_undo_audit_has_before_state(app: FastAPI, db: Session) -> None:
     entry = db.scalars(select(AuditLog).where(AuditLog.action == "result.undo")).one()
     assert entry.before is not None
     assert [(r["status"], r["points"], r["outcome"], r["wins"]) for r in entry.before["rows"]] == [
-        ("confirmed", 4.5, "completed", None)
+        ("confirmed", 4, "completed", None)
     ]
 
 

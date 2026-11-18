@@ -38,7 +38,7 @@ class ResultOut(BaseModel):
     discipline: str
     section: str
     outcome: str
-    points: float | None
+    points: int | None
     wins: int | None
     reason: str | None
     comment: str | None
@@ -57,7 +57,7 @@ class ResultPage(BaseModel):
 class ResultPatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    points: float | None = Field(default=None, ge=0, le=1000, allow_inf_nan=False)
+    points: int | None = Field(default=None, ge=0, le=1000)
     wins: int | None = Field(default=None, ge=0, le=1)
     outcome: Literal["completed", "not_completed"] | None = None
     reason: Reason | None = None

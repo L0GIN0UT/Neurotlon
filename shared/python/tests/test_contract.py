@@ -98,7 +98,7 @@ def limited(points: float, discipline: str = "darts", max_points: int | None = 1
 
 def test_points_above_section_limit_are_rejected() -> None:
     assert limited(10) is None
-    assert "лимита" in (limited(10.5) or "")
+    assert "лимита" in (limited(11) or "")
     assert "лимита" in (limited(11, "football") or "")
 
 
@@ -122,3 +122,12 @@ def test_pong_points_are_not_limited() -> None:
         )
         is None
     )
+
+
+def test_fractional_points_are_rejected_by_schema() -> None:
+    assert "схему" in (limited(4.5) or "")
+    assert "схему" in (limited(4.5, discipline="pong", max_points=None) or "")
+
+
+def test_whole_float_points_are_accepted() -> None:
+    assert limited(7.0) is None

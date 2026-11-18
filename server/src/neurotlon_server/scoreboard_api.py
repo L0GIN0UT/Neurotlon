@@ -36,7 +36,7 @@ class TopOut(BaseModel):
     rank: int | None
     number: int
     label: str
-    points: float
+    points: int
     pending: bool
 
 
@@ -45,9 +45,9 @@ class TeamRowOut(BaseModel):
     number: int
     name: str
     color: str
-    total: float
+    total: int
     duel_score: int
-    by_discipline: dict[str, float]
+    by_discipline: dict[str, int]
     sections_passed: int
     finished: bool
     top: dict[str, list[TopOut]]

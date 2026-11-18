@@ -125,7 +125,7 @@ paths:
                   entries:
                     - participant_code: NT07
                       outcome: completed
-                      points: 42.5
+                      points: 42
               pong:
                 value:
                   session_id: 7b1d3e00-5a4f-4c2b-8e7a-91c0d2f3a4b5
@@ -735,7 +735,7 @@ components:
           type: string
           description: Имя или код участника.
         points:
-          type: number
+          type: integer
           description: Очки игрока в этой дисциплине, физическая + BCI.
         pending:
           type: boolean
@@ -758,7 +758,7 @@ components:
           type: string
           pattern: "^#[0-9a-fA-F]{6}$"
         total:
-          type: number
+          type: integer
         duel_score:
           type: integer
           minimum: 0
@@ -767,7 +767,7 @@ components:
           type: object
           description: Сумма очков команды по дисциплинам (физическая + BCI).
           additionalProperties:
-            type: number
+            type: integer
         sections_passed:
           type: integer
         finished:
@@ -859,11 +859,11 @@ components:
         outcome:
           $ref: "#/components/schemas/Outcome"
         points:
-          type: number
+          type: integer
           minimum: 0
           maximum: 1000
           description: |
-            Очки за секцию. Для дартса и футбола не больше `max_section_points`
+            Очки за секцию, целое число (дробные — `invalid_entries`). Для дартса и футбола не больше `max_section_points`
             дисциплины (по умолчанию 10), иначе `invalid_entries`. Для понга —
             счёт игры, лимитом не ограничен.
         wins:
@@ -1125,7 +1125,7 @@ components:
         outcome:
           $ref: "#/components/schemas/Outcome"
         points:
-          type: [number, "null"]
+          type: [integer, "null"]
         wins:
           type: [integer, "null"]
         reason:
@@ -1164,7 +1164,7 @@ components:
       additionalProperties: false
       properties:
         points:
-          type: number
+          type: integer
           minimum: 0
           maximum: 1000
         wins:
