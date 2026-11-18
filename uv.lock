@@ -477,6 +477,7 @@ dev = [
     { name = "pytest" },
     { name = "pyyaml" },
     { name = "ruff" },
+    { name = "scipy-stubs" },
     { name = "types-jsonschema" },
     { name = "types-pyyaml" },
 ]
@@ -498,6 +499,7 @@ dev = [
     { name = "pytest", specifier = ">=8.3" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "ruff", specifier = ">=0.8" },
+    { name = "scipy-stubs", specifier = ">=1.18.1.1" },
     { name = "types-jsonschema", specifier = ">=4.26.0.20261006" },
     { name = "types-pyyaml", specifier = ">=6.0.12.20261113" },
 ]
@@ -514,11 +516,6 @@ dependencies = [
     { name = "scipy" },
 ]
 
-[package.dev-dependencies]
-dev = [
-    { name = "scipy-stubs" },
-]
-
 [package.metadata]
 requires-dist = [
     { name = "numpy", specifier = ">=2.5.5" },
@@ -529,7 +526,7 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-dev = [{ name = "scipy-stubs", specifier = ">=1.18.1.1" }]
+dev = []
 
 [[package]]
 name = "neurotlon-games"

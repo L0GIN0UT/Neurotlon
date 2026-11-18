@@ -30,6 +30,7 @@ dev = [
     "pytest>=8.3",
     "pyyaml>=6.0.3",
     "ruff>=0.8",
+    "scipy-stubs>=1.18.1.1",
     "types-jsonschema>=4.26.0.20261006",
     "types-pyyaml>=6.0.12.20261113",
 ]

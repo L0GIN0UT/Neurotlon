@@ -22,6 +22,4 @@ build-backend = "hatchling.build"
 packages = ["src/neurotlon_bridge"]
 
 [dependency-groups]
-dev = [
-    "scipy-stubs>=1.18.1.1",
-]
+dev = []
