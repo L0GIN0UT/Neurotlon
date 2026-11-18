@@ -31,8 +31,8 @@ export function validateEntries(
   for (const entry of entries) {
     if (entry.completed) {
       const limit = discipline === 'pong' ? POINTS_MAX : sectionLimit(maxPoints)
-      if (!Number.isFinite(entry.points) || entry.points < 0 || entry.points > limit) {
-        throw new PayloadError(`Очки должны быть от 0 до ${limit}`)
+      if (!Number.isInteger(entry.points) || entry.points < 0 || entry.points > limit) {
+        throw new PayloadError(`Очки должны быть целым числом от 0 до ${limit}`)
       }
     } else if ((entry.comment ?? '').trim().length > COMMENT_MAX) {
       throw new PayloadError(`Комментарий не длиннее ${COMMENT_MAX} символов`)

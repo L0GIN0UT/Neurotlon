@@ -91,7 +91,8 @@ export function ResultEditor({ api, row, canEditLocked, maxPoints = null, onSave
                 type="number"
                 min={0}
                 max={limit}
-                step="any"
+                step={1}
+                inputMode="numeric"
                 value={draft.points}
                 onChange={(e) => set('points', e.target.value)}
               />

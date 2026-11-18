@@ -45,7 +45,7 @@ export const snapshot: Scoreboard = {
         ],
         pong: [{ rank: 1, number: 3, label: 'Вера', points: 10, pending: false }],
       },
-      { duel_score: 2, by_discipline: { darts: 80, football: 40.5, pong: 10 } },
+      { duel_score: 2, by_discipline: { darts: 80, football: 40, pong: 10 } },
     ),
     team(
       2,

@@ -54,8 +54,8 @@ export function buildPatch(
   if (draft.outcome === 'completed') {
     const points = Number(draft.points)
     const limit = pointsLimit(row, maxPoints)
-    if (draft.points.trim() === '' || !Number.isFinite(points) || points < 0 || points > limit) {
-      return { error: `Очки — число от 0 до ${limit}` }
+    if (draft.points.trim() === '' || !Number.isInteger(points) || points < 0 || points > limit) {
+      return { error: `Очки — целое число от 0 до ${limit}` }
     }
     if (switched || points !== row.points) {
       patch.points = points

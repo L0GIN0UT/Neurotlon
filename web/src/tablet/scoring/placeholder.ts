@@ -5,7 +5,7 @@
 // Если методику подсчёта (решение 14) придётся менять, меняется только этот файл.
 
 export const POINTS_MAX = 1000
-export const POINTS_STEP = 0.5
+export const POINTS_STEP = 1 // очки только целые (решение 28)
 
 /** Верхняя граница очков секции: лимит дисциплины или потолок схемы, если лимит неизвестен. */
 export function sectionLimit(maxPoints: number | null | undefined): number {

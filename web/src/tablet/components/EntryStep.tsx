@@ -66,7 +66,7 @@ function SectionFields({
       <div className="stepper">
         <button
           type="button"
-          aria-label="Уменьшить очки за секцию на 0,5"
+          aria-label="Уменьшить очки за секцию на 1"
           onClick={() => onChange({ ...form, points: stepPoints(form.points, -1, maxPoints) })}
         >
           −
@@ -75,7 +75,7 @@ function SectionFields({
           Очки за секцию
           <input
             type="number"
-            inputMode="decimal"
+            inputMode="numeric"
             min={0}
             max={limit}
             step={POINTS_STEP}
@@ -85,14 +85,14 @@ function SectionFields({
         </label>
         <button
           type="button"
-          aria-label="Увеличить очки за секцию на 0,5"
+          aria-label="Увеличить очки за секцию на 1"
           onClick={() => onChange({ ...form, points: stepPoints(form.points, 1, maxPoints) })}
         >
           +
         </button>
       </div>
       <p className={problem ? 'error' : 'hint'}>
-        {problem ?? `От 0 до ${limit}, шаг 0,5`}
+        {problem ?? `Целое число от 0 до ${limit}`}
       </p>
     </div>
   )

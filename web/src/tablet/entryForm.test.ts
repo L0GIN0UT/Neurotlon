@@ -5,12 +5,12 @@ import { PayloadError } from './payload.ts'
 const form = (points: string) => ({ ...emptyForm(), points })
 
 describe('sectionPointsProblem', () => {
-  test.each(['0', '0.5', '5', '10', '9,5', ''])('%j is fine for limit 10', (text) => {
+  test.each(['0', '5', '10', '9.0', ''])('%j is fine for limit 10', (text) => {
     expect(sectionPointsProblem(text, 10)).toBeNull()
   })
 
-  test.each(['-1', '10.5', '11', 'abc', '0.3', '1e3'])('%j is refused for limit 10', (text) => {
-    expect(sectionPointsProblem(text, 10)).toBe('Очки за секцию — число от 0 до 10 с шагом 0,5')
+  test.each(['-1', '10.5', '11', 'abc', '0.3', '9,5', '1e3'])('%j is refused for limit 10', (text) => {
+    expect(sectionPointsProblem(text, 10)).toBe('Очки за секцию — целое число от 0 до 10')
   })
 
   test('without a known limit the schema ceiling applies', () => {
@@ -20,22 +20,22 @@ describe('sectionPointsProblem', () => {
 })
 
 describe('stepPoints', () => {
-  test('moves by half a point inside 0…limit', () => {
-    expect(stepPoints('', 1, 10)).toBe('0.5')
-    expect(stepPoints('2', 1, 10)).toBe('2.5')
-    expect(stepPoints('2,5', -1, 10)).toBe('2')
+  test('moves by one point inside 0…limit', () => {
+    expect(stepPoints('', 1, 10)).toBe('1')
+    expect(stepPoints('2', 1, 10)).toBe('3')
+    expect(stepPoints('3', -1, 10)).toBe('2')
   })
 
   test('clamps at both ends', () => {
     expect(stepPoints('0', -1, 10)).toBe('0')
     expect(stepPoints('10', 1, 10)).toBe('10')
-    expect(stepPoints('9.5', 1, 10)).toBe('10')
+    expect(stepPoints('10', 1, 10)).toBe('10')
   })
 })
 
 describe('formPoints', () => {
   test('darts and football read the limit', () => {
-    expect(formPoints('darts', form('7.5'), 10)).toBe(7.5)
+    expect(formPoints('darts', form('7'), 10)).toBe(7)
     expect(formPoints('football', form('10'), 10)).toBe(10)
     expect(() => formPoints('darts', form('11'), 10)).toThrow(PayloadError)
     expect(() => formPoints('football', form(''), 10)).toThrow('Введите очки за секцию')

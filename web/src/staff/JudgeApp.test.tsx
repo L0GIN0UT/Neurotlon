@@ -161,10 +161,10 @@ describe('запросы на исправление и правка', () => {
     await waitFor(() =>
       expect((within(form).getByLabelText('Очки') as HTMLInputElement).max).toBe('10'),
     )
-    fireEvent.change(within(form).getByLabelText('Очки'), { target: { value: '10.5' } })
+    fireEvent.change(within(form).getByLabelText('Очки'), { target: { value: '11' } })
     fireEvent.change(within(form).getByLabelText('Причина исправления (в журнал)'), { target: { value: 'опечатка' } })
     fireEvent.click(within(form).getByRole('button', { name: 'Сохранить правку' }))
-    expect(await within(form).findByText('Очки — число от 0 до 10')).toBeDefined()
+    expect(await within(form).findByText('Очки — целое число от 0 до 10')).toBeDefined()
     expect(server.count('PATCH /results/*')).toBe(0)
 
     fireEvent.change(within(form).getByLabelText('Очки'), { target: { value: '10' } })

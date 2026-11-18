@@ -171,16 +171,16 @@ describe('darts flow', () => {
     expect(await screen.findByRole('heading', { name: 'Ввод результата' })).toBeDefined()
     expect(screen.getByRole('timer').textContent).toContain('2:00')
     expect(screen.queryByLabelText('Бросок')).toBeNull()
-    expect(screen.getByText('От 0 до 10, шаг 0,5')).toBeDefined()
-    fireEvent.click(screen.getByRole('button', { name: 'Увеличить очки за секцию на 0,5' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Увеличить очки за секцию на 0,5' }))
+    expect(screen.getByText('Целое число от 0 до 10')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Увеличить очки за секцию на 1' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Увеличить очки за секцию на 1' }))
+    expect((screen.getByLabelText('Очки за секцию') as HTMLInputElement).value).toBe('2')
+    fireEvent.click(screen.getByRole('button', { name: 'Уменьшить очки за секцию на 1' }))
     expect((screen.getByLabelText('Очки за секцию') as HTMLInputElement).value).toBe('1')
-    fireEvent.click(screen.getByRole('button', { name: 'Уменьшить очки за секцию на 0,5' }))
-    expect((screen.getByLabelText('Очки за секцию') as HTMLInputElement).value).toBe('0.5')
-    enterPoints('7.5')
+    enterPoints('7')
     fireEvent.click(screen.getByRole('button', { name: 'К сводке' }))
 
-    expect(await screen.findByText('Очки: 7.5')).toBeDefined()
+    expect(await screen.findByText('Очки: 7')).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: 'Записать' }))
     expect(await screen.findByRole('heading', { name: 'Записано' })).toBeDefined()
 
@@ -188,7 +188,7 @@ describe('darts flow', () => {
     expect(sent).toMatchObject({
       discipline: 'darts',
       section: 'physical',
-      entries: [{ participant_code: 'NT07', outcome: 'completed', points: 7.5 }],
+      entries: [{ participant_code: 'NT07', outcome: 'completed', points: 7 }],
     })
     expect(sent?.session_id).toMatch(/^[0-9a-f-]{36}$/)
 
@@ -293,7 +293,7 @@ describe('section points limit', () => {
     const server = createServer('darts')
     await toEntry(server)
     enterPoints('10.5')
-    expect(screen.getAllByText('Очки за секцию — число от 0 до 10 с шагом 0,5').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Очки за секцию — целое число от 0 до 10').length).toBeGreaterThan(0)
     fireEvent.click(screen.getByRole('button', { name: 'К сводке' }))
     expect(await screen.findByRole('alert')).toBeDefined()
     expect(screen.getByRole('heading', { name: 'Ввод результата' })).toBeDefined()
@@ -304,13 +304,13 @@ describe('section points limit', () => {
     const server = createServer('darts')
     await toEntry(server)
     const field = screen.getByLabelText('Очки за секцию') as HTMLInputElement
-    fireEvent.click(screen.getByRole('button', { name: 'Уменьшить очки за секцию на 0,5' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Уменьшить очки за секцию на 1' }))
     expect(field.value).toBe('0')
     enterPoints('10')
-    fireEvent.click(screen.getByRole('button', { name: 'Увеличить очки за секцию на 0,5' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Увеличить очки за секцию на 1' }))
     expect(field.value).toBe('10')
     expect(field.max).toBe('10')
-    expect(field.step).toBe('0.5')
+    expect(field.step).toBe('1')
   })
 
   test('an empty field needs points, and exactly the limit is recorded', async () => {

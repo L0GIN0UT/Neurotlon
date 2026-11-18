@@ -46,17 +46,16 @@ export function sectionPointsProblem(text: string, maxPoints: number | null): st
   if (text.trim() === '') return null
   const limit = sectionLimit(maxPoints)
   const value = parseNumber(text)
-  const onStep = Math.abs(value / POINTS_STEP - Math.round(value / POINTS_STEP)) < 1e-9
-  if (!Number.isFinite(value) || value < 0 || value > limit || !onStep) {
-    return `Очки за секцию — число от 0 до ${limit} с шагом 0,5`
+  if (!Number.isInteger(value) || value < 0 || value > limit) {
+    return `Очки за секцию — целое число от 0 до ${limit}`
   }
   return null
 }
 
-/** Новое значение поля после нажатия «+» или «−»: в пределах 0…лимит, с шагом 0,5. */
+/** Новое значение поля после нажатия «+» или «−»: в пределах 0…лимит, целыми. */
 export function stepPoints(text: string, direction: 1 | -1, maxPoints: number | null): string {
   const current = parseNumber(text)
-  const base = Number.isFinite(current) ? current : 0
+  const base = Number.isFinite(current) ? Math.round(current) : 0
   const next = Math.min(sectionLimit(maxPoints), Math.max(0, base + direction * POINTS_STEP))
   return String(next)
 }
@@ -69,8 +68,8 @@ export function formPoints(
 ): number {
   if (discipline === 'pong') {
     const points = parseNumber(form.points)
-    if (!Number.isFinite(points) || points < 0 || points > POINTS_MAX) {
-      throw new PayloadError(`Очки — число от 0 до ${POINTS_MAX}`)
+    if (!Number.isInteger(points) || points < 0 || points > POINTS_MAX) {
+      throw new PayloadError(`Очки — целое число от 0 до ${POINTS_MAX}`)
     }
     return pongPoints(points)
   }

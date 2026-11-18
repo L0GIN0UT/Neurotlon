@@ -79,7 +79,7 @@ describe('табло', () => {
     render(<BoardApp createSource={createSource} />)
     push(snapshot)
     expect(versus('Дартс')).toBe('80vs15')
-    expect(versus('Футбол')).toBe('40,5vs0')
+    expect(versus('Футбол')).toBe('40vs0')
     expect(versus('Понг')).toBe('10vs20')
   })
 
@@ -259,7 +259,7 @@ describe('табло', () => {
 
 describe('форматирование', () => {
   test('очки по-русски, одна цифра после запятой', () => {
-    expect(formatPoints(42.5)).toBe('42,5')
+    expect(formatPoints(42)).toBe('42')
     expect(formatPoints(1000)).toMatch(/^1\s?000$/)
     expect(formatPoints(0)).toBe('0')
   })

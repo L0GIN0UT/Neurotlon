@@ -55,7 +55,7 @@ describe('buildPatch', () => {
     const base = row()
     for (const points of ['', 'abc', '-1', '1001']) {
       expect(buildPatch(base, { ...draftOf(base), points, changeReason: 'r' })).toEqual({
-        error: 'Очки — число от 0 до 1000',
+        error: 'Очки — целое число от 0 до 1000',
       })
     }
   })
@@ -119,11 +119,19 @@ describe('лимит очков за секцию', () => {
   test('очки выше лимита отклоняются с понятным текстом, ровно лимит проходит', () => {
     const base = row({ points: 5 })
     const draft = { ...draftOf(base), changeReason: 'r' }
-    expect(buildPatch(base, { ...draft, points: '10.5' }, 10)).toEqual({
-      error: 'Очки — число от 0 до 10',
+    expect(buildPatch(base, { ...draft, points: '11' }, 10)).toEqual({
+      error: 'Очки — целое число от 0 до 10',
     })
     expect(buildPatch(base, { ...draft, points: '10' }, 10)).toEqual({
       patch: { points: 10, change_reason: 'r' },
+    })
+  })
+
+  test('дробные очки отклоняются', () => {
+    const base = row({ points: 5 })
+    const draft = { ...draftOf(base), changeReason: 'r' }
+    expect(buildPatch(base, { ...draft, points: '4.5' }, 10)).toEqual({
+      error: 'Очки — целое число от 0 до 10',
     })
   })
 
@@ -132,7 +140,7 @@ describe('лимит очков за секцию', () => {
     const draft = { ...draftOf(base), changeReason: 'r' }
     expect('patch' in buildPatch(base, { ...draft, points: '900' })).toBe(true)
     expect(buildPatch(base, { ...draft, points: '1001' })).toEqual({
-      error: 'Очки — число от 0 до 1000',
+      error: 'Очки — целое число от 0 до 1000',
     })
   })
 
