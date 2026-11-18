@@ -1,0 +1,9 @@
+{
+  "name": "ru.neurotlon.kit",
+  "displayName": "Neurotlon Game Kit",
+  "version": "0.1.0",
+  "unity": "2021.3",
+  "description": "Launch parameters, BCI bridge client, calibration and result file for Neurotlon games.",
+  "keywords": ["neurotlon", "bci"],
+  "author": { "name": "Neurotlon" }
+}
