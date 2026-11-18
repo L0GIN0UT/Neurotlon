@@ -196,24 +196,22 @@ ul.warning {
   padding-left: 16px;
 }
 
-.throws {
+.stepper {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 0;
-  list-style-position: inside;
-}
-
-.throws li {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.elements {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  align-items: flex-end;
   gap: 12px;
+}
+
+.stepper button {
+  min-width: 72px;
+  min-height: 72px;
+  font-size: 2rem;
+  font-weight: 700;
+}
+
+.hint {
+  margin: 0;
+  color: var(--muted, #5b6472);
 }
 
 .timer {
@@ -231,12 +229,6 @@ ul.warning {
 
 .timer output.over {
   color: var(--bad);
-}
-
-.total {
-  font-size: 1.5rem;
-  font-weight: 700;
-  margin: 0;
 }
 
 .summary {

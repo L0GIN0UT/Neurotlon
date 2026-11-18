@@ -72,7 +72,8 @@ class TemplateGame(GameApp):
         if not launch.is_pong:
             player = launch.participants[0]
             total = sum(self._points.values())
-            return [completed(player.code, round(min(total, MAX_POINTS), 1))]
+            cap = float(launch.max_points or MAX_POINTS)  # секция: не больше лимита дисциплины
+            return [completed(player.code, round(min(total, cap), 1))]
         scores = {p.code: self._points[launch.signal_of(p)] for p in launch.participants}
         peaks = {p.code: self._peaks[launch.signal_of(p)] for p in launch.participants}
         # при равенстве очков побеждает тот, у кого выше пик; потом левый (первый)

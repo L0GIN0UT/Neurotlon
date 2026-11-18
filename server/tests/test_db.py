@@ -129,6 +129,17 @@ def test_disciplines_seeded(url: str) -> None:
     assert all((r[3], r[4]) == (120, 300) for r in rows)
 
 
+def test_max_section_points_defaults_to_10_and_is_bounded(url: str) -> None:
+    command.upgrade(_alembic_config(url), "head")
+    engine = create_engine_from_settings(Settings(database_url=url))
+    with engine.connect() as conn:
+        limits = conn.execute(text("SELECT max_section_points FROM discipline")).scalars().all()
+    assert limits == [10, 10, 10]
+    for bad in (0, 1001):
+        with pytest.raises(IntegrityError), engine.begin() as conn:
+            conn.execute(text("UPDATE discipline SET max_section_points = :v"), {"v": bad})
+
+
 def test_audit_log_is_append_only(engine: Engine) -> None:
     _insert(engine, "audit_log", at=NOW, action="a", object_type="t", object_id="1")
     with engine.begin() as conn, pytest.raises(IntegrityError, match="append-only"):

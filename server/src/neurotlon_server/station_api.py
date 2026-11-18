@@ -35,6 +35,7 @@ class ConfigOut(BaseModel):
     discipline: DisciplineName
     section: SectionName
     duration_s: int
+    max_points: int | None
 
 
 class TeamOut(BaseModel):
@@ -85,7 +86,12 @@ def get_config(db: Db, caller: Anyone) -> ConfigOut:
         discipline.game_duration_s if caller.kind == "station" else discipline.physical_duration_s
     )
     return ConfigOut.model_validate(
-        {"discipline": caller.discipline, "section": caller.section, "duration_s": duration}
+        {
+            "discipline": caller.discipline,
+            "section": caller.section,
+            "duration_s": duration,
+            "max_points": None if caller.discipline == "pong" else discipline.max_section_points,
+        }
     )
 
 

@@ -28,6 +28,7 @@ namespace Neurotlon
         public string session_id;
         public string discipline;
         public int duration_s;
+        public int max_points; // 0: лимита нет (поле не передано)
         public LaunchParticipant[] participants;
         public LaunchBridge bridge;
         public string result_path;
@@ -52,6 +53,8 @@ namespace Neurotlon
         public string SessionId { get { return Data.session_id; } }
         public string Discipline { get { return Data.discipline; } }
         public int DurationSeconds { get { return Data.duration_s; } }
+        // Лимит очков за секцию (дартс, футбол); 0, если лимита нет.
+        public int MaxPoints { get { return Data.max_points; } }
         public LaunchParticipant[] Participants { get { return Data.participants; } }
         public string BridgeHost { get { return Data.bridge.host; } }
         public int BridgePort { get { return Data.bridge.port; } }
@@ -148,6 +151,8 @@ namespace Neurotlon
             if (d.duration_s < NeurotlonProtocol.DurationMinSeconds
                 || d.duration_s > NeurotlonProtocol.DurationMaxSeconds)
                 throw new NeurotlonLaunchException("duration_s вне диапазона 10..3600");
+            if (d.max_points < 0 || d.max_points > NeurotlonProtocol.MaxPointsMax)
+                throw new NeurotlonLaunchException("max_points вне диапазона 1..1000");
             if (d.bridge == null || string.IsNullOrEmpty(d.bridge.host) || d.bridge.port < 1
                 || d.bridge.port > 65535)
                 throw new NeurotlonLaunchException("bridge.host / bridge.port заданы неверно");

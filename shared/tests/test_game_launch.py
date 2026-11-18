@@ -91,3 +91,31 @@ def test_aborted_result_accepted() -> None:
             "entries": [],
         }
     )
+
+
+def launch_with(**fields: Any) -> dict[str, Any]:
+    launch = dict(doc_examples()[0])
+    launch["discipline"] = "darts"
+    launch["participants"] = [{"code": "NT07", "display_name": None}]
+    return {**launch, **fields}
+
+
+@pytest.mark.parametrize("max_points", [1, 10, 1000])
+def test_launch_accepts_max_points(max_points: int) -> None:
+    validator("Launch").validate(launch_with(max_points=max_points))
+
+
+def test_launch_max_points_is_optional() -> None:
+    validator("Launch").validate(launch_with())
+
+
+@pytest.mark.parametrize("max_points", [0, 1001, 2.5, "10"])
+def test_launch_rejects_bad_max_points(max_points: object) -> None:
+    with pytest.raises(ValidationError):
+        validator("Launch").validate(launch_with(max_points=max_points))
+
+
+def test_max_points_range_matches_api() -> None:
+    api = OPENAPI["components"]["schemas"]["DisciplineSettings"]["properties"]["max_section_points"]
+    launch = SCHEMA["$defs"]["Launch"]["properties"]["max_points"]
+    assert (launch["minimum"], launch["maximum"]) == (api["minimum"], api["maximum"])

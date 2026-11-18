@@ -8,7 +8,7 @@
 
 Игра — любой исполняемый файл. Лаунчер запускает его как `<команда> --launch <путь к launch.json>` и ждёт `result.json`. Полное описание: [`shared/game-launch.md`](../shared/game-launch.md), схемы лежат рядом.
 
-1. **Читает `launch.json`**: `session_id`, `discipline`, `duration_s`, участники (в понге у каждого `side`: `left` или `right`), адрес моста, `result_path`.
+1. **Читает `launch.json`**: `session_id`, `discipline`, `duration_s`, участники (в понге у каждого `side`: `left` или `right`), адрес моста, `result_path`; необязательное `max_points` — лимит очков за секцию (дартс, футбол): `ResultWriter` не запишет `points` больше, у понга поля нет.
 2. **Подключается к BCI-мосту** ([`shared/bridge-protocol.md`](../shared/bridge-protocol.md)) и берёт значения сигналов 0…1. Значение может быть недействительным (артефакт, нет контакта): тогда очков не давать.
 3. **Калибрует датчики**: ЭМГ 5 с покоя и 12 с «сжать / отпустить» (3 раза по 3 с с паузой 1 с), ЭЭГ 8 с с закрытыми глазами. Показывает игроку инструкцию. Сбой шага — один повтор, потом `aborted`.
 4. **Играет `duration_s` секунд** и по истечении завершается с текущими очками.
@@ -92,7 +92,7 @@ uv run neurotlon-game-check --discipline darts -- games\darts\Darts.exe
 
 Код выхода 0 только если нет ни одного `FAIL`; `WARN` не мешает. При `duration_s` = 10 проверка идёт около 20 секунд.
 
-Полезные флаги: `--duration-s N` (от 10), `--keep ПАПКА` (оставить `launch.json`, `result.json`, `game.log`), `--abort-test` (оборвать мост и посмотреть, прервётся ли игра; необязательно, итог только `WARN` или `PASS`). Остальные: `neurotlon-game-check --help`. Для игр на `GameApp` флаг `--time-scale 5` ускоряет таймеры (переменная `NEUROTLON_TIME_SCALE`, только для проверок).
+Полезные флаги: `--duration-s N` (от 10), `--max-points N` (положить `max_points` в `launch.json`; очки выше N дадут FAIL в проверке «записи»), `--keep ПАПКА` (оставить `launch.json`, `result.json`, `game.log`), `--abort-test` (оборвать мост и посмотреть, прервётся ли игра; необязательно, итог только `WARN` или `PASS`). Остальные: `neurotlon-game-check --help`. Для игр на `GameApp` флаг `--time-scale 5` ускоряет таймеры (переменная `NEUROTLON_TIME_SCALE`, только для проверок).
 
 ### Подключение к стенду
 

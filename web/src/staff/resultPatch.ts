@@ -27,7 +27,18 @@ export function draftOf(row: StoredResult): ResultDraft {
 export type PatchResult = { patch: ResultPatch } | { error: string }
 
 /** Тело PATCH /results/{id}: только изменённые поля и обязательная причина. */
-export function buildPatch(row: StoredResult, draft: ResultDraft): PatchResult {
+export const POINTS_CEILING = 1000
+
+/** Верхняя граница очков: лимит дисциплины для дартса и футбола, иначе потолок схемы. */
+export function pointsLimit(row: StoredResult, maxPoints: number | null | undefined): number {
+  return row.discipline === 'pong' ? POINTS_CEILING : (maxPoints ?? POINTS_CEILING)
+}
+
+export function buildPatch(
+  row: StoredResult,
+  draft: ResultDraft,
+  maxPoints: number | null = null,
+): PatchResult {
   const changeReason = draft.changeReason.trim()
   if (changeReason === '') return { error: 'Укажите причину исправления' }
   if (changeReason.length > MAX_CHANGE_REASON) return { error: 'Причина длиннее 200 символов' }
@@ -42,8 +53,9 @@ export function buildPatch(row: StoredResult, draft: ResultDraft): PatchResult {
 
   if (draft.outcome === 'completed') {
     const points = Number(draft.points)
-    if (draft.points.trim() === '' || !Number.isFinite(points) || points < 0 || points > 1000) {
-      return { error: 'Очки — число от 0 до 1000' }
+    const limit = pointsLimit(row, maxPoints)
+    if (draft.points.trim() === '' || !Number.isFinite(points) || points < 0 || points > limit) {
+      return { error: `Очки — число от 0 до ${limit}` }
     }
     if (switched || points !== row.points) {
       patch.points = points

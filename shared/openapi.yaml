@@ -646,7 +646,7 @@ components:
 
     DisciplineConfig:
       type: object
-      required: [discipline, section, duration_s]
+      required: [discipline, section, duration_s, max_points]
       additionalProperties: false
       properties:
         discipline:
@@ -661,10 +661,19 @@ components:
             Время сессии: для станции — время игры, для волонтёра — время
             физической дисциплины. На стенде по истечении игра завершается с
             текущими очками, на планшете это таймер для волонтёра.
+        max_points:
+          type: [integer, "null"]
+          minimum: 1
+          maximum: 1000
+          description: |
+            Лимит очков за секцию (`max_section_points` дисциплины), по умолчанию 10.
+            Для дартса и футбола `points` не может быть больше (`invalid_entries`).
+            Для понга `null`: там `points` — счёт игры, секция считается по победам.
       examples:
         - discipline: darts
           section: bci
           duration_s: 120
+          max_points: 10
 
     Team:
       type: object
@@ -853,7 +862,10 @@ components:
           type: number
           minimum: 0
           maximum: 1000
-          description: Очки по методике; шкалы задаются в настройках сервера.
+          description: |
+            Очки за секцию. Для дартса и футбола не больше `max_section_points`
+            дисциплины (по умолчанию 10), иначе `invalid_entries`. Для понга —
+            счёт игры, лимитом не ограничен.
         wins:
           type: integer
           minimum: 0
@@ -1015,7 +1027,7 @@ components:
 
     DisciplineSettings:
       type: object
-      required: [code, game_duration_s, physical_duration_s, win_points]
+      required: [code, game_duration_s, physical_duration_s, win_points, max_section_points]
       additionalProperties: false
       properties:
         code:
@@ -1032,6 +1044,11 @@ components:
           type: integer
           minimum: 0
           maximum: 1000
+        max_section_points:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          description: Лимит очков за секцию дартса и футбола; понг лимитом не ограничен.
 
     StationInfo:
       type: object

@@ -11,14 +11,39 @@ def test_config_for_station_uses_game_duration(client: TestClient, db: Session) 
     _, headers = make_station(db, "d1", "darts")
     response = client.get(f"{API}/me/config", headers=headers)
     assert response.status_code == 200
-    assert response.json() == {"discipline": "darts", "section": "bci", "duration_s": 120}
+    assert response.json() == {
+        "discipline": "darts",
+        "section": "bci",
+        "duration_s": 120,
+        "max_points": 10,
+    }
 
 
 def test_config_for_volunteer_uses_physical_duration(app: FastAPI, db: Session) -> None:
     make_user(db, "vol", role="volunteer", discipline="football")
     response = login_as(app, "vol").get(f"{API}/me/config")
     assert response.status_code == 200
-    assert response.json() == {"discipline": "football", "section": "physical", "duration_s": 300}
+    assert response.json() == {
+        "discipline": "football",
+        "section": "physical",
+        "duration_s": 300,
+        "max_points": 10,
+    }
+
+
+def test_config_max_points_is_null_for_pong_and_follows_the_limit(
+    client: TestClient, db: Session
+) -> None:
+    from neurotlon_server.models import Discipline
+
+    _, pong = make_station(db, "p1", "pong")
+    assert client.get(f"{API}/me/config", headers=pong).json()["max_points"] is None
+    _, darts = make_station(db, "d1", "darts")
+    row = db.get(Discipline, "darts")
+    assert row is not None
+    row.max_section_points = 25
+    db.commit()
+    assert client.get(f"{API}/me/config", headers=darts).json()["max_points"] == 25
 
 
 def test_config_change_applies_to_next_read(client: TestClient, db: Session) -> None:

@@ -132,6 +132,7 @@ describe('buildSubmission rejects invalid input', () => {
     ['no entries', input({ entries: [] })],
     ['negative points', input({ entries: [player('NT03', -1)] })],
     ['points above 1000', input({ entries: [player('NT03', 1001)] })],
+    ['points above the section limit', input({ maxPoints: 10, entries: [player('NT03', 10.5)] })],
     ['NaN points', input({ entries: [player('NT03', Number.NaN)] })],
     [
       'comment over 200',
@@ -141,5 +142,34 @@ describe('buildSubmission rejects invalid input', () => {
     ],
   ])('%s', (_name, value) => {
     expect(() => buildSubmission(value)).toThrow(PayloadError)
+  })
+})
+
+describe('section points limit', () => {
+  const entry = (points: number) => ({ code: 'NT03', completed: true, points }) as const
+
+  test('exactly the limit is accepted for darts and football', () => {
+    for (const discipline of ['darts', 'football'] as const) {
+      const payload = buildSubmission(input({ discipline, maxPoints: 10, entries: [entry(10)] }))
+      expect(payload.entries[0]?.points).toBe(10)
+    }
+  })
+
+  test('the message names the limit', () => {
+    expect(() => buildSubmission(input({ maxPoints: 10, entries: [entry(11)] }))).toThrow(
+      'Очки должны быть от 0 до 10',
+    )
+  })
+
+  test('pong points are not limited by it', () => {
+    const payload = buildSubmission(
+      input({
+        discipline: 'pong',
+        maxPoints: 10,
+        winner: 'NT03',
+        entries: [entry(50), { code: 'NT14', completed: true, points: 7 }],
+      }),
+    )
+    expect(payload.entries.map((e) => e.points)).toEqual([50, 7])
   })
 })

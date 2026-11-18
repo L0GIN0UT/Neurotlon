@@ -30,7 +30,14 @@ def test_disciplines_list_shows_current_settings(app: FastAPI, db: Session) -> N
     rows = {d["code"]: d for d in admin.get(f"{API}/disciplines").json()}
     assert list(rows) == ["darts", "football", "pong"]
     assert rows["pong"]["win_points"] == 25
-    assert set(rows["darts"]) == {"code", "game_duration_s", "physical_duration_s", "win_points"}
+    assert set(rows["darts"]) == {
+        "code",
+        "game_duration_s",
+        "physical_duration_s",
+        "win_points",
+        "max_section_points",
+    }
+    assert rows["darts"]["max_section_points"] == 10
 
 
 def test_disciplines_list_requires_login(client: TestClient) -> None:

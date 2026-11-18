@@ -326,3 +326,27 @@ def test_locally_valid_pong_variants(tmp_path: Path) -> None:
     for entries in (ok_both, one_left):
         path = write_result(tmp_path, req, status="finished", entries=entries)
         assert isinstance(parse_result(path, req), Finished)
+
+
+def test_launch_json_carries_max_points_except_for_pong(tmp_path: Path) -> None:
+    from neurotlon_launcher.game import launch_document
+
+    def launch_for(discipline: str, codes: tuple[str, ...], max_points: int | None) -> dict:  # type: ignore[type-arg]
+        players = tuple(Player(c) for c in codes)
+        req = GameRequest(uuid.uuid4(), discipline, 10, players, max_points)
+        data = launch_document(req, tmp_path / "r.json", "127.0.0.1", 8765)
+        launch_validator("Launch").validate(data)
+        return data
+
+    assert launch_for("darts", ("NT07",), 10)["max_points"] == 10
+    assert "max_points" not in launch_for("darts", ("NT07",), None)
+    assert "max_points" not in launch_for("pong", ("NT03", "NT04"), 10)
+
+
+def test_result_above_max_points_is_a_crash(tmp_path: Path) -> None:
+    players = (Player("NT01"),)
+    req = GameRequest(uuid.uuid4(), "darts", 10, players, 10)
+    over = write_result(tmp_path, req, status="finished", entries=[completed("NT01", 11)])
+    assert isinstance(parse_result(over, req), Crashed)
+    ok = write_result(tmp_path, req, status="finished", entries=[completed("NT01", 10)])
+    assert isinstance(parse_result(ok, req), Finished)

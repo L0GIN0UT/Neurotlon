@@ -70,7 +70,7 @@ def darts_body(session_id: str = SESSION_A, code: str = "NT01", **entry: Any) ->
         "discipline": "darts",
         "section": "bci",
         "finished_at": FINISHED,
-        "entries": [{"participant_code": code, "outcome": "completed", "points": 42.5, **entry}],
+        "entries": [{"participant_code": code, "outcome": "completed", "points": 4.5, **entry}],
     }
 
 

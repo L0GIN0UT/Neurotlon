@@ -201,6 +201,7 @@ function Flow({ api, queue, config }: FlowProps) {
         finishedAt: new Date(),
         entries: current.entries,
         winner: current.winner,
+        maxPoints: config.max_points ?? null,
       })
       try {
         const receipt = await api.submitResult(payload)
@@ -267,6 +268,7 @@ function Flow({ api, queue, config }: FlowProps) {
           discipline={discipline}
           people={flow.people}
           durationS={config.duration_s}
+          maxPoints={config.max_points ?? null}
           draft={flow.draft}
           onDraft={(draft) => setFlow({ ...flow, draft })}
           onBack={() => setFlow({ step: 'check', codes: flow.people.map((p) => p.code) })}

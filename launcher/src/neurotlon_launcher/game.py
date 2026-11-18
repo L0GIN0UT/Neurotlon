@@ -46,6 +46,7 @@ class GameRequest:
     discipline: str
     duration_s: int
     players: tuple[Player, ...]
+    max_points: int | None = None  # лимит очков за секцию; нет у понга и без связи
 
 
 @dataclass(frozen=True)
@@ -106,7 +107,7 @@ def launch_document(
         if request.discipline == "pong":
             item["side"] = SIDES[index]
         participants.append(item)
-    return {
+    launch: dict[str, Any] = {
         "protocol": PROTOCOL,
         "session_id": str(request.session_id),
         "discipline": request.discipline,
@@ -117,6 +118,9 @@ def launch_document(
         "language": "ru",
         "fullscreen": fullscreen,
     }
+    if request.max_points is not None and request.discipline != "pong":
+        launch["max_points"] = request.max_points
+    return launch
 
 
 def parse_result(path: Path, request: GameRequest) -> GameOutcome:
@@ -129,7 +133,11 @@ def parse_result(path: Path, request: GameRequest) -> GameOutcome:
         return Crashed(f"result.json не читается: {exc}")
     codes = [p.code for p in request.players]
     problem = result_problem(
-        data, session_id=str(request.session_id), discipline=request.discipline, codes=codes
+        data,
+        session_id=str(request.session_id),
+        discipline=request.discipline,
+        codes=codes,
+        max_points=request.max_points,
     )
     if problem:
         return Crashed(problem)

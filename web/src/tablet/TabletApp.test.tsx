@@ -37,7 +37,14 @@ function createServer(discipline: Discipline, role: Me['role'] = 'volunteer'): S
       ? json({ login: 'vol', role, discipline: role === 'volunteer' ? discipline : null })
       : problem(401, 'unauthorized'),
   )
-  routes.set('GET /me/config', () => json({ discipline, section: 'physical', duration_s: 120 }))
+  routes.set('GET /me/config', () =>
+    json({
+      discipline,
+      section: 'physical',
+      duration_s: 120,
+      max_points: discipline === 'pong' ? null : 10,
+    }),
+  )
   routes.set('POST /results', (body) => {
     const payload = body as ResultSubmission
     return json(
@@ -97,9 +104,8 @@ async function addParticipant(label: string, value: string) {
   fireEvent.click(screen.getByRole('button', { name: 'Добавить' }))
 }
 
-function throwDart(value: string) {
-  fireEvent.change(screen.getByLabelText('Бросок'), { target: { value } })
-  fireEvent.click(screen.getByRole('button', { name: 'Добавить бросок' }))
+function enterPoints(value: string) {
+  fireEvent.change(screen.getByLabelText('Очки за секцию'), { target: { value } })
 }
 
 function renderApp(server: Server, store = memoryStore()) {
@@ -144,7 +150,7 @@ describe('login', () => {
 })
 
 describe('darts flow', () => {
-  test('scan by manual input, warnings, throws, summary, record, undo', async () => {
+  test('scan by manual input, warnings, section points, summary, record, undo', async () => {
     const server = createServer('darts')
     setEligibility(server, { NT07: ['already_completed', 'no_pair_assigned'] })
     server.routes.set('POST /results/*/undo', () => new Response(null, { status: 204 }))
@@ -164,15 +170,17 @@ describe('darts flow', () => {
 
     expect(await screen.findByRole('heading', { name: 'Ввод результата' })).toBeDefined()
     expect(screen.getByRole('timer').textContent).toContain('2:00')
-    throwDart('20')
-    throwDart('15')
-    expect(screen.getByText('Сумма: 35')).toBeDefined()
-    fireEvent.click(screen.getByRole('button', { name: 'Удалить бросок 2' }))
-    expect(screen.getByText('Сумма: 20')).toBeDefined()
-    throwDart('5')
+    expect(screen.queryByLabelText('Бросок')).toBeNull()
+    expect(screen.getByText('От 0 до 10, шаг 0,5')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Увеличить очки за секцию на 0,5' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Увеличить очки за секцию на 0,5' }))
+    expect((screen.getByLabelText('Очки за секцию') as HTMLInputElement).value).toBe('1')
+    fireEvent.click(screen.getByRole('button', { name: 'Уменьшить очки за секцию на 0,5' }))
+    expect((screen.getByLabelText('Очки за секцию') as HTMLInputElement).value).toBe('0.5')
+    enterPoints('7.5')
     fireEvent.click(screen.getByRole('button', { name: 'К сводке' }))
 
-    expect(await screen.findByText('Очки: 25')).toBeDefined()
+    expect(await screen.findByText('Очки: 7.5')).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: 'Записать' }))
     expect(await screen.findByRole('heading', { name: 'Записано' })).toBeDefined()
 
@@ -180,7 +188,7 @@ describe('darts flow', () => {
     expect(sent).toMatchObject({
       discipline: 'darts',
       section: 'physical',
-      entries: [{ participant_code: 'NT07', outcome: 'completed', points: 25 }],
+      entries: [{ participant_code: 'NT07', outcome: 'completed', points: 7.5 }],
     })
     expect(sent?.session_id).toMatch(/^[0-9a-f-]{36}$/)
 
@@ -199,7 +207,7 @@ describe('darts flow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Далее' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Продолжить' }))
     await screen.findByRole('heading', { name: 'Ввод результата' })
-    throwDart('10')
+    enterPoints('10')
     fireEvent.click(screen.getByRole('button', { name: 'К сводке' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Записать' }))
     await screen.findByRole('heading', { name: 'Записано' })
@@ -210,12 +218,12 @@ describe('darts flow', () => {
     })
 
     expect(screen.queryByRole('button', { name: /Отменить/ })).toBeNull()
-    fireEvent.change(screen.getByLabelText('Что исправить'), { target: { value: 'Не тот бросок' } })
+    fireEvent.change(screen.getByLabelText('Что исправить'), { target: { value: 'Не те очки' } })
     fireEvent.click(screen.getByRole('button', { name: 'Запрос судье на исправление' }))
     expect(await screen.findByText('Запрос отправлен судье.')).toBeDefined()
     const [sent] = server.bodies('POST /results') as ResultSubmission[]
     expect(server.bodies('POST /corrections')).toEqual([
-      { session_id: sent?.session_id, comment: 'Не тот бросок' },
+      { session_id: sent?.session_id, comment: 'Не те очки' },
     ])
   })
 
@@ -229,7 +237,7 @@ describe('darts flow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Далее' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Продолжить' }))
     await screen.findByRole('heading', { name: 'Ввод результата' })
-    throwDart('10')
+    enterPoints('10')
     fireEvent.click(screen.getByRole('button', { name: 'К сводке' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Записать' }))
     fireEvent.click(await screen.findByRole('button', { name: /Отменить/ }))
@@ -256,7 +264,7 @@ describe('darts flow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Далее' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Продолжить' }))
     await screen.findByRole('heading', { name: 'Ввод результата' })
-    throwDart('10')
+    enterPoints('10')
     fireEvent.click(screen.getByRole('button', { name: 'К сводке' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Записать' }))
     // 500: результат ушёл в очередь, затем успешно отправляется тем же session_id
@@ -270,8 +278,67 @@ describe('darts flow', () => {
   })
 })
 
+describe('section points limit', () => {
+  async function toEntry(server: Server) {
+    setEligibility(server)
+    renderApp(server)
+    await login()
+    await addParticipant('ID участника', '7')
+    fireEvent.click(screen.getByRole('button', { name: 'Далее' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Продолжить' }))
+    await screen.findByRole('heading', { name: 'Ввод результата' })
+  }
+
+  test('points above the limit are refused with a clear message and nothing is sent', async () => {
+    const server = createServer('darts')
+    await toEntry(server)
+    enterPoints('10.5')
+    expect(screen.getAllByText('Очки за секцию — число от 0 до 10 с шагом 0,5').length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('button', { name: 'К сводке' }))
+    expect(await screen.findByRole('alert')).toBeDefined()
+    expect(screen.getByRole('heading', { name: 'Ввод результата' })).toBeDefined()
+    expect(server.bodies('POST /results')).toEqual([])
+  })
+
+  test('the plus button stops at the limit and the minus button at zero', async () => {
+    const server = createServer('darts')
+    await toEntry(server)
+    const field = screen.getByLabelText('Очки за секцию') as HTMLInputElement
+    fireEvent.click(screen.getByRole('button', { name: 'Уменьшить очки за секцию на 0,5' }))
+    expect(field.value).toBe('0')
+    enterPoints('10')
+    fireEvent.click(screen.getByRole('button', { name: 'Увеличить очки за секцию на 0,5' }))
+    expect(field.value).toBe('10')
+    expect(field.max).toBe('10')
+    expect(field.step).toBe('0.5')
+  })
+
+  test('an empty field needs points, and exactly the limit is recorded', async () => {
+    const server = createServer('football')
+    await toEntry(server)
+    fireEvent.click(screen.getByRole('button', { name: 'К сводке' }))
+    expect(await screen.findByText('Введите очки за секцию')).toBeDefined()
+    enterPoints('10')
+    fireEvent.click(screen.getByRole('button', { name: 'К сводке' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Записать' }))
+    await screen.findByRole('heading', { name: 'Записано' })
+    expect((server.bodies('POST /results') as ResultSubmission[])[0]?.entries).toEqual([
+      { participant_code: 'NT07', outcome: 'completed', points: 10 },
+    ])
+  })
+
+  test('a cached config without max_points still works', async () => {
+    const server = createServer('darts')
+    server.routes.set('GET /me/config', () =>
+      json({ discipline: 'darts', section: 'physical', duration_s: 120 }),
+    )
+    await toEntry(server)
+    expect((screen.getByLabelText('Очки за секцию') as HTMLInputElement).max).toBe('1000')
+  })
+})
+
 describe('football flow', () => {
-  test('elements and accuracy add up', async () => {
+  test('one section points field replaces elements and accuracy', async () => {
     const server = createServer('football')
     setEligibility(server)
     renderApp(server)
@@ -280,9 +347,9 @@ describe('football flow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Далее' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Продолжить' }))
     await screen.findByRole('heading', { name: 'Ввод результата' })
-    fireEvent.click(screen.getByRole('button', { name: /Элемент 1/ }))
-    fireEvent.click(screen.getByRole('button', { name: /Элемент 3/ }))
-    fireEvent.change(screen.getByLabelText('Очки за точность'), { target: { value: '6' } })
+    expect(screen.queryByRole('button', { name: /Элемент 1/ })).toBeNull()
+    expect(screen.queryByLabelText('Очки за точность')).toBeNull()
+    enterPoints('8')
     fireEvent.click(screen.getByRole('button', { name: 'К сводке' }))
     expect(await screen.findByText('Очки: 8')).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: 'Записать' }))
@@ -370,7 +437,7 @@ describe('offline', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Далее' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Продолжить' }))
     await screen.findByRole('heading', { name: 'Ввод результата' })
-    throwDart('10')
+    enterPoints('10')
     fireEvent.click(screen.getByRole('button', { name: 'К сводке' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Записать' }))
 
@@ -404,7 +471,7 @@ describe('offline', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Далее' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Продолжить' }))
     await screen.findByRole('heading', { name: 'Ввод результата' })
-    throwDart('10')
+    enterPoints('10')
     fireEvent.click(screen.getByRole('button', { name: 'К сводке' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Записать' }))
     expect(await screen.findByText('В очереди: 1')).toBeDefined()
@@ -431,7 +498,7 @@ describe('offline', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Далее' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Продолжить' }))
     await screen.findByRole('heading', { name: 'Ввод результата' })
-    throwDart('10')
+    enterPoints('10')
     fireEvent.click(screen.getByRole('button', { name: 'К сводке' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Записать' }))
     expect(await screen.findByText(/Сервер отклонил результат/)).toBeDefined()
@@ -474,7 +541,7 @@ async function recordDarts(server: Server) {
   fireEvent.click(screen.getByRole('button', { name: 'Далее' }))
   fireEvent.click(await screen.findByRole('button', { name: 'Продолжить' }))
   await screen.findByRole('heading', { name: 'Ввод результата' })
-  throwDart('10')
+  enterPoints('10')
   fireEvent.click(screen.getByRole('button', { name: 'К сводке' }))
   fireEvent.click(await screen.findByRole('button', { name: 'Записать' }))
 }

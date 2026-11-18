@@ -73,7 +73,10 @@ class FakeBridge:
 
 
 def make_launch(
-    discipline: str = "darts", result_path: Path | None = None, duration_s: int = 10
+    discipline: str = "darts",
+    result_path: Path | None = None,
+    duration_s: int = 10,
+    max_points: int | None = None,
 ) -> LaunchInfo:
     people: tuple[Participant, ...]
     if discipline == "pong":
@@ -89,6 +92,7 @@ def make_launch(
         bridge_port=8765,
         result_path=result_path or Path("result.json"),
         fullscreen=False,
+        max_points=max_points,
     )
 
 
