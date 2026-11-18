@@ -4,6 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select
 
 from neurotlon_server.audit import write_audit
 from neurotlon_server.auth import Db, require_role
@@ -37,6 +38,11 @@ def _out(d: Discipline) -> DisciplineOut:
         physical_duration_s=d.physical_duration_s,
         win_points=d.win_points,
     )
+
+
+@router.get("")
+def list_disciplines(db: Db, user: Editor) -> list[DisciplineOut]:
+    return [_out(d) for d in db.scalars(select(Discipline).order_by(Discipline.code))]
 
 
 @router.patch("/{code}")

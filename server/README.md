@@ -90,6 +90,7 @@ uv run neurotlon-server create-superuser --login root
 
 - `GET /api/v1/stations` (админ, суперпользователь) — станции: `online` (heartbeat не старше 30 с),
   `last_heartbeat_at`, `last_state`, `queue_length`; токены не возвращаются.
+- `GET /api/v1/disciplines` (админ, судья, суперпользователь) — текущие настройки дисциплин.
 - `GET /api/v1/users` (суперпользователь) — аккаунты без паролей.
 - `GET /api/v1/results?participant=&discipline=&section=&session_id=` (судья, админ, суперпользователь) —
   поиск строк результата, в том числе аннулированных (`voided`).

@@ -377,6 +377,27 @@ paths:
         "403":
           $ref: "#/components/responses/Problem"
 
+  /disciplines:
+    get:
+      operationId: listDisciplines
+      summary: Настройки дисциплин (админка, судья)
+      description: Админ, судья, суперпользователь. Меняются через `PATCH /disciplines/{code}`.
+      security:
+        - volunteerSession: []
+      responses:
+        "200":
+          description: Три дисциплины
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DisciplineSettings"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Problem"
+
   /users:
     get:
       operationId: listUsers
@@ -803,6 +824,26 @@ components:
             enum: [eeg, emg, emg_left, emg_right]
           additionalProperties:
             $ref: "#/components/schemas/SensorState"
+
+    DisciplineSettings:
+      type: object
+      required: [code, game_duration_s, physical_duration_s, win_points]
+      additionalProperties: false
+      properties:
+        code:
+          $ref: "#/components/schemas/Discipline"
+        game_duration_s:
+          type: integer
+          minimum: 10
+          maximum: 3600
+        physical_duration_s:
+          type: integer
+          minimum: 10
+          maximum: 3600
+        win_points:
+          type: integer
+          minimum: 0
+          maximum: 1000
 
     StationInfo:
       type: object
