@@ -1,15 +1,21 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import { ApiError } from '../api.ts'
-import type { Api, Me } from '../api.ts'
-import { errorText } from '../messages.ts'
+import { ApiError } from './http.ts'
+import { errorText } from './messages.ts'
+import type { Me } from './types.ts'
 
-interface Props {
-  api: Api
-  onLoggedIn: (me: Me) => void
+interface AuthApi {
+  login: (login: string, password: string) => Promise<void>
+  me: () => Promise<Me>
 }
 
-export function Login({ api, onLoggedIn }: Props) {
+interface Props {
+  api: AuthApi
+  onLoggedIn: (me: Me) => void
+  title?: string
+}
+
+export function Login({ api, onLoggedIn, title = 'Вход волонтёра' }: Props) {
   const [login, setLogin] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
@@ -35,7 +41,7 @@ export function Login({ api, onLoggedIn }: Props) {
 
   return (
     <form className="card stack" onSubmit={(e) => void submit(e)}>
-      <h1>Вход волонтёра</h1>
+      <h1>{title}</h1>
       <label className="field">
         Логин
         <input
