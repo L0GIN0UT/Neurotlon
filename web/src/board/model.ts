@@ -23,3 +23,15 @@ export function disciplineName(code: string): string {
 export function teamStyle(team: BoardTeam | undefined): CSSProperties {
   return { '--team': team?.color ?? '#ffffff' } as CSSProperties
 }
+
+/** Самые большие очки игрока в полосе дисциплины (обе команды): длина шкалы лидера = 100 %. */
+export function bandMax(a: BoardTeam | undefined, b: BoardTeam | undefined, discipline: string): number {
+  const rows = [...(a?.top[discipline] ?? []), ...(b?.top[discipline] ?? [])]
+  return Math.max(0, ...rows.map((row) => row.points))
+}
+
+/** Доля шкалы игрока в процентах, 0..100. */
+export function barPercent(points: number, max: number): number {
+  if (max <= 0 || points <= 0) return 0
+  return Math.min(100, Math.round((points / max) * 100))
+}
