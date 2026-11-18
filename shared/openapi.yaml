@@ -462,6 +462,11 @@ components:
       type: string
       enum:
         - unauthorized
+        - forbidden
+        - not_found
+        - conflict
+        - too_many_attempts
+        - invalid_request
         - unknown_participant
         - wrong_discipline
         - session_conflict
@@ -482,3 +487,16 @@ components:
           type: string
         code:
           $ref: "#/components/schemas/ProblemCode"
+        errors:
+          type: array
+          description: Только для invalid_request; без введённых значений.
+          items:
+            type: object
+            properties:
+              loc:
+                type: array
+                items: {}
+              msg:
+                type: string
+              type:
+                type: string

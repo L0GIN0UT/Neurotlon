@@ -260,3 +260,14 @@ for _action in ("UPDATE", "DELETE"):
             "BEGIN SELECT RAISE(ABORT, 'audit_log is append-only'); END"
         ).execute_if(dialect="sqlite"),
     )
+
+
+class WebSession(Base):
+    __tablename__ = "web_session"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    token_hash: Mapped[str] = mapped_column(String, unique=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    expires_at: Mapped[datetime]
+    revoked_at: Mapped[datetime | None]
