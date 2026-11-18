@@ -1,0 +1,19 @@
+# Скопируйте в launcher.toml (он в .gitignore). Относительные пути считаются от папки этого файла.
+
+server_url = "http://192.168.1.10:8000"   # ПК админа в локальной сети
+token_file = "station.token"              # файл с токеном станции (в .gitignore); сам токен сюда не пишем
+discipline = "darts"                      # darts | football | pong
+data_dir = "data"                         # буфер результатов, кэш настроек, папки сессий
+camera_index = 0                          # номер вебки для QR
+
+[game]
+# Команда запуска; лаунчер допишет: --launch <путь к launch.json>
+# pygame-ce:  ["python", "-m", "neurotlon_games.darts"]
+# Unity:      ["games/darts/Darts.exe"]
+# Разработка без игры: заглушка, ждёт пару секунд и пишет случайный результат
+command = ["python", "-m", "neurotlon_games.stub"]
+# workdir = "games/darts"                 # рабочая папка игры, по умолчанию текущая
+
+[bridge]
+host = "127.0.0.1"
+port = 8765

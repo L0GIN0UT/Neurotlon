@@ -37,3 +37,5 @@ Thumbs.db
 .claude/settings.local.json
 *.log
 *.local
+launcher.toml
+*.token
