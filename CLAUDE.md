@@ -17,7 +17,7 @@
 | `web/` | админка, регистрация, судья, PWA планшетов, табло | React + TypeScript (Vite) |
 | `launcher/` | лаунчер стенда: вход по токену, QR/ID, запуск игры, офлайн-буфер | Python 3.12 |
 | `bci-bridge/` | связь с BrainBit / Callibri, сигнал 0…1 для игр | Python 3.12 |
-| `games/` | дартс, футбол, понг | Python 3.12, pygame-ce |
+| `games/` | дартс, футбол, понг | Python 3.12, pygame-ce; игры на Unity — отдельные сборки по `shared/game-launch.md` |
 | `shared/` | контракты: OpenAPI, протокол мост → игра, формат результата и ID | JSON Schema |
 | `deploy/` | установка на ПК админа | Docker Compose |
 | `docs/` | документация и схемы Mermaid | — |
