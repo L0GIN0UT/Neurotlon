@@ -1,0 +1,244 @@
+/* Админка и судья: рабочий стол, шрифты системные (без интернета). */
+.staff {
+  --accent: #1d5fd1;
+  --bad: #b3261e;
+  --ok: #2e7d32;
+  --warn-bg: #fff3cd;
+  --warn-fg: #6b4e00;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 16px;
+  font-size: 1rem;
+  box-sizing: border-box;
+}
+
+.staff h1,
+.staff h2,
+.staff h3 {
+  margin: 0.2em 0;
+}
+
+.staff button,
+.staff input,
+.staff select,
+.staff a.button {
+  font: inherit;
+  min-height: 40px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1px solid #8a8f98;
+  box-sizing: border-box;
+}
+
+.staff button,
+.staff a.button {
+  cursor: pointer;
+  background: #eef0f4;
+  color: #111;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+.staff button.primary,
+.staff a.button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.staff button.ghost {
+  background: transparent;
+}
+
+.staff button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.staff .card {
+  background: #fff;
+  color: #111;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 20%);
+  box-sizing: border-box;
+}
+
+.staff .stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.staff .row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.staff .grow {
+  flex: 1 1 200px;
+}
+
+.staff .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.staff fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+
+.staff .error {
+  color: var(--bad);
+  font-weight: 600;
+  margin: 0;
+}
+
+.staff .warning {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin: 0;
+}
+
+.staff .topbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+  padding-bottom: 12px;
+}
+
+.staff .topbar nav {
+  display: flex;
+  gap: 16px;
+}
+
+.staff .tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.staff .tabs button.on {
+  background: #d7e6ff;
+  border-color: var(--accent);
+  font-weight: 700;
+}
+
+.staff table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.staff th,
+.staff td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid #d5d8de;
+  vertical-align: middle;
+}
+
+.staff td.actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.staff ul.plain {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.staff .swatch {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+  border: 1px solid #0006;
+}
+
+.staff .badge {
+  border-radius: 999px;
+  padding: 2px 12px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.staff .badge.ok {
+  background: var(--ok);
+}
+
+.staff .badge.bad {
+  background: var(--bad);
+}
+
+.staff .backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 50%);
+  display: grid;
+  place-items: center;
+  z-index: 10;
+}
+
+.staff .dialog {
+  background: #fff;
+  color: #111;
+  border-radius: 12px;
+  padding: 20px;
+  min-width: 340px;
+  max-width: 560px;
+}
+
+.staff code.token {
+  display: block;
+  padding: 12px;
+  background: #101828;
+  color: #e7f0ff;
+  border-radius: 8px;
+  font-size: 1.1rem;
+  word-break: break-all;
+  user-select: all;
+}
+
+.staff .columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.print-only {
+  display: none;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block;
+  }
+
+  .staff {
+    max-width: none;
+    padding: 0;
+  }
+
+  .staff .card {
+    box-shadow: none;
+    padding: 0;
+  }
+}
