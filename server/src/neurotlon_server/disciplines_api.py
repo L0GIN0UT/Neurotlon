@@ -22,6 +22,7 @@ class DisciplinePatch(BaseModel):
     game_duration_s: int | None = Field(default=None, ge=10, le=3600)
     physical_duration_s: int | None = Field(default=None, ge=10, le=3600)
     win_points: int | None = Field(default=None, ge=0, le=1000)
+    max_section_points: int | None = Field(default=None, ge=1, le=1000)
 
 
 class DisciplineOut(BaseModel):
@@ -29,6 +30,7 @@ class DisciplineOut(BaseModel):
     game_duration_s: int
     physical_duration_s: int
     win_points: int
+    max_section_points: int
 
 
 def _out(d: Discipline) -> DisciplineOut:
@@ -37,6 +39,7 @@ def _out(d: Discipline) -> DisciplineOut:
         game_duration_s=d.game_duration_s,
         physical_duration_s=d.physical_duration_s,
         win_points=d.win_points,
+        max_section_points=d.max_section_points,
     )
 
 

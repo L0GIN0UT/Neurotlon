@@ -57,6 +57,29 @@ def test_get_config_sends_bearer_and_parses() -> None:
     assert seen[0].url.path == "/api/v1/me/config"
 
 
+def test_get_config_reads_and_caches_max_points(tmp_path: Path) -> None:
+    online = {"up": True}
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        if not online["up"]:
+            raise httpx2.ConnectError("down")
+        body = {"discipline": "darts", "section": "bci", "duration_s": 120, "max_points": 10}
+        return httpx2.Response(200, json=body)
+
+    api = make_api(handler, tmp_path / "config.json")
+    assert api.get_config().max_points == 10
+    online["up"] = False
+    assert api.get_config().max_points == 10
+
+
+def test_get_config_without_max_points_is_none() -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        body = {"discipline": "pong", "section": "bci", "duration_s": 90, "max_points": None}
+        return httpx2.Response(200, json=body)
+
+    assert make_api(handler).get_config().max_points is None
+
+
 def test_config_cached_for_offline_start(tmp_path: Path) -> None:
     online = {"up": True}
 

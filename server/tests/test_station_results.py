@@ -40,7 +40,7 @@ def test_darts_single_result(client: TestClient, db: Session) -> None:
     assert body["warnings"] == []
     row = db.scalars(select(SectionResult)).one()
     assert (row.points, row.source, row.station_id, row.section) == (
-        42.5,
+        4.5,
         "station",
         station_id,
         "bci",
@@ -181,11 +181,11 @@ def test_conflicting_replay_is_409(client: TestClient, db: Session) -> None:
     _, headers = make_station(db, "d1", "darts")
     client.post(f"{API}/results", json=darts_body(), headers=headers)
     other = darts_body()
-    other["entries"][0]["points"] = 99
+    other["entries"][0]["points"] = 9
     response = client.post(f"{API}/results", json=other, headers=headers)
     assert response.status_code == 409
     assert response.json()["code"] == "session_conflict"
-    assert db.scalars(select(SectionResult)).one().points == 42.5
+    assert db.scalars(select(SectionResult)).one().points == 4.5
 
 
 def test_session_opened_by_start_then_submitted(client: TestClient, db: Session) -> None:

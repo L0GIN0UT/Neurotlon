@@ -67,6 +67,7 @@ class Discipline(Base):
         CheckConstraint("game_duration_s BETWEEN 10 AND 3600", name="game_duration"),
         CheckConstraint("physical_duration_s BETWEEN 10 AND 3600", name="physical_duration"),
         CheckConstraint("win_points BETWEEN 0 AND 1000", name="win_points"),
+        CheckConstraint("max_section_points BETWEEN 1 AND 1000", name="max_section_points"),
     )
 
     code: Mapped[str] = mapped_column(String, primary_key=True)
@@ -75,6 +76,8 @@ class Discipline(Base):
     game_duration_s: Mapped[int] = mapped_column(Integer)
     physical_duration_s: Mapped[int] = mapped_column(Integer)
     win_points: Mapped[int] = mapped_column(Integer, default=10, server_default="10")
+    # Upper bound of `points` for darts and football; pong scores by wins instead.
+    max_section_points: Mapped[int] = mapped_column(Integer, default=10, server_default="10")
 
 
 class Team(Base):

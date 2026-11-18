@@ -429,8 +429,8 @@ describe('дисциплины', () => {
   test('меняется только изменённое поле', async () => {
     const server = createFakeServer('admin')
     const rows = [
-      { code: 'darts', game_duration_s: 120, physical_duration_s: 300, win_points: 10 },
-      { code: 'pong', game_duration_s: 180, physical_duration_s: 300, win_points: 10 },
+      { code: 'darts', game_duration_s: 120, physical_duration_s: 300, win_points: 10, max_section_points: 10 },
+      { code: 'pong', game_duration_s: 180, physical_duration_s: 300, win_points: 10, max_section_points: 10 },
     ]
     server.routes.set('GET /disciplines', () => json(rows))
     server.routes.set('PATCH /disciplines/*', (body) => {
@@ -451,10 +451,38 @@ describe('дисциплины', () => {
     expect(server.calls.find((c) => c.key === 'PATCH /disciplines/*')?.url.pathname).toBe('/api/v1/disciplines/darts')
   })
 
+  test('лимит очков за секцию меняется отдельным полем и не выходит за 1…1000', async () => {
+    const server = createFakeServer('admin')
+    const rows = [
+      { code: 'darts', game_duration_s: 120, physical_duration_s: 300, win_points: 10, max_section_points: 10 },
+    ]
+    server.routes.set('GET /disciplines', () => json(rows))
+    server.routes.set('PATCH /disciplines/*', (body) => {
+      Object.assign(rows[0] ?? {}, body)
+      return json(rows[0])
+    })
+    renderAdmin(server)
+    await openTab('Дисциплины')
+    const group = await screen.findByRole('group', { name: 'Дартс' })
+    const limit = within(group).getByLabelText('Лимит очков за секцию (Дартс)') as HTMLInputElement
+    const save = within(group).getByRole('button', { name: 'Сохранить Дартс' }) as HTMLButtonElement
+    expect(limit.value).toBe('10')
+
+    for (const bad of ['0', '1001', '2.5']) {
+      fireEvent.change(limit, { target: { value: bad } })
+      expect(save.disabled).toBe(true)
+    }
+    fireEvent.change(limit, { target: { value: '15' } })
+    expect(save.disabled).toBe(false)
+    fireEvent.click(save)
+    await within(group).findByText('Сохранено')
+    expect(server.bodies('PATCH /disciplines/*')).toEqual([{ max_section_points: 15 }])
+  })
+
   test('значение вне пределов не отправляется', async () => {
     const server = createFakeServer('admin')
     server.routes.set('GET /disciplines', () =>
-      json([{ code: 'darts', game_duration_s: 120, physical_duration_s: 300, win_points: 10 }]),
+      json([{ code: 'darts', game_duration_s: 120, physical_duration_s: 300, win_points: 10, max_section_points: 10 }]),
     )
     renderAdmin(server)
     await openTab('Дисциплины')

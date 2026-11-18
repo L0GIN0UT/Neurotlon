@@ -39,9 +39,9 @@ def test_points_out_of_range_is_422(client: TestClient, db: Session, points: flo
 
 def test_points_upper_bound_accepted(client: TestClient, db: Session) -> None:
     seed_people(db)
-    _, headers = make_station(db, "d1", "darts")
-    body = darts_body()
-    body["entries"][0]["points"] = 1000
+    _, headers = make_station(db, "p1", "pong")
+    body = pong_body()
+    body["entries"][0]["points"] = 1000  # pong points are a game score, not limited
     assert client.post(f"{API}/results", json=body, headers=headers).status_code == 201
 
 

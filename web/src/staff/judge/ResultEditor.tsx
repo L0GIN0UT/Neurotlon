@@ -3,7 +3,13 @@ import type { FormEvent } from 'react'
 import { REASONS, REASON_TEXTS } from '../../shared/messages.ts'
 import type { Reason } from '../../shared/types.ts'
 import type { StaffApi, StoredResult } from '../api.ts'
-import { MAX_CHANGE_REASON, buildPatch, describeResult, draftOf } from '../resultPatch.ts'
+import {
+  MAX_CHANGE_REASON,
+  buildPatch,
+  describeResult,
+  draftOf,
+  pointsLimit,
+} from '../resultPatch.ts'
 import type { ResultDraft } from '../resultPatch.ts'
 import { ErrorText } from '../ui.tsx'
 import { useAction } from '../hooks.ts'
@@ -19,10 +25,13 @@ interface Props {
   row: StoredResult
   /** Заблокированные результаты правят только админ и суперпользователь. */
   canEditLocked: boolean
+  /** Лимит очков за секцию дисциплины строки (дартс, футбол); null, пока не загружен. */
+  maxPoints?: number | null
   onSaved: (row: StoredResult) => void
 }
 
-export function ResultEditor({ api, row, canEditLocked, onSaved }: Props) {
+export function ResultEditor({ api, row, canEditLocked, maxPoints = null, onSaved }: Props) {
+  const limit = pointsLimit(row, maxPoints)
   const action = useAction()
   const [draft, setDraft] = useState<ResultDraft>(() => draftOf(row))
   const [formError, setFormError] = useState<string | null>(null)
@@ -41,7 +50,7 @@ export function ResultEditor({ api, row, canEditLocked, onSaved }: Props) {
 
   async function save(event: FormEvent) {
     event.preventDefault()
-    const built = buildPatch(row, draft)
+    const built = buildPatch(row, draft, maxPoints)
     if ('error' in built) {
       setFormError(built.error)
       return
@@ -54,7 +63,7 @@ export function ResultEditor({ api, row, canEditLocked, onSaved }: Props) {
   }
 
   return (
-    <form className="card stack" onSubmit={(e) => void save(e)} aria-label={`Правка ${row.id}`}>
+    <form className="card stack" noValidate onSubmit={(e) => void save(e)} aria-label={`Правка ${row.id}`}>
       <p>
         <strong>{describeResult(row)}</strong>
         <br />
@@ -81,7 +90,7 @@ export function ResultEditor({ api, row, canEditLocked, onSaved }: Props) {
               <input
                 type="number"
                 min={0}
-                max={1000}
+                max={limit}
                 step="any"
                 value={draft.points}
                 onChange={(e) => set('points', e.target.value)}

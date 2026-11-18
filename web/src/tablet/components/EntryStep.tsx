@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react'
 import type { Discipline, Reason } from '../api.ts'
 import { REASONS, REASON_TEXTS } from '../messages.ts'
-import { emptyForm, parseNumber, toEntries } from '../entryForm.ts'
+import { emptyForm, sectionPointsProblem, stepPoints, toEntries } from '../entryForm.ts'
 import type { EntryDraft, PersonForm } from '../entryForm.ts'
 import { PayloadError } from '../payload.ts'
 import type { EntryInput } from '../payload.ts'
 import { personLabel } from '../people.ts'
 import type { Person } from '../people.ts'
-import { ACCURACY_MAX, POINTS_MAX, THROW_MAX, dartsPoints } from '../scoring/placeholder.ts'
+import { POINTS_MAX, POINTS_STEP, sectionLimit } from '../scoring/placeholder.ts'
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60)
@@ -50,104 +50,55 @@ export function Timer({ durationS }: { durationS: number }) {
 interface FieldsProps {
   discipline: Discipline
   form: PersonForm
+  maxPoints: number | null
   onChange: (form: PersonForm) => void
 }
 
-function DartsFields({ form, onChange }: Omit<FieldsProps, 'discipline'>) {
-  const [error, setError] = useState<string | null>(null)
-
-  function add() {
-    const value = parseNumber(form.throwInput)
-    if (!Number.isInteger(value) || value < 0 || value > THROW_MAX) {
-      setError(`Бросок — целое число от 0 до ${THROW_MAX}`)
-      return
-    }
-    setError(null)
-    onChange({ ...form, throws: [...form.throws, value], throwInput: '' })
-  }
-
+function SectionFields({
+  form,
+  maxPoints,
+  onChange,
+}: Pick<FieldsProps, 'form' | 'onChange'> & { maxPoints: number | null }) {
+  const limit = sectionLimit(maxPoints)
+  const problem = sectionPointsProblem(form.points, maxPoints)
   return (
     <div className="stack">
-      <div className="row">
+      <div className="stepper">
+        <button
+          type="button"
+          aria-label="Уменьшить очки за секцию на 0,5"
+          onClick={() => onChange({ ...form, points: stepPoints(form.points, -1, maxPoints) })}
+        >
+          −
+        </button>
         <label className="field grow">
-          Бросок
+          Очки за секцию
           <input
             type="number"
-            inputMode="numeric"
+            inputMode="decimal"
             min={0}
-            max={THROW_MAX}
-            value={form.throwInput}
-            onChange={(e) => onChange({ ...form, throwInput: e.target.value })}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                add()
-              }
-            }}
+            max={limit}
+            step={POINTS_STEP}
+            value={form.points}
+            onChange={(e) => onChange({ ...form, points: e.target.value })}
           />
         </label>
-        <button type="button" onClick={add}>
-          Добавить бросок
+        <button
+          type="button"
+          aria-label="Увеличить очки за секцию на 0,5"
+          onClick={() => onChange({ ...form, points: stepPoints(form.points, 1, maxPoints) })}
+        >
+          +
         </button>
       </div>
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
-      <ol className="throws" aria-label="Броски">
-        {form.throws.map((value, index) => (
-          <li key={index}>
-            <span>{value}</span>
-            <button
-              type="button"
-              aria-label={`Удалить бросок ${index + 1}`}
-              onClick={() => onChange({ ...form, throws: form.throws.filter((_, i) => i !== index) })}
-            >
-              ×
-            </button>
-          </li>
-        ))}
-      </ol>
-      <p className="total">Сумма: {dartsPoints(form.throws)}</p>
+      <p className={problem ? 'error' : 'hint'}>
+        {problem ?? `От 0 до ${limit}, шаг 0,5`}
+      </p>
     </div>
   )
 }
 
-function FootballFields({ form, onChange }: Omit<FieldsProps, 'discipline'>) {
-  return (
-    <div className="stack">
-      <div className="elements">
-        {form.elements.map((done, index) => (
-          <button
-            key={index}
-            type="button"
-            className={done ? 'toggle on' : 'toggle'}
-            aria-pressed={done}
-            onClick={() =>
-              onChange({ ...form, elements: form.elements.map((v, i) => (i === index ? !v : v)) })
-            }
-          >
-            Элемент {index + 1}: {done ? 'выполнен' : 'не выполнен'}
-          </button>
-        ))}
-      </div>
-      <label className="field">
-        Очки за точность
-        <input
-          type="number"
-          inputMode="numeric"
-          min={0}
-          max={ACCURACY_MAX}
-          value={form.accuracy}
-          onChange={(e) => onChange({ ...form, accuracy: e.target.value })}
-        />
-      </label>
-    </div>
-  )
-}
-
-function PongFields({ form, onChange }: Omit<FieldsProps, 'discipline'>) {
+function PongFields({ form, onChange }: Pick<FieldsProps, 'form' | 'onChange'>) {
   return (
     <label className="field">
       Очки
@@ -168,6 +119,7 @@ function PersonEntry({
   person,
   heading,
   form,
+  maxPoints,
   onChange,
 }: FieldsProps & { person: Person; heading: string | null }) {
   const name = personLabel(person)
@@ -194,9 +146,11 @@ function PersonEntry({
       </div>
       {form.completed ? (
         <>
-          {discipline === 'darts' && <DartsFields form={form} onChange={onChange} />}
-          {discipline === 'football' && <FootballFields form={form} onChange={onChange} />}
-          {discipline === 'pong' && <PongFields form={form} onChange={onChange} />}
+          {discipline === 'pong' ? (
+            <PongFields form={form} onChange={onChange} />
+          ) : (
+            <SectionFields form={form} maxPoints={maxPoints} onChange={onChange} />
+          )}
         </>
       ) : (
         <div className="stack">
@@ -231,19 +185,30 @@ interface Props {
   discipline: Discipline
   people: Person[]
   durationS: number
+  /** Лимит очков за секцию (дартс, футбол); у понга null. */
+  maxPoints: number | null
   draft: EntryDraft
   onDraft: (draft: EntryDraft) => void
   onBack: () => void
   onNext: (entries: EntryInput[], winner: string | null) => void
 }
 
-export function EntryStep({ discipline, people, durationS, draft, onDraft, onBack, onNext }: Props) {
+export function EntryStep({
+  discipline,
+  people,
+  durationS,
+  maxPoints,
+  draft,
+  onDraft,
+  onBack,
+  onNext,
+}: Props) {
   const [error, setError] = useState<string | null>(null)
   const completedPeople = people.filter((p) => draft.forms[p.code]?.completed ?? true)
 
   function next() {
     try {
-      const { entries, winner } = toEntries(discipline, people, draft)
+      const { entries, winner } = toEntries(discipline, people, draft, maxPoints)
       setError(null)
       onNext(entries, winner)
     } catch (e) {
@@ -262,6 +227,7 @@ export function EntryStep({ discipline, people, durationS, draft, onDraft, onBac
           person={person}
           heading={discipline === 'pong' ? `Игрок ${index + 1}` : null}
           form={draft.forms[person.code] ?? emptyForm()}
+          maxPoints={maxPoints}
           onChange={(form) => onDraft({ ...draft, forms: { ...draft.forms, [person.code]: form } })}
         />
       ))}

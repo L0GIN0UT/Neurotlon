@@ -83,3 +83,42 @@ def test_wins_forbidden_outside_pong() -> None:
 def test_entry_count_per_discipline() -> None:
     assert contract.entries_problem("pong", [E("NT01", wins=1)]) is not None
     assert contract.entries_problem("football", [E("NT01"), E("NT02")]) is not None
+
+
+def limited(points: float, discipline: str = "darts", max_points: int | None = 10) -> str | None:
+    entries = [{"participant_code": "NT01", "outcome": "completed", "points": points}]
+    return contract.result_problem(
+        result(entries=entries),
+        session_id=SESSION,
+        discipline=discipline,
+        codes=("NT01",),
+        max_points=max_points,
+    )
+
+
+def test_points_above_section_limit_are_rejected() -> None:
+    assert limited(10) is None
+    assert "лимита" in (limited(10.5) or "")
+    assert "лимита" in (limited(11, "football") or "")
+
+
+def test_no_limit_means_no_check() -> None:
+    assert limited(999, max_points=None) is None
+
+
+def test_pong_points_are_not_limited() -> None:
+    codes = ("NT03", "NT04")
+    entries = [
+        {"participant_code": "NT03", "outcome": "completed", "points": 50, "wins": 1},
+        {"participant_code": "NT04", "outcome": "completed", "points": 7, "wins": 0},
+    ]
+    assert (
+        contract.result_problem(
+            result(entries=entries),
+            session_id=SESSION,
+            discipline="pong",
+            codes=codes,
+            max_points=10,
+        )
+        is None
+    )

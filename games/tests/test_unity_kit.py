@@ -232,3 +232,14 @@ def test_kit_package_files_exist() -> None:
     assert package["name"] == "ru.neurotlon.kit"
     assert (kit / "README.md").exists()
     assert (RUNTIME / "Neurotlon.Kit.asmdef").exists()
+
+
+def test_max_points_limit_matches_schema() -> None:
+    ints = consts(source("NeurotlonProtocol.cs"), "int")
+    assert int(ints["MaxPointsMax"]) == LD["Launch"]["properties"]["max_points"]["maximum"]
+
+
+def test_unity_result_checks_max_points() -> None:
+    text = source("NeurotlonResult.cs")
+    assert "launch.MaxPoints" in text
+    assert "!launch.IsPong" in text

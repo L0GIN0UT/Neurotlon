@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import type { StoredResult } from './api.ts'
-import { buildPatch, describeResult, draftOf } from './resultPatch.ts'
+import { buildPatch, describeResult, draftOf, pointsLimit } from './resultPatch.ts'
 
 function row(extra: Partial<StoredResult> = {}): StoredResult {
   return {
@@ -112,5 +112,34 @@ describe('describeResult', () => {
     expect(describeResult(row({ outcome: 'not_completed', points: null, reason: 'equipment' }))).toBe(
       'NT01 · Дартс · BCI: не пройдено (Неисправность оборудования)',
     )
+  })
+})
+
+describe('лимит очков за секцию', () => {
+  test('очки выше лимита отклоняются с понятным текстом, ровно лимит проходит', () => {
+    const base = row({ points: 5 })
+    const draft = { ...draftOf(base), changeReason: 'r' }
+    expect(buildPatch(base, { ...draft, points: '10.5' }, 10)).toEqual({
+      error: 'Очки — число от 0 до 10',
+    })
+    expect(buildPatch(base, { ...draft, points: '10' }, 10)).toEqual({
+      patch: { points: 10, change_reason: 'r' },
+    })
+  })
+
+  test('без известного лимита действует потолок схемы 1000', () => {
+    const base = row({ points: 5 })
+    const draft = { ...draftOf(base), changeReason: 'r' }
+    expect('patch' in buildPatch(base, { ...draft, points: '900' })).toBe(true)
+    expect(buildPatch(base, { ...draft, points: '1001' })).toEqual({
+      error: 'Очки — число от 0 до 1000',
+    })
+  })
+
+  test('понг лимитом секции не ограничен', () => {
+    const pong = row({ discipline: 'pong', points: 5, wins: 0 })
+    expect(pointsLimit(pong, 10)).toBe(1000)
+    const draft = { ...draftOf(pong), points: '50', changeReason: 'r' }
+    expect(buildPatch(pong, draft, 10)).toEqual({ patch: { points: 50, change_reason: 'r' } })
   })
 })

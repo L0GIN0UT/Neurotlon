@@ -24,6 +24,7 @@ def recover_active(machine: StationMachine, outbox: Outbox, data_dir: Path) -> N
         active.discipline,
         active.duration_s,
         tuple(Player(code, name) for code, name in active.players),
+        active.max_points,
     )
     result_path = session_dir(data_dir, active.session_id) / "result.json"
     if result_path.exists():

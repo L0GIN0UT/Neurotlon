@@ -101,6 +101,17 @@ describe('запросы на исправление и правка', () => {
     const row = stored()
     let open = [correction]
     server.routes.set('GET /conflicts', () => json([]))
+    server.routes.set('GET /disciplines', () =>
+      json(
+        ['darts', 'football', 'pong'].map((code) => ({
+          code,
+          game_duration_s: 120,
+          physical_duration_s: 300,
+          win_points: 10,
+          max_section_points: 10,
+        })),
+      ),
+    )
     server.routes.set('GET /corrections', () => json(open))
     server.routes.set('GET /results', () => json({ total: 1, items: [row] }))
     server.routes.set('PATCH /results/*', (body) => {
@@ -125,7 +136,7 @@ describe('запросы на исправление и правка', () => {
 
     const form = await within(card).findByRole('form', { name: 'Правка 5' })
     expect(server.calls.find((c) => c.key === 'GET /results')?.url.search).toBe('?session_id=sess-1')
-    fireEvent.change(within(form).getByLabelText('Очки'), { target: { value: '45' } })
+    fireEvent.change(within(form).getByLabelText('Очки'), { target: { value: '9' } })
     fireEvent.click(within(form).getByRole('button', { name: 'Сохранить правку' }))
     expect(await within(form).findByText('Укажите причину исправления')).toBeDefined()
     expect(server.count('PATCH /results/*')).toBe(0)
@@ -136,9 +147,43 @@ describe('запросы на исправление и правка', () => {
     fireEvent.click(within(form).getByRole('button', { name: 'Сохранить правку' }))
     await waitFor(() => expect(server.count('PATCH /results/*')).toBe(1))
     expect(server.bodies('PATCH /results/*')).toEqual([
-      { points: 45, change_reason: 'пересчёт бросков' },
+      { points: 9, change_reason: 'пересчёт бросков' },
     ])
     expect(await within(card).findByText(/версия 2/)).toBeDefined()
+  })
+
+  test('очки выше лимита дисциплины не отправляются, ровно лимит проходит', async () => {
+    const { server } = setup()
+    renderJudge(server)
+    await openTab('Поиск и правка')
+    fireEvent.click(await screen.findByRole('button', { name: 'Найти' }))
+    const form = await screen.findByRole('form', { name: 'Правка 5' })
+    await waitFor(() =>
+      expect((within(form).getByLabelText('Очки') as HTMLInputElement).max).toBe('10'),
+    )
+    fireEvent.change(within(form).getByLabelText('Очки'), { target: { value: '10.5' } })
+    fireEvent.change(within(form).getByLabelText('Причина исправления (в журнал)'), { target: { value: 'опечатка' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Сохранить правку' }))
+    expect(await within(form).findByText('Очки — число от 0 до 10')).toBeDefined()
+    expect(server.count('PATCH /results/*')).toBe(0)
+
+    fireEvent.change(within(form).getByLabelText('Очки'), { target: { value: '10' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Сохранить правку' }))
+    await waitFor(() => expect(server.count('PATCH /results/*')).toBe(1))
+  })
+
+  test('понг лимитом секции не ограничен', async () => {
+    const { server } = setup()
+    server.routes.set('GET /results', () =>
+      json({ total: 1, items: [stored({ discipline: 'pong', points: 11, wins: 1 })] }),
+    )
+    renderJudge(server)
+    await openTab('Поиск и правка')
+    fireEvent.click(await screen.findByRole('button', { name: 'Найти' }))
+    const form = await screen.findByRole('form', { name: 'Правка 5' })
+    await waitFor(() =>
+      expect((within(form).getByLabelText('Очки') as HTMLInputElement).max).toBe('1000'),
+    )
   })
 
   test('запрос отмечается выполненным', async () => {

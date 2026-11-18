@@ -18,6 +18,7 @@ from typing import Any, Literal
 from neurotlon_contracts.contract import (
     RawEntry,
     entries_problem,
+    points_limit_problem,
     pong_winner_problem,
     raw_entries_problem,
     schema_problem,
@@ -82,6 +83,7 @@ class Options:
     discipline: str
     command: tuple[str, ...]
     duration_s: int = 10
+    max_points: int | None = None
     grace_s: float = 120.0
     bridge_speed: float = 10.0
     time_scale: float = 1.0
@@ -127,7 +129,7 @@ def run_check(opts: Options) -> Report:
         report.add("FAIL", "запуск", f"команда не найдена: {command[0] if command else '(пусто)'}")
         return report
     players = TEST_PLAYERS[: 2 if opts.discipline == "pong" else 1]
-    request = GameRequest(uuid.uuid4(), opts.discipline, opts.duration_s, players)
+    request = GameRequest(uuid.uuid4(), opts.discipline, opts.duration_s, players, opts.max_points)
     scale = None if opts.time_scale == 1.0 else f"{opts.time_scale:g}"
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         data_dir = opts.keep_dir or Path(tmp)
@@ -326,6 +328,12 @@ def _check_entries(
     problem = raw_entries_problem(raw, [p.code for p in request.players])
     if problem is None and opts.discipline != "pong":
         problem = entries_problem(opts.discipline, entries)
+    if problem is None:
+        problem = points_limit_problem(
+            opts.discipline,
+            [(e["participant_code"], e["points"]) for e in raw if e["outcome"] == "completed"],
+            request.max_points,
+        )
     if problem:
         report.add("FAIL", "записи", problem)
         return

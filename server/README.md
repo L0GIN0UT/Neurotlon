@@ -83,7 +83,7 @@ uv run neurotlon-server create-superuser --login root
 - Два неаннулированных результата на одну секцию — конфликт, секция не засчитывается.
   `GET /api/v1/conflicts` и `POST /api/v1/conflicts/resolve {keep_result_id, reason}` — админ,
   судья, суперпользователь, волонтёр своей дисциплины.
-- `PATCH /api/v1/disciplines/{code}` — `game_duration_s`, `physical_duration_s`, `win_points`
+- `PATCH /api/v1/disciplines/{code}` — `game_duration_s`, `physical_duration_s`, `win_points`, `max_section_points` (лимит `points` для дартса и футбола, по умолчанию 10)
   (админ, судья, суперпользователь).
 
 ## Админка, судья, экспорт

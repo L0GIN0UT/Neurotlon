@@ -4,12 +4,13 @@ import type { DisciplineSettings, StaffApi } from '../api.ts'
 import { ErrorText } from '../ui.tsx'
 import { useAction, useLoader } from '../hooks.ts'
 
-type Field = 'game_duration_s' | 'physical_duration_s' | 'win_points'
+type Field = 'game_duration_s' | 'physical_duration_s' | 'win_points' | 'max_section_points'
 
 const FIELDS: { id: Field; label: string; min: number; max: number }[] = [
   { id: 'game_duration_s', label: 'Время игры, с', min: 10, max: 3600 },
   { id: 'physical_duration_s', label: 'Время физической секции, с', min: 10, max: 3600 },
   { id: 'win_points', label: 'Очки за победу', min: 0, max: 1000 },
+  { id: 'max_section_points', label: 'Лимит очков за секцию', min: 1, max: 1000 },
 ]
 
 export function DisciplinesTab({ api }: { api: StaffApi }) {
@@ -17,6 +18,7 @@ export function DisciplinesTab({ api }: { api: StaffApi }) {
   return (
     <section className="stack">
       <p>
+        Лимит очков за секцию действует для дартса и футбола (физика и BCI); понг считается по победам.
         Новое время применяется со следующей сессии, идущая не обрывается. Изменение пишется в журнал.
       </p>
       <ErrorText error={list.error} />
@@ -39,6 +41,7 @@ function DisciplineRow({ api, discipline, onSaved }: RowProps) {
     game_duration_s: String(discipline.game_duration_s),
     physical_duration_s: String(discipline.physical_duration_s),
     win_points: String(discipline.win_points),
+    max_section_points: String(discipline.max_section_points),
   })
   const [saved, setSaved] = useState(false)
   const name = DISCIPLINE_NAMES[discipline.code]

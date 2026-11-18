@@ -19,7 +19,7 @@ from .station_helpers import (
 )
 
 Seeded = dict[str, dict[str, str]]
-FIX = {"points": 50, "change_reason": "judge recount"}
+FIX = {"points": 5, "change_reason": "judge recount"}
 
 
 @pytest.fixture
@@ -106,14 +106,14 @@ def test_judge_corrects_confirmed_result(app: FastAPI, db: Session, seeded: Seed
     response = judge.patch(f"{API}/results/{row.id}", json=FIX)
     assert response.status_code == 200
     body = response.json()
-    assert (body["points"], body["version"], body["status"]) == (50, 2, "confirmed")
+    assert (body["points"], body["version"], body["status"]) == (5, 2, "confirmed")
     assert body["participant_code"] == "NT01"
     entry = audit(db, "result.correct").pop()
     assert entry.reason == "judge recount"
     assert entry.before is not None
     assert entry.after is not None
-    assert entry.before["points"] == 42.5
-    assert entry.after["points"] == 50
+    assert entry.before["points"] == 4.5
+    assert entry.after["points"] == 5
     assert entry.before["version"] == 1
     assert entry.after["version"] == 2
     assert "category" not in str(entry.before) + str(entry.after)
@@ -163,12 +163,12 @@ def test_locked_result_only_admin_edits(app: FastAPI, db: Session, seeded: Seede
     assert row.status == "locked"
     refused = judge.patch(f"{API}/results/{row.id}", json=FIX)
     assert refused.status_code == 403
-    assert row_of(db, "NT01", "darts").points == 42.5
+    assert row_of(db, "NT01", "darts").points == 4.5
     assert admin.patch(f"{API}/results/{row.id}", json=FIX).status_code == 200
-    changed = superuser.patch(f"{API}/results/{row.id}", json={**FIX, "points": 51})
+    changed = superuser.patch(f"{API}/results/{row.id}", json={**FIX, "points": 6})
     assert changed.status_code == 200
     after = row_of(db, "NT01", "darts")
-    assert (after.points, after.version, after.status) == (51, 3, "locked")
+    assert (after.points, after.version, after.status) == (6, 3, "locked")
 
 
 def test_voided_result_cannot_be_corrected(app: FastAPI, db: Session, seeded: Seeded) -> None:
@@ -279,7 +279,7 @@ def test_corrected_result_changes_the_scoreboard(
     judge = staff(app, db, "judge")
     row = row_of(db, "NT01", "darts")
     judge.patch(f"{API}/results/{row.id}", json=FIX)
-    assert client.get(f"{API}/scoreboard").json()["teams"][0]["total"] == 50
+    assert client.get(f"{API}/scoreboard").json()["teams"][0]["total"] == 5
 
 
 def test_station_replay_does_not_undo_a_correction(
@@ -290,7 +290,7 @@ def test_station_replay_does_not_undo_a_correction(
     judge.patch(f"{API}/results/{row.id}", json=FIX)
     replay = client.post(f"{API}/results", json=darts_body(SESSION_A), headers=seeded["darts"])
     assert replay.status_code == 200
-    assert row_of(db, "NT01", "darts").points == 50
+    assert row_of(db, "NT01", "darts").points == 5
 
 
 @pytest.mark.parametrize(
@@ -325,7 +325,7 @@ def test_locked_rows_still_count_on_the_scoreboard(
     app: FastAPI, client: TestClient, db: Session, seeded: Seeded
 ) -> None:
     staff(app, db, "judge").post(f"{API}/results/lock")
-    assert client.get(f"{API}/scoreboard").json()["teams"][0]["total"] == 42.5
+    assert client.get(f"{API}/scoreboard").json()["teams"][0]["total"] == 4.5
 
 
 SESSION_DUP = "5d2f6a10-9b3c-4e1d-a7c8-0e4b1f2a3c6d"

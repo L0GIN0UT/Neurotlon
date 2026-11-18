@@ -30,8 +30,9 @@ def build_result(launch: dict[str, Any], rng: random.Random, abort: bool) -> dic
             "entries": [],
             "reason": "stub: aborted",
         }
+    top = 100 if launch["discipline"] == "pong" else launch.get("max_points", 10)
     entries: list[dict[str, Any]] = [
-        {"participant_code": p["code"], "outcome": "completed", "points": rng.randint(0, 100)}
+        {"participant_code": p["code"], "outcome": "completed", "points": rng.randint(0, top)}
         for p in launch["participants"]
     ]
     if launch["discipline"] == "pong":

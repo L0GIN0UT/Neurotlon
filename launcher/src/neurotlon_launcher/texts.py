@@ -48,6 +48,7 @@ def side_line(index: int) -> str:
 STARTING = "Запускаем игру…"
 PLAYING = "Идёт игра"
 PLAYING_OFFLINE = "Нет связи с сервером: результат отправится позже"
+LIMIT_DEFAULT = "Лимит очков не получен с сервера, используется 10"
 
 # Итог
 DONE_TITLE = "Готово!"

@@ -79,6 +79,7 @@ class ResultWriter:
             session_id=launch.session_id,
             discipline=launch.discipline,
             codes=[p.code for p in launch.participants],
+            max_points=launch.max_points,
         )
         if problem:
             raise ResultError(problem)

@@ -1,5 +1,5 @@
 import type { Discipline, Reason, ResultEntry, ResultSubmission, Section } from './api.ts'
-import { POINTS_MAX } from './scoring/placeholder.ts'
+import { POINTS_MAX, sectionLimit } from './scoring/placeholder.ts'
 
 export type EntryInput =
   | { code: string; completed: true; points: number }
@@ -19,6 +19,7 @@ export function validateEntries(
   discipline: Discipline,
   entries: readonly EntryInput[],
   winner: string | null,
+  maxPoints: number | null = null,
 ): void {
   const expected = discipline === 'pong' ? 2 : 1
   const codes = new Set(entries.map((e) => e.code))
@@ -29,8 +30,9 @@ export function validateEntries(
   }
   for (const entry of entries) {
     if (entry.completed) {
-      if (!Number.isFinite(entry.points) || entry.points < 0 || entry.points > POINTS_MAX) {
-        throw new PayloadError(`Очки должны быть от 0 до ${POINTS_MAX}`)
+      const limit = discipline === 'pong' ? POINTS_MAX : sectionLimit(maxPoints)
+      if (!Number.isFinite(entry.points) || entry.points < 0 || entry.points > limit) {
+        throw new PayloadError(`Очки должны быть от 0 до ${limit}`)
       }
     } else if ((entry.comment ?? '').trim().length > COMMENT_MAX) {
       throw new PayloadError(`Комментарий не длиннее ${COMMENT_MAX} символов`)
@@ -56,11 +58,13 @@ export interface SubmissionInput {
   entries: readonly EntryInput[]
   /** Только понг: код победителя. */
   winner: string | null
+  /** Лимит очков за секцию из настроек; для понга не применяется. */
+  maxPoints?: number | null
 }
 
 export function buildSubmission(input: SubmissionInput): ResultSubmission {
   const { discipline, entries, winner } = input
-  validateEntries(discipline, entries, winner)
+  validateEntries(discipline, entries, winner, input.maxPoints ?? null)
   const bothCompleted = entries.every((e) => e.completed)
   const body: ResultEntry[] = entries.map((entry) => {
     if (!entry.completed) {

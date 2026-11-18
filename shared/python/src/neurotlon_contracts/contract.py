@@ -62,6 +62,18 @@ def schema_problem(name: str, data: object) -> str | None:
     return None
 
 
+def points_limit_problem(
+    discipline: str, points: Sequence[tuple[str, float]], max_points: int | None
+) -> str | None:
+    """Дартс и футбол: `points` не больше лимита секции; у понга `points` — счёт игры."""
+    if max_points is None or discipline == "pong":
+        return None
+    for code, value in points:
+        if value > max_points:
+            return f"у {code} points {value:g} больше лимита секции {max_points}"
+    return None
+
+
 def entries_problem(discipline: str, entries: Sequence[EntryLike]) -> str | None:
     """Правила сервера (`_validate_entries`); нарушение там даёт 422."""
     expected = 2 if discipline == "pong" else 1
@@ -109,7 +121,12 @@ class RawEntry:
 
 
 def result_problem(
-    data: object, *, session_id: str, discipline: str, codes: Sequence[str]
+    data: object,
+    *,
+    session_id: str,
+    discipline: str,
+    codes: Sequence[str],
+    max_points: int | None = None,
 ) -> str | None:
     """Полная проверка разобранного result.json против запущенной сессии."""
     problem = schema_problem("Result", data)
@@ -124,4 +141,11 @@ def result_problem(
     problem = raw_entries_problem(raw, codes)
     if problem:
         return problem
-    return entries_problem(discipline, [RawEntry(e) for e in raw])
+    problem = entries_problem(discipline, [RawEntry(e) for e in raw])
+    if problem:
+        return problem
+    return points_limit_problem(
+        discipline,
+        [(e["participant_code"], e["points"]) for e in raw if e["outcome"] == "completed"],
+        max_points,
+    )

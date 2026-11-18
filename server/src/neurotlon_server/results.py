@@ -193,6 +193,13 @@ def participant_issues(
     return issues
 
 
+def points_over_limit(discipline: str, points: float | None, limit: int) -> str | None:
+    """Message when darts/football points exceed the discipline limit; pong is not limited."""
+    if discipline == "pong" or points is None or points <= limit:
+        return None
+    return f"points must not exceed {limit} for {discipline}"
+
+
 def _validate_entries(body: ResultSubmission) -> None:
     expected = 2 if body.discipline == "pong" else 1
     distinct = {e.participant_code for e in body.entries}
@@ -214,6 +221,16 @@ def _validate_entries(body: ResultSubmission) -> None:
         raise ProblemError(
             422, "invalid_entries", "Invalid entries", "Wins do not match the discipline rules"
         )
+
+
+def _check_points_limit(db: Session, body: ResultSubmission) -> None:
+    """Only for new writes: a replay of a stored session must not depend on today's limit."""
+    discipline = db.get(Discipline, body.discipline)
+    assert discipline is not None
+    for entry in body.entries:
+        message = points_over_limit(body.discipline, entry.points, discipline.max_section_points)
+        if message:
+            raise ProblemError(422, "invalid_entries", "Invalid entries", message)
 
 
 def _check_finished_at(body: ResultSubmission, now: datetime) -> datetime:
@@ -272,6 +289,8 @@ def submit_result(
     people = find_participants(db, [e.participant_code for e in body.entries])
 
     session = db.get(GameSession, session_id)
+    if session is None or session.payload_hash is None:
+        _check_points_limit(db, body)
     if session is None:
         session = GameSession(
             session_id=session_id,
