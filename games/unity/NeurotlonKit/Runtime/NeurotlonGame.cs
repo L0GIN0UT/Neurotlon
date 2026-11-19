@@ -293,6 +293,12 @@ namespace Neurotlon
             }
             EnsureStyles();
             float cx = Screen.width / 2f, cy = Screen.height / 2f;
+            if (CurrentStage != Stage.Playing)          // служебные экраны читаются поверх любой картинки
+            {
+                GUI.color = new Color(0f, 0f, 0f, 0.62f);
+                GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height), Texture2D.whiteTexture);
+                GUI.color = Color.white;
+            }
             switch (CurrentStage)
             {
                 case Stage.Connecting:
@@ -338,15 +344,31 @@ namespace Neurotlon
 
         void Label(float cx, float cy, string text, GUIStyle style)
         {
-            GUI.Label(new Rect(cx - Screen.width / 2f, cy - 60, Screen.width, 120), text, style);
+            OutlinedLabel(new Rect(cx - Screen.width / 2f, cy - 60, Screen.width, 120), text, style);
+        }
+
+        // Надпись с тёмной обводкой: читается на светлом и пёстром фоне. Цвет берётся из стиля.
+        protected static void OutlinedLabel(Rect rect, string text, GUIStyle style)
+        {
+            Color fill = style.normal.textColor;
+            float o = Mathf.Max(1.5f, style.fontSize / 18f);
+            style.normal.textColor = new Color(0f, 0f, 0f, 0.92f * fill.a);       // обводка гаснет вместе с надписью
+            for (int i = 0; i < 8; i++)
+            {
+                float a = i * Mathf.PI / 4f;
+                GUI.Label(new Rect(rect.x + Mathf.Cos(a) * o, rect.y + Mathf.Sin(a) * o, rect.width, rect.height), text, style);
+            }
+            style.normal.textColor = fill;
+            GUI.Label(rect, text, style);
         }
 
         void EnsureStyles()
         {
             if (big != null) return;
-            big = new GUIStyle(GUI.skin.label) { fontSize = 72, alignment = TextAnchor.MiddleCenter };
-            medium = new GUIStyle(GUI.skin.label) { fontSize = 40, alignment = TextAnchor.MiddleCenter };
-            small = new GUIStyle(GUI.skin.label) { fontSize = 28, alignment = TextAnchor.MiddleCenter };
+            big = new GUIStyle(GUI.skin.label) { fontSize = 72, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
+            medium = new GUIStyle(GUI.skin.label) { fontSize = 40, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
+            small = new GUIStyle(GUI.skin.label) { fontSize = 28, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
+            big.normal.textColor = medium.normal.textColor = small.normal.textColor = Color.white;
         }
     }
 }

@@ -44,6 +44,8 @@ Unity-проект каждой игры лежит в `games/unity/<игра>/`
    В дартсе и футболе `points` не больше `Launch.MaxPoints` (лимит очков за секцию из `launch.json`, 0 — лимита нет): иначе `NeurotlonResult.WriteFinished` бросит `NeurotlonResultException`. В понге лимита нет. `points` — `int`: очки только целые.
 
    Если игра может идти дольше таймера (золотой мяч в понге), переопределите `ExtendBeyondTime()` (вернуть `true`, пока игра не закончена) и завершите её сами через `FinishGame()`. Надпись после окончания — `FinishedMessage()`, текст таймера — `TimerText()`.
+
+   Для своих надписей поверх картинки используйте `OutlinedLabel(rect, text, style)`: она рисует тёмную обводку, и текст читается на любом фоне (обводка гаснет вместе с надписью). Служебные экраны кита (калибровка, отсчёт, пауза, окончание) идут на затемнении экрана.
 4. **Настройки сборки** (`File → Build Settings`, `Player Settings`):
    - платформа **Windows**, Architecture x86_64, Mono или IL2CPP;
    - `Resolution and Presentation → Fullscreen Mode = Fullscreen Window`, `Run In Background` включён (кит включает его и из кода);
