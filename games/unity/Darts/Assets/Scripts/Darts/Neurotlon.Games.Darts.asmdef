@@ -1,0 +1,17 @@
+{
+    "name": "Neurotlon.Games.Darts",
+    "rootNamespace": "Neurotlon.Games.Darts",
+    "references": [
+        "Neurotlon.Kit",
+        "UnityEngine.UI"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
