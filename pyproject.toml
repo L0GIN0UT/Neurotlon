@@ -41,6 +41,8 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+# скрипты сборки моделей и звуков (Blender, ArtSource) — инструменты, не код продукта
+extend-exclude = ["games/unity/*/ArtSource"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
@@ -56,6 +58,7 @@ strict = true
 mypy_path = ["shared/python/src", "server/src", "launcher/src", "bci-bridge/src", "games/src"]
 files = ["shared/tests", "shared/python", "server", "launcher", "bci-bridge", "games"]
 explicit_package_bases = true
+exclude = ["^games/unity/.*/ArtSource/"]
 
 [tool.pytest.ini_options]
 testpaths = ["shared/tests", "shared/python/tests", "server/tests", "launcher/tests", "bci-bridge/tests", "games/tests"]
