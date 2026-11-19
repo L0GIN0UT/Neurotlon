@@ -2,7 +2,9 @@
 
 Готовые куски, чтобы в Unity-игре писать только геймплей: чтение `--launch`, клиент BCI-моста, калибровка, запись `result.json`. Без внешних пакетов, JSON — через `JsonUtility`. Контракт — [`shared/game-launch.md`](../../../shared/game-launch.md) и [`shared/bridge-protocol.md`](../../../shared/bridge-protocol.md); общая инструкция — [`games/README.md`](../../README.md).
 
-Кит написан без возможности собрать C# в CI репозитория. Первая сборка в Unity — это и есть проверка: если что-то не компилируется, исправьте и сообщите команде.
+Кит проверен в Unity 6000.6.9f1: компилируется без ошибок, собранный пример проходит `neurotlon-game-check` для дартса и понга. В CI Unity нет, поэтому после правок C# соберите пример и прогоните проверку вручную.
+
+Unity-проект каждой игры лежит в `games/unity/<игра>/` и подключает кит как `"ru.neurotlon.kit": "file:../../NeurotlonKit"` в `Packages/manifest.json`. Файлы `.meta` кита хранятся в git: без них пакет по `file:` не подключится.
 
 | Файл | Что делает |
 |---|---|
@@ -43,7 +45,7 @@
 4. **Настройки сборки** (`File → Build Settings`, `Player Settings`):
    - платформа **Windows**, Architecture x86_64, Mono или IL2CPP;
    - `Resolution and Presentation → Fullscreen Mode = Fullscreen Window`, `Run In Background` включён (кит включает его и из кода);
-   - `Other Settings → Active Input Handling = Input Manager (Old)` или `Both`: кит читает Esc и Enter через `Input`;
+   - `Other Settings → Active Input Handling = Input Manager (Old)` или `Both`: кит читает Esc и Enter через `Input`. В новом проекте Unity 6 по умолчанию стоит только Input System Package, это надо переключить;
    - `Resolution and Presentation → Display Resolution Dialog = Disabled`, иначе перед игрой появится окно выбора разрешения;
    - название `.exe` укажите в `launcher.toml` (`game.command`).
 5. **Сборка.** `Build` в папку, например `games/darts/`. Рядом с `.exe` появятся `*_Data` и `UnityPlayer.dll`: копировать надо всю папку.

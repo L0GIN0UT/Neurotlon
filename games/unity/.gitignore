@@ -1,0 +1,23 @@
+# Unity: генерируемое и локальное
+**/[Ll]ibrary/
+**/[Tt]emp/
+**/[Oo]bj/
+**/[Ll]ogs/
+**/[Uu]serSettings/
+**/[Mm]emoryCaptures/
+**/[Bb]uild/
+**/[Bb]uilds/
+
+# Сгенерированные проекты IDE
+*.csproj
+*.sln
+*.slnx
+*.suo
+*.user
+.vs/
+
+# Сборки
+*.exe
+*.pdb
+*.apk
+*.aab
