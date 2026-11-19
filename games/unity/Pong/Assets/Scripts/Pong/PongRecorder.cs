@@ -1,0 +1,63 @@
+using System.Collections;
+using System.IO;
+using UnityEngine;
+
+namespace Neurotlon.Games.Pong
+{
+    // Запись видео игры изнутри: для проверок и демонстраций. Включается только параметром запуска
+    //   --record <папка> [--record-seconds N]
+    // Игра работает с фиксированным шагом 30 кадров/с и сохраняет каждый кадр экрана в JPG; потом кадры собираются
+    // в видео (ffmpeg). Запись начинается, когда идёт игра, и не зависит от окон на рабочем столе.
+    public sealed class PongRecorder : MonoBehaviour
+    {
+        const int Fps = 30;
+        const int Quality = 92;
+
+        [SerializeField] PongGame game;
+
+        string folder;
+        int framesToRecord;
+        int frame;
+
+        void Awake()
+        {
+            folder = ReadArg("--record");
+            if (string.IsNullOrEmpty(folder))
+            {
+                enabled = false;
+                return;
+            }
+            int seconds;
+            if (!int.TryParse(ReadArg("--record-seconds"), out seconds) || seconds < 1) seconds = 25;
+            framesToRecord = seconds * Fps;
+            Directory.CreateDirectory(folder);
+            Time.captureFramerate = Fps;         // фиксированный шаг: видео идёт с настоящей скоростью, как бы ни тормозил показ
+        }
+
+        IEnumerator Start()
+        {
+            // ждём начала игры (после калибровки и отсчёта)
+            while (game == null || game.CurrentStage != NeurotlonGame.Stage.Playing) yield return null;
+            while (frame < framesToRecord)
+            {
+                yield return new WaitForEndOfFrame();
+                var texture = ScreenCapture.CaptureScreenshotAsTexture();
+                File.WriteAllBytes(Path.Combine(folder, "f" + frame.ToString("D5") + ".jpg"), texture.EncodeToJPG(Quality));
+                Destroy(texture);
+                frame++;
+            }
+            File.WriteAllText(Path.Combine(folder, "done.txt"), frame.ToString());
+            Application.Quit(0);
+        }
+
+        static string ReadArg(string name)
+        {
+            string[] args = System.Environment.GetCommandLineArgs();
+            for (int i = 0; i < args.Length - 1; i++)
+            {
+                if (args[i] == name) return args[i + 1];
+            }
+            return null;
+        }
+    }
+}
