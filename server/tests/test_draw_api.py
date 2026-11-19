@@ -59,7 +59,7 @@ def add_result(db: Session) -> None:
             discipline="darts",
             section="bci",
             outcome="completed",
-            points=1.0,
+            points=1,
             wins=0,
             source="admin",
             finished_at=datetime(2027, 1, 1, tzinfo=UTC),

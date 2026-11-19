@@ -56,7 +56,7 @@ describe('оверлей OBS', () => {
     const rows = Array.from(document.querySelectorAll('.row'))
     expect(rows.map((r) => r.querySelector('.versus')?.textContent)).toEqual([
       '80vs15',
-      '40,5vs0',
+      '40vs0',
       '10vs20',
     ])
     for (const row of rows) expect(row.querySelector('svg[data-icon]')).not.toBeNull()

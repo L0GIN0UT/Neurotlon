@@ -150,7 +150,7 @@ namespace Neurotlon
                 GUI.Box(new Rect(x - 150, Screen.height * 0.45f, 300, 36), GUIContent.none);
                 GUI.Box(new Rect(x - 150, Screen.height * 0.45f, 300 * levels[signal], 36), GUIContent.none);
                 GUI.Label(new Rect(x - 200, Screen.height * 0.6f, 400, 60),
-                    "Очки: " + Mathf.RoundToInt(points[signal]), medium);
+                    "Очки: " + Mathf.FloorToInt(points[signal]), medium);
             }
         }
 
@@ -263,9 +263,9 @@ namespace Neurotlon
             CurrentStage = Stage.Finished;
         }
 
-        static float Round(float value)
+        static int Round(float value)
         {
-            return Mathf.Min(NeurotlonProtocol.ResultPointsMax, Mathf.Round(value * 10f) / 10f);
+            return Mathf.Min(NeurotlonProtocol.ResultPointsMax, Mathf.FloorToInt(value));
         }
 
         // --- экран (IMGUI: без пакетов и шрифтов) ---

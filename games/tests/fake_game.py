@@ -43,6 +43,8 @@ def main() -> int:
             result["entries"][0]["participant_code"] = "NT99"
         case "points-too-big":
             result["entries"][0]["points"] = 5000
+        case "fractional-points":
+            result["entries"][0]["points"] = 4.5
         case "points-over-limit":
             result["entries"][0]["points"] = 50
         case "self-abort":

@@ -55,10 +55,10 @@ DONE_TITLE = "Готово!"
 DONE_GIVE_UP = "Отмечено: не пройдено"
 
 
-def points_line(code: str, points: float | None, outcome: str) -> str:
+def points_line(code: str, points: int | None, outcome: str) -> str:
     if outcome != "completed" or points is None:
         return f"{code}: не пройдено"
-    return f"{code}: {points:g} очк."
+    return f"{code}: {points} очк."
 
 
 # Техническая проблема

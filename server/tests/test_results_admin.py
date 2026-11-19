@@ -112,12 +112,24 @@ def test_judge_corrects_confirmed_result(app: FastAPI, db: Session, seeded: Seed
     assert entry.reason == "judge recount"
     assert entry.before is not None
     assert entry.after is not None
-    assert entry.before["points"] == 4.5
+    assert entry.before["points"] == 4
     assert entry.after["points"] == 5
     assert entry.before["version"] == 1
     assert entry.after["version"] == 2
     assert "category" not in str(entry.before) + str(entry.after)
     assert "ovz" not in str(entry.after)
+
+
+def test_fractional_points_in_a_correction_are_422(
+    app: FastAPI, db: Session, seeded: Seeded
+) -> None:
+    judge = staff(app, db, "judge")
+    row = row_of(db, "NT01", "darts")
+    bad = judge.patch(f"{API}/results/{row.id}", json={**FIX, "points": 5.5})
+    assert bad.status_code == 422
+    assert row_of(db, "NT01", "darts").points == 4
+    assert judge.patch(f"{API}/results/{row.id}", json={**FIX, "points": 6.0}).status_code == 200
+    assert row_of(db, "NT01", "darts").points == 6
 
 
 def test_correction_needs_a_change_reason(app: FastAPI, db: Session, seeded: Seeded) -> None:
@@ -163,7 +175,7 @@ def test_locked_result_only_admin_edits(app: FastAPI, db: Session, seeded: Seede
     assert row.status == "locked"
     refused = judge.patch(f"{API}/results/{row.id}", json=FIX)
     assert refused.status_code == 403
-    assert row_of(db, "NT01", "darts").points == 4.5
+    assert row_of(db, "NT01", "darts").points == 4
     assert admin.patch(f"{API}/results/{row.id}", json=FIX).status_code == 200
     changed = superuser.patch(f"{API}/results/{row.id}", json={**FIX, "points": 6})
     assert changed.status_code == 200
@@ -325,7 +337,7 @@ def test_locked_rows_still_count_on_the_scoreboard(
     app: FastAPI, client: TestClient, db: Session, seeded: Seeded
 ) -> None:
     staff(app, db, "judge").post(f"{API}/results/lock")
-    assert client.get(f"{API}/scoreboard").json()["teams"][0]["total"] == 4.5
+    assert client.get(f"{API}/scoreboard").json()["teams"][0]["total"] == 4
 
 
 SESSION_DUP = "5d2f6a10-9b3c-4e1d-a7c8-0e4b1f2a3c6d"

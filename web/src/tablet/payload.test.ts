@@ -17,14 +17,14 @@ function input(overrides: Partial<SubmissionInput>): SubmissionInput {
 describe('buildSubmission', () => {
   test('darts: points, no wins', () => {
     const payload = buildSubmission(
-      input({ entries: [{ code: 'NT07', completed: true, points: 42.5 }] }),
+      input({ entries: [{ code: 'NT07', completed: true, points: 42 }] }),
     )
     expect(payload).toEqual({
       session_id: SESSION,
       discipline: 'darts',
       section: 'physical',
       finished_at: '2027-04-12T07:05:00.000Z',
-      entries: [{ participant_code: 'NT07', outcome: 'completed', points: 42.5 }],
+      entries: [{ participant_code: 'NT07', outcome: 'completed', points: 42 }],
     })
   })
 
@@ -132,7 +132,8 @@ describe('buildSubmission rejects invalid input', () => {
     ['no entries', input({ entries: [] })],
     ['negative points', input({ entries: [player('NT03', -1)] })],
     ['points above 1000', input({ entries: [player('NT03', 1001)] })],
-    ['points above the section limit', input({ maxPoints: 10, entries: [player('NT03', 10.5)] })],
+    ['points above the section limit', input({ maxPoints: 10, entries: [player('NT03', 11)] })],
+    ['fractional points', input({ entries: [player('NT03', 4.5)] })],
     ['NaN points', input({ entries: [player('NT03', Number.NaN)] })],
     [
       'comment over 200',
@@ -157,7 +158,7 @@ describe('section points limit', () => {
 
   test('the message names the limit', () => {
     expect(() => buildSubmission(input({ maxPoints: 10, entries: [entry(11)] }))).toThrow(
-      'Очки должны быть от 0 до 10',
+      'Очки должны быть целым числом от 0 до 10',
     )
   })
 

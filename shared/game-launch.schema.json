@@ -51,7 +51,7 @@
       "properties": {
         "participant_code": { "$ref": "#/$defs/ParticipantCode" },
         "outcome": { "enum": ["completed", "not_completed"] },
-        "points": { "type": "number", "minimum": 0, "maximum": 1000 },
+        "points": { "type": "integer", "minimum": 0, "maximum": 1000 },
         "wins": { "type": "integer", "minimum": 0, "maximum": 1 },
         "reason": { "enum": ["participant_refused", "health", "equipment", "no_show", "other"] }
       }

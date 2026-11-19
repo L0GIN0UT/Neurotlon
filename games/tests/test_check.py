@@ -144,6 +144,7 @@ def test_abort_test_warns_when_game_ignores_lost_sensors() -> None:
         ("wins-outside-pong", "darts", "записи", "wins допустимы только в понге"),
         ("wrong-participant", "darts", "записи", "не соответствуют"),
         ("points-too-big", "darts", "result.json", "схем"),
+        ("fractional-points", "darts", "result.json", "integer"),
         ("self-abort", "darts", "статус", "сам прервался"),
     ],
 )

@@ -74,6 +74,12 @@ def test_participant_code_pattern_matches_api() -> None:
             "reason": "x",
             "entries": [],
         },
+        {
+            "protocol": 1,
+            "session_id": "7b1d3e00-5a4f-4c2b-8e7a-91c0d2f3a4b5",
+            "status": "finished",
+            "entries": [{"participant_code": "NT01", "outcome": "completed", "points": 4.5}],
+        },
     ],
 )
 def test_invalid_results_rejected(result: dict[str, Any]) -> None:

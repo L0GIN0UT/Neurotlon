@@ -39,10 +39,8 @@ from neurotlon_launcher.testing import (
     eligibility,
 )
 
-DARTS_DONE = Finished((GameEntry("NT07", "completed", 42.5),))
-PONG_DONE = Finished(
-    (GameEntry("NT03", "completed", 11.0, 1), GameEntry("NT14", "completed", 7.0, 0))
-)
+DARTS_DONE = Finished((GameEntry("NT07", "completed", 42),))
+PONG_DONE = Finished((GameEntry("NT03", "completed", 11, 1), GameEntry("NT14", "completed", 7, 0)))
 
 
 class Rig:
@@ -112,7 +110,7 @@ def test_happy_path_darts() -> None:
             "discipline": "darts",
             "section": "bci",
             "finished_at": "2027-04-12T11:09:00+00:00",
-            "entries": [{"participant_code": "NT07", "outcome": "completed", "points": 42.5}],
+            "entries": [{"participant_code": "NT07", "outcome": "completed", "points": 42}],
         }
     ]
     assert rig.kicks == 1
@@ -145,8 +143,8 @@ def test_pong_collects_two_distinct_participants() -> None:
 
     rig.machine.tick()
     assert rig.queue.items[0]["entries"] == [
-        {"participant_code": "NT03", "outcome": "completed", "points": 11.0, "wins": 1},
-        {"participant_code": "NT14", "outcome": "completed", "points": 7.0, "wins": 0},
+        {"participant_code": "NT03", "outcome": "completed", "points": 11, "wins": 1},
+        {"participant_code": "NT14", "outcome": "completed", "points": 7, "wins": 0},
     ]
 
 

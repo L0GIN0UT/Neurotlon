@@ -41,7 +41,7 @@ class ResultEntry(BaseModel):
 
     participant_code: ParticipantCode
     outcome: Literal["completed", "not_completed"]
-    points: float | None = Field(default=None, ge=0, le=1000, allow_inf_nan=False)
+    points: int | None = Field(default=None, ge=0, le=1000)
     wins: int | None = Field(default=None, ge=0, le=1)
     reason: Reason | None = None
     comment: str | None = Field(default=None, max_length=200)
@@ -193,7 +193,7 @@ def participant_issues(
     return issues
 
 
-def points_over_limit(discipline: str, points: float | None, limit: int) -> str | None:
+def points_over_limit(discipline: str, points: int | None, limit: int) -> str | None:
     """Message when darts/football points exceed the discipline limit; pong is not limited."""
     if discipline == "pong" or points is None or points <= limit:
         return None

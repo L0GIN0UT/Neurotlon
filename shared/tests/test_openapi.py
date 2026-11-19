@@ -42,6 +42,7 @@ def test_result_examples_match_schema(spec: dict[str, Any]) -> None:
         {"participant_code": "NT01", "outcome": "not_completed", "reason": "health", "points": 1},
         {"participant_code": "nt01", "outcome": "completed", "points": 5},
         {"participant_code": "NT01", "outcome": "completed", "points": -1},
+        {"participant_code": "NT01", "outcome": "completed", "points": 4.5},
         {"participant_code": "NT01", "outcome": "completed", "points": 5, "category": "x"},
     ],
 )

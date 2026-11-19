@@ -12,7 +12,7 @@ from .conftest import login_as, make_user
 from .station_helpers import API, SESSION_A, darts_body, make_station, pong_body, seed_people
 
 
-def football_body(points: float, session_id: str = SESSION_A) -> dict[str, object]:
+def football_body(points: int, session_id: str = SESSION_A) -> dict[str, object]:
     body = darts_body(session_id, "NT01", points=points)
     body["discipline"] = "football"
     body["section"] = "physical"
@@ -22,7 +22,7 @@ def football_body(points: float, session_id: str = SESSION_A) -> dict[str, objec
 def test_station_result_above_limit_is_422(client: TestClient, db: Session) -> None:
     seed_people(db)
     _, headers = make_station(db, "d1", "darts")
-    response = client.post(f"{API}/results", json=darts_body(points=10.5), headers=headers)
+    response = client.post(f"{API}/results", json=darts_body(points=11), headers=headers)
     assert response.status_code == 422
     assert response.json()["code"] == "invalid_entries"
     assert "10" in response.json()["detail"]

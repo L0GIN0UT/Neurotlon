@@ -334,27 +334,25 @@ class Rehearsal:
 
     # --- results ---------------------------------------------------------------------------
 
-    def _points(self, section: str) -> float:
-        """Small realistic score: mostly 30%..90% of the limit, now and then 0 or the limit."""
+    def _points(self, section: str) -> int:
+        """Whole-number score: mostly 30%..90% of the limit, now and then 0 or the limit."""
         top = self.max_points
         roll = self.rng.random()
         if roll < 0.05:
-            return 0.0
+            return 0
         if roll < 0.13:
-            return float(top)
-        if section == "bci":
-            return min(float(top), round(self.rng.uniform(top * 0.3, top * 0.9), 1))
-        return float(self.rng.randint(max(1, top * 3 // 10), max(1, top * 9 // 10)))
+            return top
+        return self.rng.randint(max(1, top * 3 // 10), max(1, top * 9 // 10))
 
-    def _other_points(self, points: float) -> float:
+    def _other_points(self, points: int) -> int:
         """A valid score different from `points`, for conflicts and corrections."""
-        other = float(self.max_points)
-        return max(other - 1, 0.0) if points == other else other
+        other = self.max_points
+        return max(other - 1, 0) if points == other else other
 
     def _entry(
         self,
         code: str,
-        points: float,
+        points: int,
         wins: int | None = None,
     ) -> dict[str, Any]:
         entry: dict[str, Any] = {"participant_code": code, "outcome": "completed", "points": points}
@@ -381,11 +379,9 @@ class Rehearsal:
         entries = []
         for code in codes:
             if code == winner:
-                entries.append(self._entry(code, float(PONG_GAME_POINTS), wins=1))
+                entries.append(self._entry(code, PONG_GAME_POINTS, wins=1))
             else:
-                entries.append(
-                    self._entry(code, float(self.rng.randint(0, PONG_GAME_POINTS - 2)), 0)
-                )
+                entries.append(self._entry(code, self.rng.randint(0, PONG_GAME_POINTS - 2), 0))
         return entries
 
     def _bci(self, actors: _Actors, discipline: str, codes: tuple[str, ...]) -> dict[str, Any]:

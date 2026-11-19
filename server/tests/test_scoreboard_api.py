@@ -58,12 +58,12 @@ def test_scoreboard_is_public_and_has_no_category(client: TestClient, db: Sessio
     body = response.json()
     assert [t["number"] for t in body["teams"]] == [1, 2]
     first = body["teams"][0]
-    assert (first["rank"], first["total"], first["sections_passed"]) == (1, 4.5, 1)
-    assert first["by_discipline"] == {"darts": 4.5, "football": 0, "pong": 0}
+    assert (first["rank"], first["total"], first["sections_passed"]) == (1, 4, 1)
+    assert first["by_discipline"] == {"darts": 4, "football": 0, "pong": 0}
     assert first["finished"] is False
     assert first["duel_score"] == 0
     assert first["top"]["darts"] == [
-        {"rank": 1, "number": 1, "label": "Name 1", "points": 4.5, "pending": False}
+        {"rank": 1, "number": 1, "label": "Name 1", "points": 4, "pending": False}
     ]
     assert first["top"]["football"] == first["top"]["pong"] == []
     assert list(first["top"]) == ["darts", "football", "pong"]
@@ -88,7 +88,7 @@ def test_conflict_appears_and_counts_nothing(app: FastAPI, client: TestClient, d
         "darts",
         "bci",
     )
-    assert [r["points"] for r in item["results"]] == [4.5, 10]
+    assert [r["points"] for r in item["results"]] == [4, 10]
     assert set(item["results"][0]) == {
         "id",
         "points",
@@ -147,7 +147,7 @@ def test_volunteer_resolves_only_own_discipline(
     own = login_as(app, "vd")
     assert len(own.get(f"{API}/conflicts").json()) == 1
     assert own.post(f"{API}/conflicts/resolve", json=body).status_code == 200
-    assert alpha(client)["total"] == 4.5
+    assert alpha(client)["total"] == 4
 
 
 def test_resolve_validation(app: FastAPI, client: TestClient, db: Session) -> None:
