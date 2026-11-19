@@ -114,6 +114,19 @@ namespace Neurotlon
             }
         }
 
+        // Время вышло, а игра ещё не закончена (например, золотой мяч в понге): верните true и завершите
+        // игру сами через FinishGame(). По умолчанию игра заканчивается вместе с таймером.
+        protected virtual bool ExtendBeyondTime() { return false; }
+
+        // Закончить игру сейчас: записать результат из BuildResult и выйти. Работает только во время игры.
+        protected void FinishGame()
+        {
+            if (CurrentStage == Stage.Playing) Finish();
+        }
+
+        // Надпись на экране после окончания игры.
+        protected virtual string FinishedMessage() { return "Игра окончена"; }
+
         // Очки по методике. Зовётся один раз, когда время вышло.
         protected virtual IList<ResultEntryData> BuildResult()
         {
@@ -195,7 +208,7 @@ namespace Neurotlon
             if (EnterLostIfNeeded(Stage.Playing)) return;
             TimeLeft = Mathf.Max(0f, TimeLeft - dt);
             OnGameUpdate(dt);
-            if (TimeLeft <= 0f) Finish();
+            if (TimeLeft <= 0f && !ExtendBeyondTime()) Finish();
         }
 
         bool EnterLostIfNeeded(Stage cameFrom)
@@ -312,12 +325,12 @@ namespace Neurotlon
                     Label(cx, cy + 40, "Enter: прервать    Esc: продолжить", medium);
                     break;
                 case Stage.Finished:
-                    Label(cx, cy, aborted ? "Игра прервана" : "Игра окончена", big);
+                    Label(cx, cy, aborted ? "Игра прервана" : FinishedMessage(), big);
                     break;
             }
         }
 
-        string TimerText()
+        protected virtual string TimerText()
         {
             int seconds = Mathf.CeilToInt(TimeLeft);
             return (seconds / 60) + ":" + (seconds % 60).ToString("00");
