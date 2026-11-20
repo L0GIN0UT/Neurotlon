@@ -1,7 +1,7 @@
 """Синтез звуков для понга без внешних файлов: python -I make_sounds.py <папка вывода>.
 
-Звуки простые и короткие: удар ракетки, отскок от стола, отскок от края, очко, золотой мяч, победа.
-Формат: WAV, 16 бит, моно, 44,1 кГц.
+Звуки простые и короткие: отскок от края, очко, золотой мяч, победа. Удар ракетки и отскок от стола — настоящие записи
+(`prepare_real_sounds.py`). Формат: WAV, 16 бит, моно, 44,1 кГц.
 """
 import math
 import random
@@ -57,9 +57,9 @@ def silence(seconds: float):
     return [0.0] * int(RATE * seconds)
 
 
-def save(path: Path, samples):
+def save(path: Path, samples, peak_target: float = 0.89):
     peak = max(1e-9, max(abs(s) for s in samples))
-    gain = min(1.0, 0.89 / peak)
+    gain = min(1.0, peak_target / peak)
     with wave.open(str(path), "wb") as w:
         w.setnchannels(1)
         w.setsampwidth(2)
@@ -69,20 +69,13 @@ def save(path: Path, samples):
 
 def main(out_dir: Path) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
-    # удар ракетки: щелчок + звонкий тон
-    save(out_dir / "paddle_hit.wav", mix(
-        scale(noise(0.03, 160, 3), 0.55),
-        scale(tone(640, 0.14, 38, ((1, 1.0), (2, 0.35), (3, 0.15))), 0.75)))
-    # отскок от стола: глухой короткий стук
-    save(out_dir / "table_bounce.wav", mix(
-        scale(tone(330, 0.1, 52, ((1, 1.0), (2, 0.25)), glide=0.12), 0.8),
-        scale(noise(0.02, 220, 5), 0.25)))
+    # удар ракетки и отскок от стола здесь не синтезируются: это настоящие записи (prepare_real_sounds.py)
     # отскок от края: сухой щелчок повыше
     save(out_dir / "wall_bounce.wav", scale(tone(980, 0.07, 75, ((1, 1.0), (2, 0.2))), 0.7))
-    # очко: две ноты вверх
+    # очко: две ноты вверх; тихо (пик около −11 дБ), чтобы не перекрикивало удары
     save(out_dir / "point.wav", concat(
         scale(tone(523.25, 0.2, 9, ((1, 1.0), (3, 0.2)), attack=0.004), 0.8),
-        scale(tone(784.0, 0.4, 6, ((1, 1.0), (3, 0.2)), attack=0.004), 0.8)))
+        scale(tone(784.0, 0.4, 6, ((1, 1.0), (3, 0.2)), attack=0.004), 0.8)), peak_target=0.28)
     # золотой мяч: три коротких сигнала
     pulse = scale(tone(880, 0.12, 12, ((1, 1.0), (2, 0.3)), attack=0.004), 0.8)
     save(out_dir / "overtime.wav", concat(pulse, silence(0.07), pulse, silence(0.07), pulse))
