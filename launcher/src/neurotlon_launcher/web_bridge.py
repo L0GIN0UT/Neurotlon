@@ -86,16 +86,22 @@ class LiveState:
 class Station(LiveState):
     """Машина под замком плюс последний снимок; будит слушателей при изменении."""
 
-    def __init__(self, machine: StationMachine, status: Callable[[], StationStatus]) -> None:
+    def __init__(
+        self,
+        machine: StationMachine,
+        status: Callable[[], StationStatus],
+        camera: str | None = None,
+    ) -> None:
         super().__init__()
         self._machine = machine
         self._status = status
+        self._camera = camera
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
         self._refresh()
 
     def _refresh(self) -> None:
-        self.publish(snapshot(self._machine, self._status()))
+        self.publish(snapshot(self._machine, self._status(), self._camera))
 
     def start(self) -> None:
         self._thread = threading.Thread(target=self._run, name="station-tick", daemon=True)

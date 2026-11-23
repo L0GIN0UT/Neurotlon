@@ -157,6 +157,16 @@ def test_toml_strings_survive_quotes_and_backslashes() -> None:
         assert tomllib.loads(f"v = {setup_mod._toml(value)}")["v"] == value
 
 
+def test_camera_is_saved_loaded_and_offered_back_as_a_default(tmp_path: Path, game: Path) -> None:
+    svc, _ = service(tmp_path, DARTS)
+    svc.save(form(game, camera='Logitech "C920" HD Pro'))
+    config = load_config(tmp_path / "cfg" / "launcher.toml")
+    assert config.camera_name == 'Logitech "C920" HD Pro'
+    assert svc.defaults()["camera"] == 'Logitech "C920" HD Pro'
+    svc.save(form(game))
+    assert load_config(tmp_path / "cfg" / "launcher.toml").camera_name is None
+
+
 def test_save_refuses_invalid_input(tmp_path: Path, game: Path) -> None:
     svc, _ = service(tmp_path, DARTS)
     with pytest.raises(ConfigError):
@@ -178,11 +188,19 @@ def test_saved_token_is_reused_and_never_returned(tmp_path: Path, game: Path) ->
 
 def test_defaults_are_empty_without_config(tmp_path: Path) -> None:
     svc, _ = service(tmp_path, DARTS)
-    assert svc.defaults() == {"server_url": "", "game_path": "", "ca_file": "", "has_token": False}
+    assert svc.defaults() == {
+        "server_url": "",
+        "game_path": "",
+        "ca_file": "",
+        "camera": "",
+        "has_token": False,
+    }
 
 
 def test_form_from_accepts_only_string_fields() -> None:
     assert form_from({"server_url": "https://x", "token": "t"}) == SetupForm("https://x", "t")
+    assert form_from({"camera": "Cam"}) == SetupForm(camera="Cam")
+    assert form_from({"camera": 3}) is None
     assert form_from("text") is None
     assert form_from({"token": 5}) is None
     assert form_from({"token": "x" * 5000}) is None

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { createQrReader } from '../tablet/qr.ts'
+import { cameraConstraints } from './camera.ts'
 
 const SCAN_INTERVAL_MS = 250
 const REPEAT_WINDOW_MS = 3000 // один и тот же QR не принимается чаще раза в 3 с
@@ -7,7 +8,11 @@ const REPEAT_WINDOW_MS = 3000 // один и тот же QR не принима�
 export type CameraState = 'starting' | 'live' | 'unavailable'
 
 /** Камера для чтения QR: видео в `videoRef`, найденные коды — в `onCode`. */
-export function useQrCamera(onCode: (text: string) => void, enabled: boolean) {
+export function useQrCamera(
+  onCode: (text: string) => void,
+  enabled: boolean,
+  cameraName: string | null = null,
+) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const onCodeRef = useRef(onCode)
@@ -28,8 +33,8 @@ export function useQrCamera(onCode: (text: string) => void, enabled: boolean) {
     let stopped = false
     const seen = new Map<string, number>()
     canvasRef.current ??= document.createElement('canvas')
-    navigator.mediaDevices
-      .getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false })
+    cameraConstraints(cameraName)
+      .then((constraints) => navigator.mediaDevices.getUserMedia(constraints))
       .then((media) => {
         const video = videoRef.current
         const canvas = canvasRef.current
@@ -68,7 +73,7 @@ export function useQrCamera(onCode: (text: string) => void, enabled: boolean) {
       if (timer) clearInterval(timer)
       stream?.getTracks().forEach((track) => track.stop())
     }
-  }, [enabled])
+  }, [enabled, cameraName])
 
   return { videoRef, state }
 }
