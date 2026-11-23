@@ -82,3 +82,14 @@ def test_thread_beats_and_stops() -> None:
     count = len(sink.calls)
     assert count >= 1
     assert len(sink.calls) == count  # после stop новых нет
+
+
+def test_online_flag_follows_last_beat() -> None:
+    sink = RecordingSink()
+    loop = HeartbeatLoop(sink, view_of("idle", None), lambda: 0)
+    assert loop.online is None
+    assert loop.beat()
+    assert loop.online is True
+    sink.error = Offline("down")
+    assert not loop.beat()
+    assert loop.online is False

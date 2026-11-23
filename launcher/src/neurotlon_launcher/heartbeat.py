@@ -40,6 +40,7 @@ class HeartbeatLoop:
         self._interval_s = interval_s
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self.online: bool | None = None  # итог последнего heartbeat; `None` — ещё не было
 
     def beat(self) -> bool:
         """Один heartbeat; `False`, если не дошёл (сервер недоступен или отклонил)."""
@@ -48,7 +49,9 @@ class HeartbeatLoop:
             self._api.heartbeat(state, session_id, self._queue_length(), {})
         except StationApiError as exc:
             log.debug("heartbeat failed: %s", exc)
+            self.online = False
             return False
+        self.online = True
         return True
 
     def start(self) -> None:
