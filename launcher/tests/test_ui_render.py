@@ -146,3 +146,26 @@ def test_touch_targets_are_large_on_every_screen() -> None:
         )
         ui.draw(screen)
         assert all(b.rect[3] >= 100 for b in ui._buttons), state
+
+
+def test_canvas_lines_truncate_with_ellipsis_and_fit_width() -> None:
+    from neurotlon_launcher.widgets import Canvas
+
+    canvas = Canvas(pygame.display.set_mode((1280, 720)))
+    width = 300
+    out = canvas.lines("слово " * 80 + "x" * 200, 30, width, 3)
+    assert len(out) == 3
+    assert out[-1].endswith("…")
+    assert all(canvas.measure(line, 30) <= width for line in out)
+
+
+def test_chip_stays_within_max_width_and_needs_one_anchor() -> None:
+    from neurotlon_launcher.widgets import Canvas
+
+    canvas = Canvas(pygame.display.set_mode((1280, 720)))
+    x, y, w, h = canvas.chip(
+        "очень длинный текст " * 20, (240, 82, 79), max_width=400, topleft=(0, 0)
+    )
+    assert w <= 400
+    with pytest.raises(TypeError):
+        canvas.chip("x", (1, 2, 3))

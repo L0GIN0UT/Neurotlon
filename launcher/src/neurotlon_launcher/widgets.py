@@ -12,19 +12,21 @@ from collections.abc import Callable
 import pygame
 
 from . import theme
-from .layout import Button, Color, Rect
+from .layout import Button, Color, Rect, wrap_text
 
 FONT_CANDIDATES = "segoeui,arial,dejavusans,liberationsans,freesans"
+FontCache = dict[tuple[int, bool], pygame.font.Font]
 
 
 class Canvas:
     """Поверхность с набором примитивов в единой теме."""
 
-    def __init__(self, screen: pygame.Surface) -> None:
+    def __init__(self, screen: pygame.Surface, fonts: FontCache | None = None) -> None:
+        """`fonts` — кэш шрифтов, который переживает кадры (Canvas создаётся каждый кадр)."""
+        self._fonts: FontCache = {} if fonts is None else fonts
         self.screen = screen
         self.width, self.height = screen.get_size()
         self._unit = theme.scale(self.height)
-        self._fonts: dict[tuple[int, bool], pygame.font.Font] = {}
 
     def px(self, value: float) -> int:
         return max(1, round(value * self._unit))
@@ -65,10 +67,18 @@ class Canvas:
         return value + "…"
 
     def wrap(self, value: str, size: float, max_width: int, bold: bool = False) -> list[str]:
-        from .layout import wrap_text
-
         font = self.font(size, bold)
         return wrap_text(value, max_width, lambda s: font.size(s)[0])
+
+    def lines(
+        self, value: str, size: float, max_width: int, max_lines: int, bold: bool = False
+    ) -> list[str]:
+        """Перенос по словам в `max_lines` строк: каждая строка влезает, лишнее — многоточие."""
+        wrapped = self.wrap(value, size, max_width, bold)
+        kept = wrapped[:max_lines]
+        if len(wrapped) > max_lines:
+            kept[-1] += " …"
+        return [self.fit(line, size, max_width, bold) for line in kept]
 
     # --- плашки -------------------------------------------------------------------------
 
@@ -98,11 +108,19 @@ class Canvas:
         *,
         icon: str | None = None,
         size: float = 26,
+        max_width: int | None = None,
         **anchor: tuple[int, int],
     ) -> Rect:
-        """Плашка-метка: полупрозрачная заливка цвета и текст этого цвета."""
+        """Плашка-метка: полупрозрачная заливка цвета и текст этого цвета.
+
+        `max_width` — предел ширины плашки целиком, длинный текст обрезается многоточием.
+        """
+        if len(anchor) != 1:
+            raise TypeError("chip() needs exactly one anchor, e.g. midright=(x, y)")
         pad, gap = self.px(18), self.px(10)
         icon_w = self.px(size) if icon else 0
+        if max_width is not None:
+            label = self.fit(label, size, max_width - 2 * pad - icon_w - (gap if icon else 0), True)
         text_w = self.measure(label, size, bold=True)
         width = pad * 2 + icon_w + (gap if icon else 0) + text_w
         height = self.px(size * 1.9)
@@ -280,7 +298,9 @@ class Canvas:
             )
             draw.rect(surf, color, (*p(-0.12, -0.12), round(s * 0.28), round(s * 0.28)))
         else:
-            raise ValueError(f"unknown icon: {name}")
+            draw.circle(
+                surf, color, center, round(s * 0.4), w
+            )  # неизвестное имя: кружок, не падаем
 
     def disc(self, center: tuple[int, int], radius: float, fill: Color) -> None:
         pygame.draw.circle(self.screen, fill, center, self.px(radius))

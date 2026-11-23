@@ -36,7 +36,7 @@ from .machine import (
 )
 from .qr import CodeSource
 from .status import StationStatus
-from .widgets import Canvas
+from .widgets import Canvas, FontCache
 
 log = logging.getLogger(__name__)
 
@@ -59,7 +59,9 @@ class Ui:
         status: StatusSource,
         *,
         windowed: bool = False,
+        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
+        self._monotonic = monotonic
         self._machine = machine
         self._scanner = scanner
         self._status_source = status
@@ -69,6 +71,7 @@ class Ui:
         self._status = StationStatus()
         self._status_at = -10_000
         self._flash: tuple[Rect, int] | None = None
+        self._fonts: FontCache = {}
 
     # --- главный цикл -------------------------------------------------------------------
 
@@ -150,7 +153,7 @@ class Ui:
 
     def draw(self, screen: pygame.Surface) -> None:
         """Нарисовать текущее состояние машины на `screen`."""
-        canvas = Canvas(screen)
+        canvas = Canvas(screen, self._fonts)
         self._canvas = canvas
         self._buttons = []
         screen.fill(theme.BG)
@@ -233,16 +236,18 @@ class Ui:
         name = texts.DISCIPLINE_NAMES.get(glyph, glyph)
         left = pad + c.px(40) + c.measure(texts.BRAND, 34, bold=True) + c.px(56)
         chip_h = c.px(26 * 1.9)
-        chip_w = c.measure(name, 26, bold=True) + c.px(36 + 44 + 14)
+        has_glyph = glyph in theme.DISCIPLINE_GLYPHS
+        chip_w = c.measure(name, 26, bold=True) + c.px(36 + (44 + 14 if has_glyph else 0))
         pygame.draw.rect(
             c.screen,
             theme.SURFACE_HI,
             (left, mid - chip_h // 2, chip_w, chip_h),
             border_radius=chip_h // 2,
         )
-        if glyph in theme.DISCIPLINE_GLYPHS:
+        if has_glyph:
             c.icon(glyph, (left + c.px(18 + 22), mid), c.px(34), theme.ACCENT)
-        c.text(name, 26, theme.TEXT, bold=True, midleft=(left + c.px(18 + 44 + 14), mid))
+        text_x = left + c.px(18 + (44 + 14 if has_glyph else 0))
+        c.text(name, 26, theme.TEXT, bold=True, midleft=(text_x, mid))
         self._draw_link_chip(c.width - pad, mid)
 
     def _draw_link_chip(self, right: int, mid: int) -> None:
@@ -270,7 +275,13 @@ class Ui:
                 midright=(right, mid),
             )
             if isinstance(state, Idle):  # плашка нажимается: список без клавиатуры
-                self._buttons.append(Button("rejected", rect, self._machine.show_rejected))
+                tap = (
+                    rect[0],
+                    mid - c.px(50),
+                    rect[2],
+                    c.px(100),
+                )  # область нажатия крупнее плашки
+                self._buttons.append(Button("rejected", tap, self._machine.show_rejected))
             right = rect[0] - c.px(16)
         if status.pending:
             rect = c.chip(
@@ -332,9 +343,16 @@ class Ui:
             )
         y += field_h + c.px(12)
 
-        notice_h = c.px(50)
+        notice_h = c.px(44)
         if state.notice:
-            c.chip(state.notice, theme.RED, icon="warning", size=24, topleft=(right_x, y))
+            c.chip(
+                state.notice,
+                theme.RED,
+                icon="warning",
+                size=24,
+                max_width=right_w,
+                topleft=(right_x, y),
+            )
         y += notice_h + c.px(16)
 
         self._draw_keypad((right_x, y, right_w, y0 + h - y), bool(state.input))
@@ -377,7 +395,7 @@ class Ui:
     def _draw_pong_slots(self, state: Idle, x: int, y: int, width: int) -> int:
         c = self._canvas
         gap = c.px(20)
-        slot_w, slot_h = (width - gap) // 2, c.px(96)
+        slot_w, slot_h = (width - gap) // 2, c.px(84)
         for i in range(2):
             rect = (x + i * (slot_w + gap), y, slot_w, slot_h)
             taken = state.taken[i] if i < len(state.taken) else None
@@ -416,7 +434,7 @@ class Ui:
         x, y, w, h = area
         gap = c.px(14)
         cols, rows = 3, 4
-        key_h = min(c.px(124), (h - gap * (rows - 1)) // rows)
+        key_h = max(c.px(100), min(c.px(124), (h - gap * (rows - 1)) // rows))
         key_w = (w - gap * (cols - 1)) // cols
         machine = self._machine
 
@@ -505,10 +523,11 @@ class Ui:
         wy = top + c.px(330)
         for text, color, icon in warnings:
             c.chip(
-                c.fit(text, 26, card_w - c.px(160)),
+                text,
                 color,
                 icon=icon,
                 size=26,
+                max_width=card_w - c.px(80),
                 topleft=(card_x + c.px(40), wy),
             )
             wy += c.px(64)
@@ -550,15 +569,17 @@ class Ui:
     def _draw_players(self, players: tuple[Candidate, ...], center_x: int, y: int) -> None:
         c = self._canvas
         gap = c.px(24)
-        widths = [c.measure(p.display_name or p.code, 30, bold=True) + c.px(70) for p in players]
+        limit = (c.width - 2 * c.px(PAD) - gap * (len(players) - 1)) // max(1, len(players))
+        names = [c.fit(p.display_name or p.code, 30, limit - c.px(70), True) for p in players]
+        widths = [c.measure(name, 30, bold=True) + c.px(70) for name in names]
         x = center_x - (sum(widths) + gap * (len(players) - 1)) // 2
-        for player, width in zip(players, widths, strict=True):
+        for player, name, width in zip(players, names, widths, strict=True):
             team = parse_hex_color(player.team.color) if player.team else theme.MUTED
             rect = (x, y, width, c.px(64))
             c.card(rect, theme.SURFACE, border=team, radius=32, border_width=2)
             c.dot((x + c.px(30), y + c.px(32)), 9, team)
             c.text(
-                player.display_name or player.code,
+                name,
                 30,
                 theme.TEXT,
                 bold=True,
@@ -637,7 +658,7 @@ class Ui:
                     (card[0] + card_w - c.px(24), ry - row_h // 2),
                     c.px(1),
                 )
-        left = max(0.0, state.until - time.monotonic())
+        left = max(0.0, state.until - self._monotonic())
         bar = (cx - card_w // 2, card[1] + card[3] + c.px(36), card_w, c.px(10))
         c.progress(bar, left / DONE_SECONDS, theme.GREEN)
 
@@ -647,7 +668,7 @@ class Ui:
         cx = x0 + w // 2
         buttons_h = c.px(124)
         card_w = min(w, c.px(1100))
-        lines = c.wrap(state.reason, 30, card_w - c.px(80))[:4]
+        lines = c.lines(state.reason, 30, card_w - c.px(80), 4)
         card_h = c.px(56 + 40 * len(lines))
         block = c.px(310) + card_h + c.px(48) + buttons_h
         top = y0 + max(0, (h - block) // 2)
@@ -688,7 +709,7 @@ class Ui:
         card_w = min(w, c.px(1200))
         card = (cx - card_w // 2, top + c.px(330), card_w, c.px(260))
         c.card(card, theme.SURFACE, border=theme.RED)
-        for i, line in enumerate(c.wrap(state.message, 32, card_w - c.px(80))[:5]):
+        for i, line in enumerate(c.lines(state.message, 32, card_w - c.px(80), 5)):
             c.text(line, 32, theme.TEXT, topleft=(card[0] + c.px(40), card[1] + c.px(32 + i * 44)))
         c.text(texts.BLOCKED_HINT, 26, theme.MUTED, center=(cx, y0 + h - c.px(20)))
 
@@ -707,7 +728,7 @@ class Ui:
                 theme.MUTED,
                 center=(x0 + w // 2, table[1] + table[3] // 2),
             )
-        cols = (x0 + c.px(40), x0 + c.px(300), x0 + c.px(760))
+        cols = (x0 + c.px(40), x0 + round(w * 0.16), x0 + round(w * 0.40))
         header_y = table[1] + c.px(34)
         for label, cx in zip(texts.REJECTED_COLUMNS, cols, strict=True):
             c.text(label, 22, theme.MUTED, bold=True, midleft=(cx, header_y))
