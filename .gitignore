@@ -9,6 +9,7 @@ __pycache__/
 htmlcov/
 dist/
 build/
+!launcher/electron/build/
 *.egg-info/
 
 # Node
