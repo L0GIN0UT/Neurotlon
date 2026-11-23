@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import subprocess
 import threading
 import tomllib
@@ -19,7 +20,9 @@ from typing import Any, Protocol
 log = logging.getLogger(__name__)
 
 BRIDGE_TOML = "bridge.toml"
-SCAN_TIMEOUT_S = 40.0
+SCAN_TIMEOUT_S = 45.0
+SCAN_SECONDS = 15  # столько ищет мост; окно показывает отсчёт
+SCAN_JSON_MARK = "NEUROTLON_SCAN_JSON="  # строка со списком среди сообщений SDK
 RESTART_DELAYS_S = (3.0, 6.0, 12.0, 30.0)  # пауза перед перезапуском моста растёт до 30 с
 
 # Какие сигналы нужны дисциплине и каким датчиком каждый снимается.
@@ -83,6 +86,7 @@ def _run(args: Sequence[str], *, timeout: float) -> subprocess.CompletedProcess[
         timeout=timeout,
         check=False,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},  # русский текст без кракозябр
     )
 
 
@@ -134,15 +138,20 @@ class SensorService:
         if done.returncode != 0:
             reason = (done.stderr or "").strip().splitlines()
             return [], reason[-1] if reason else SCAN_FAILED
+        for line in done.stdout.splitlines():
+            log.info("bridge scan: %s", line.strip())
+        marked = [line for line in done.stdout.splitlines() if line.startswith(SCAN_JSON_MARK)]
+        if not marked:
+            return [], SCAN_FAILED
         try:
-            items: list[dict[str, Any]] = json.loads(done.stdout.strip().splitlines()[-1])
+            items: list[dict[str, Any]] = json.loads(marked[-1][len(SCAN_JSON_MARK) :])
             return [
                 SensorDevice(
                     str(i["kind"]), str(i["name"]), str(i.get("serial") or ""), str(i["address"])
                 )
                 for i in items
             ], None
-        except (ValueError, KeyError, IndexError, TypeError):
+        except (ValueError, KeyError, TypeError):
             return [], SCAN_FAILED
 
 
@@ -158,6 +167,7 @@ def _popen(args: Sequence[str]) -> subprocess.Popen[str]:
         text=True,
         encoding="utf-8",
         errors="replace",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
     )
 
 

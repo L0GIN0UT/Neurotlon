@@ -70,7 +70,7 @@ class StationRuntime:
             return None
         args = [exe, "--profile", discipline, "--port", str(config.bridge_port)]
         if config.bridge_mode == "emulate":
-            args.append("--emulate")  # окно эмулятора: значения задаются клавишами
+            args += ["--emulate", "--auto", "--headless"]  # сигналы идут по сценарию, без окна
         else:
             args += ["--headless", "--config", str(config.token_file.parent / "bridge.toml")]
         return BridgeProcess(args, config.bridge_mode)

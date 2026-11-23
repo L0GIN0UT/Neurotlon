@@ -5,10 +5,10 @@ from pathlib import Path
 import pytest
 
 from neurotlon_bridge.client import BridgeClient
+from neurotlon_bridge.scripted import keys_at
 from neurotlon_games.check.__main__ import main, split_command
 from neurotlon_games.check.checks import Options, Report, resolve_command, run_check
 from neurotlon_games.check.harness import CheckBridge
-from neurotlon_games.check.scripted import keys_at
 
 FAKE = [sys.executable, str(Path(__file__).with_name("fake_game.py"))]
 STUB = [sys.executable, "-m", "neurotlon_games.stub", "--connect", "--seconds", "0"]

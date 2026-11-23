@@ -179,8 +179,15 @@ def main_web(args: argparse.Namespace) -> int:
         except ConfigError as exc:
             # Нет файла — обычная первая настройка; всё остальное показываем админу в форме.
             error = str(exc) if args.config.is_file() else None
+    log_dir = args.config.parent / "data"
+    log_dir.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler(log_dir / "launcher.log", encoding="utf-8"),
+        ],
     )
     return run_setup(
         args.config,

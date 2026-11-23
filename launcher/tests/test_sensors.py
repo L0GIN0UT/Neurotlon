@@ -58,7 +58,9 @@ def test_roles_per_discipline() -> None:
 
 
 def test_scan_parses_the_bridge_output(tmp_path: Path) -> None:
-    run = runner_returning(completed("Поиск...\n" + json.dumps(SCAN, ensure_ascii=False)))
+    noise = "[2026-11-23 16:23:49.183] [sdk_log] [warning] Failed start BLE scanner\n"
+    marked = sensors.SCAN_JSON_MARK + json.dumps(SCAN, ensure_ascii=False)
+    run = runner_returning(completed(noise + marked + "\n" + noise))  # SDK шумит до и после
     service = SensorService(tmp_path, "bridge.exe", run)
     devices, error = service.scan()
     assert error is None
@@ -74,6 +76,7 @@ def test_scan_parses_the_bridge_output(tmp_path: Path) -> None:
     [
         (completed(code=3, stderr="Ошибка: нет Bluetooth-адаптера\n"), "нет Bluetooth-адаптера"),
         (completed("не json"), sensors.SCAN_FAILED),
+        (completed(sensors.SCAN_JSON_MARK + "{плохо"), sensors.SCAN_FAILED),
         (completed(""), sensors.SCAN_FAILED),
         (subprocess.TimeoutExpired("bridge", 1), sensors.SCAN_TIMEOUT),
         (FileNotFoundError("нет файла"), "нет файла"),
@@ -245,7 +248,9 @@ def test_runtime_builds_the_bridge_command_from_the_mode(tmp_path: Path) -> None
     ]  # fmt: skip
     emulate = make(config("emulate"), "darts", "bridge.exe")
     assert emulate is not None
-    assert emulate._args == ["bridge.exe", "--profile", "darts", "--port", "9100", "--emulate"]
+    assert emulate._args == [
+        "bridge.exe", "--profile", "darts", "--port", "9100", "--emulate", "--auto", "--headless",
+    ]  # fmt: skip
 
 
 # --- экран настройки: датчики ---------------------------------------------------------------
@@ -259,7 +264,7 @@ def make_service(tmp_path: Path, outcome: DisciplineConfig, scan: Any = None) ->
         def close(self) -> None:
             pass
 
-    run = scan or runner_returning(completed(json.dumps(SCAN)))
+    run = scan or runner_returning(completed(sensors.SCAN_JSON_MARK + json.dumps(SCAN)))
     return SetupService(
         tmp_path / "cfg" / "launcher.toml",
         lambda url, token, ca: Client(),

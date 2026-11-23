@@ -104,7 +104,11 @@ def test_hardware_without_bluetooth_exits_3(
 def test_scan_json_is_machine_readable(capsys: pytest.CaptureFixture[str]) -> None:
     backend = FakeBackend([FakeRawSensor("brainbit", "BB-777"), FakeRawSensor("callibri", "CA-1")])
     assert main(["--scan", "--json"], backend_factory=factory_for(backend)) == 0
-    data = json.loads(capsys.readouterr().out)
+    from neurotlon_bridge.__main__ import SCAN_JSON_MARK
+
+    out = capsys.readouterr().out
+    line = next(line for line in out.splitlines() if line.startswith(SCAN_JSON_MARK))
+    data = json.loads(line[len(SCAN_JSON_MARK) :])
     assert {item["serial"] for item in data} == {"BB-777", "CA-1"}
     assert {item["kind"] for item in data} == {"brainbit", "callibri"}
     assert all(set(item) == {"kind", "name", "serial", "address"} for item in data)

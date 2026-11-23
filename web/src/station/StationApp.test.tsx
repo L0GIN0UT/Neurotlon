@@ -77,7 +77,7 @@ const readyState = (): StateView => ({
   game: 'C:/Neurotlon/games/Pong/Pong.exe',
   sensors_available: false,
   roles: [],
-  scan: { phase: 'idle', devices: [], error: null },
+  scan: { seconds: 15, phase: 'idle', devices: [], error: null },
 })
 
 describe('StationApp', () => {
@@ -184,7 +184,7 @@ describe('StationApp', () => {
         game: '',
         sensors_available: false,
         roles: [],
-        scan: { phase: 'idle', devices: [], error: null },
+        scan: { seconds: 15, phase: 'idle', devices: [], error: null },
       }, '')
 
     const sentActions = (fetchMock: ReturnType<typeof vi.fn>) =>
@@ -217,7 +217,8 @@ describe('StationApp', () => {
 
       act(() => FakeEventSource.last?.emit(setup('ok', { discipline: 'pong' })))
       expect(await screen.findByTestId('setup-ok')).toBeTruthy()
-      expect(screen.getByText(/Понг/).textContent).toContain('2 игрока')
+      expect(screen.getByTestId('setup-ok').textContent).toContain('Понг')
+      expect(screen.getByTestId('setup-ok').textContent).toContain('2 игрока')
       expect((save as HTMLButtonElement).disabled).toBe(false)
       fireEvent.click(save)
       expect(sentActions(fetchMock).at(-1)?.action).toBe('setup_save')
@@ -298,20 +299,22 @@ describe('StationApp', () => {
               game: '',
               sensors_available: false,
               roles: [],
-              scan: { phase: 'idle', devices: [], error: null },
+              scan: { seconds: 15, phase: 'idle', devices: [], error: null },
             },
             '',
           ),
         ),
       )
-      const select = (await screen.findByLabelText('Камера для QR')) as HTMLSelectElement
-      await screen.findByRole('option', { name: 'USB Webcam' })
-      expect([...select.options].map((o) => o.textContent)).toEqual([
+      const select = await screen.findByRole('combobox', { name: 'Камера для QR' })
+      await vi.waitFor(() => expect(select.textContent).toContain('По умолчанию'))
+      fireEvent.click(select)
+      expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([
         'По умолчанию',
         'Integrated Camera',
         'USB Webcam',
       ])
-      fireEvent.change(select, { target: { value: 'USB Webcam' } })
+      fireEvent.click(screen.getByRole('option', { name: 'USB Webcam' }))
+      expect(screen.queryByRole('listbox')).toBeNull()
       fireEvent.click(screen.getByRole('button', { name: 'Проверить подключение' }))
       const sent = fetchMock.mock.calls.map((call) => JSON.parse((call[1] as RequestInit).body as string))
       expect(sent.at(-1).value.camera).toBe('USB Webcam')
@@ -355,7 +358,7 @@ describe('StationApp', () => {
       overrides: Partial<{
         roles: string[]
         discipline: string | null
-        scan: { phase: 'idle' | 'scanning' | 'done'; devices: object[]; error: string | null }
+        scan: { seconds: number; phase: 'idle' | 'scanning' | 'done'; devices: object[]; error: string | null }
         mode: string
         devices: Record<string, string>
         available: boolean
@@ -396,7 +399,7 @@ describe('StationApp', () => {
       render(<StationApp />)
       act(() => FakeEventSource.last?.emit(withSensors({ available: false })))
       await screen.findByLabelText(/Токен станции/)
-      expect(screen.queryByLabelText('Датчики')).toBeNull()
+      expect(screen.queryByRole('combobox', { name: 'Датчики' })).toBeNull()
     })
 
     it('asks for a check first, then shows one serial field per role', async () => {
@@ -421,6 +424,7 @@ describe('StationApp', () => {
             roles: ['eeg', 'emg'],
             discipline: 'darts',
             scan: {
+              seconds: 15,
               phase: 'done',
               error: null,
               devices: [
@@ -454,7 +458,9 @@ describe('StationApp', () => {
     it('hides serials and scanning for the emulator', async () => {
       render(<StationApp />)
       act(() => FakeEventSource.last?.emit(withSensors({ mode: 'emulate', roles: ['eeg', 'emg'], discipline: 'darts' })))
-      await screen.findByLabelText('Датчики')
+      const mode = await screen.findByRole('combobox', { name: 'Датчики' })
+      expect(mode.textContent).toContain('Эмуляция')
+      expect(screen.getByText(/Сигналы подаются сами/)).toBeTruthy()
       expect(screen.queryByRole('button', { name: 'Найти датчики' })).toBeNull()
     })
 
@@ -502,7 +508,7 @@ describe('StationApp', () => {
               game: 'C:/Neurotlon/games/Pong/Pong.exe',
               sensors_available: false,
               roles: [],
-              scan: { phase: 'idle', devices: [], error: null },
+              scan: { seconds: 15, phase: 'idle', devices: [], error: null },
             },
             '',
           ),
@@ -515,6 +521,112 @@ describe('StationApp', () => {
       act(() => FakeEventSource.last?.emit(snapshot(readyState(), '')))
       expect((await screen.findByTestId('setup-game')).textContent).toContain('Pong.exe')
       expect(screen.getByPlaceholderText('Подбирается по станции')).toBeTruthy()
+    })
+  })
+
+  describe('dropdown', () => {
+    const open = async () => {
+      render(<StationApp />)
+      act(() => FakeEventSource.last?.emit(
+        snapshot(
+          {
+            kind: 'setup',
+            phase: 'form',
+            error: null,
+            discipline: null,
+            players_needed: null,
+            form: { server_url: 'https://h', game_path: '', ca_file: '', camera: '', sensors: 'hardware', devices: {} },
+            has_token: false,
+            games_bundled: false,
+            game: '',
+            sensors_available: true,
+            roles: [],
+            scan: { seconds: 15, phase: 'idle', devices: [], error: null },
+          },
+          '',
+        ),
+      ))
+      return screen.findByRole('combobox', { name: 'Датчики' })
+    }
+
+    it('offers the two modes to an admin and not the developer-only one', async () => {
+      const box = await open()
+      fireEvent.click(box)
+      expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([
+        'Настоящие датчики',
+        'Эмуляция (без датчиков)',
+      ])
+    })
+
+    it('works from the keyboard: arrows move, Enter picks, Escape closes', async () => {
+      const box = await open()
+      fireEvent.keyDown(box, { key: 'ArrowDown' })
+      expect(screen.getByRole('listbox')).toBeTruthy()
+      fireEvent.keyDown(box, { key: 'ArrowDown' })
+      fireEvent.keyDown(box, { key: 'Enter' })
+      expect(box.textContent).toContain('Эмуляция')
+      expect(screen.queryByRole('listbox')).toBeNull()
+      fireEvent.keyDown(box, { key: 'ArrowUp' })
+      fireEvent.keyDown(box, { key: 'Escape' })
+      expect(screen.queryByRole('listbox')).toBeNull()
+      expect(box.textContent).toContain('Эмуляция')
+    })
+
+    it('closes on a click outside', async () => {
+      const box = await open()
+      fireEvent.click(box)
+      expect(screen.getByRole('listbox')).toBeTruthy()
+      fireEvent.pointerDown(document.body)
+      expect(screen.queryByRole('listbox')).toBeNull()
+    })
+  })
+
+  describe('scanning feedback', () => {
+    const scanState = (scan: object, roles: string[] = []) =>
+      snapshot(
+        {
+          kind: 'setup',
+          phase: 'form',
+          error: null,
+          discipline: null,
+          players_needed: null,
+          form: { server_url: 'https://h', game_path: '', ca_file: '', camera: '', sensors: 'hardware', devices: {} },
+          has_token: false,
+          games_bundled: false,
+          game: '',
+          sensors_available: true,
+          roles,
+          scan: scan as never,
+        },
+        '',
+      )
+
+    it('shows a spinner, a countdown and locks the button while scanning', async () => {
+      render(<StationApp />)
+      act(() => FakeEventSource.last?.emit(scanState({ seconds: 15, phase: 'scanning', devices: [], error: null })))
+      const button = await screen.findByRole('button', { name: 'Идёт поиск…' })
+      expect((button as HTMLButtonElement).disabled).toBe(true)
+      expect(button.querySelector('.scan-spinner')).toBeTruthy()
+      expect((await screen.findByTestId('scan-left')).textContent).toMatch(/Ещё около \d+ с/)
+    })
+
+    it('explains what to check when nothing was found and allows scanning again', async () => {
+      render(<StationApp />)
+      act(() => FakeEventSource.last?.emit(scanState({ seconds: 15, phase: 'done', devices: [], error: null })))
+      const none = await screen.findByTestId('sensors-none')
+      expect(none.textContent).toContain('Датчики не найдены')
+      expect(none.textContent).toContain('настройках Bluetooth Windows')
+      const again = screen.getByRole('button', { name: 'Искать ещё раз' })
+      expect((again as HTMLButtonElement).disabled).toBe(false)
+    })
+
+    it('shows a scan error as a wrapping notice, not a clipped chip', async () => {
+      render(<StationApp />)
+      const long = 'Ошибка: Bluetooth-адаптер не найден или выключен: вставьте USB-адаптер и включите Bluetooth в Windows'
+      act(() => FakeEventSource.last?.emit(scanState({ seconds: 15, phase: 'done', devices: [], error: long })))
+      const alert = await screen.findByRole('alert')
+      expect(alert.textContent).toBe(long)
+      expect(alert.className).toContain('notice')
     })
   })
 })
