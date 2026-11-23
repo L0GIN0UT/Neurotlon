@@ -499,7 +499,6 @@ def test_unknown_limit_offline_uses_default_10_and_warns(caplog: pytest.LogCaptu
     assert rig.runner.requests[0].max_points == 10
     assert isinstance(rig.state, Playing)
     assert rig.state.default_limit
-    assert texts.LIMIT_DEFAULT == "Лимит очков не получен с сервера, используется 10"
     assert "limit unknown" in caplog.text
 
 

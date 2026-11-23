@@ -1,5 +1,5 @@
 'use strict'
-// Окно стенда: запускает Python-лаунчер (`--ui web`), открывает интерфейс из web/dist на весь экран.
+// Окно стенда: запускает Python-лаунчер, открывает интерфейс из web/dist на весь экран.
 // Лаунчер сам понимает, когда нужна первая настройка. Ctrl+Alt+S открывает настройку повторно.
 
 const { spawn } = require('node:child_process')
@@ -44,7 +44,7 @@ function fail(message) {
 /** Запускает лаунчер и ждёт строку готовности с портом моста. */
 function startLauncher(token, { setup }) {
   const { file, args } = lib.splitCommand(process.env.NEUROTLON_LAUNCHER_CMD)
-  const full = [...args, '--config', configPath, '--ui', 'web', '--ui-token', token]
+  const full = [...args, '--config', configPath, '--ui-token', token]
   if (setup) full.push('--setup')
   const proc = spawn(file, full, { stdio: ['pipe', 'pipe', 'inherit'], windowsHide: true })
   child = proc

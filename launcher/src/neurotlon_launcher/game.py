@@ -21,7 +21,7 @@ from .schema import launch_validator
 log = logging.getLogger(__name__)
 
 PROTOCOL = 1
-GRACE_S = 120.0
+GRACE_S = 420.0  # на калибровку и обучение перед игрой (в играх они идут до отсчёта duration_s)
 # начала сообщений `Crashed`: по ним `neurotlon-game-check` отличает причины
 DETAIL_START_FAILED = "не удалось запустить игру"
 DETAIL_TIMEOUT = "игра не завершилась вовремя"
