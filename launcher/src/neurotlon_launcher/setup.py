@@ -84,9 +84,11 @@ class SetupService:
         self,
         config_path: Path,
         client_factory: ClientFactory = _http_client,
+        default_game: str = "",
     ) -> None:
         self._path = config_path
         self._client_factory = client_factory
+        self._default_game = default_game  # игра, вложенная в установщик: подставляется в форму
 
     # --- что уже сохранено ----------------------------------------------------------------
 
@@ -104,7 +106,7 @@ class SetupService:
         """Прежние значения для формы. Токен не отдаётся: только признак, что он сохранён."""
         form: dict[str, Any] = {
             "server_url": "",
-            "game_path": "",
+            "game_path": self._default_game,
             "ca_file": "",
             "camera": "",
             "has_token": bool(self.saved_token()),
@@ -114,7 +116,13 @@ class SetupService:
         except ConfigError:
             return form
         form["server_url"] = config.server_url
-        form["game_path"] = config.game_command[0]
+        saved_game = config.game_command[0]
+        # Сохранённая игра пропала (например, переустановка в другую папку): берём вложенную.
+        form["game_path"] = (
+            saved_game
+            if Path(saved_game).is_file() or not self._default_game
+            else self._default_game
+        )
         form["ca_file"] = str(config.ca_file) if config.ca_file else ""
         form["camera"] = config.camera_name or ""
         return form

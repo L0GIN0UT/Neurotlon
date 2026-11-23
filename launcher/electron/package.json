@@ -32,8 +32,16 @@
     ],
     "extraResources": [
       {
-        "from": "../../web/dist",
+        "from": "stage/web",
         "to": "web"
+      },
+      {
+        "from": "stage/core",
+        "to": "core"
+      },
+      {
+        "from": "stage/game",
+        "to": "game"
       }
     ],
     "win": {

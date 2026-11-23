@@ -365,3 +365,18 @@ def test_setup_flag_forces_the_form_even_with_a_valid_config(
 
 def test_web_mode_requires_a_launch_token(tmp_path: Path) -> None:
     assert main(["--config", str(tmp_path / "x.toml")]) == 2
+
+
+def test_bundled_game_is_offered_by_default_but_never_overrides_a_working_choice(
+    tmp_path: Path, game: Path
+) -> None:
+    bundled = tmp_path / "resources" / "game" / "Pong.exe"
+    bundled.parent.mkdir(parents=True)
+    bundled.write_bytes(b"MZ")
+    factory = Factory(DARTS)
+    svc = SetupService(tmp_path / "cfg" / "launcher.toml", factory, default_game=str(bundled))
+    assert svc.defaults()["game_path"] == str(bundled)  # настроек ещё нет
+    svc.save(form(game))
+    assert svc.defaults()["game_path"] == str(game)  # рабочий выбор админа не трогаем
+    game.unlink()
+    assert svc.defaults()["game_path"] == str(bundled)  # выбранной игры уже нет

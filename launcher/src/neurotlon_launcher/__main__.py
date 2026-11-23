@@ -37,6 +37,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--ui-port", type=int, default=0, help="порт моста (0 — любой свободный)")
     parser.add_argument(
+        "--default-game",
+        default="",
+        help="путь к игре, вложенной в установщик: экран настройки подставит его в форму",
+    )
+    parser.add_argument(
         "--setup",
         action="store_true",
         help="открыть экран настройки, даже если настройки уже есть",
@@ -116,10 +121,16 @@ def run_web(
 
 
 def run_setup(
-    config_path: Path, *, error: str | None, ui_token: str, ui_port: int, detached: bool
+    config_path: Path,
+    *,
+    error: str | None,
+    ui_token: str,
+    ui_port: int,
+    detached: bool,
+    default_game: str = "",
 ) -> int:
     """Экран первой настройки: `EXIT_RESTART`, если настройки сохранены."""
-    station = SetupStation(SetupService(config_path), error)
+    station = SetupStation(SetupService(config_path, default_game=default_game), error)
     saved = serve_bridge(
         station, ui_token=ui_token, ui_port=ui_port, detached=detached, done=station.saved
     )
@@ -156,6 +167,7 @@ def main_web(args: argparse.Namespace) -> int:
         ui_token=args.ui_token,
         ui_port=args.ui_port,
         detached=args.ui_detached,
+        default_game=args.default_game,
     )
 
 
