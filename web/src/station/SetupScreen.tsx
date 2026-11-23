@@ -3,10 +3,12 @@ import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { cameraConstraints, listCameras } from './camera.ts'
 import type { CameraInfo } from './camera.ts'
-import { Chip } from './Frame.tsx'
 import { Icon } from './Icon.tsx'
+import { Notice } from './Notice.tsx'
+import { Select } from './Select.tsx'
+import { SensorsSection } from './SensorsSection.tsx'
 import * as t from './texts.ts'
-import type { Command, SensorDevice, SetupFields, StateView } from './types.ts'
+import type { Command, SetupFields, StateView } from './types.ts'
 
 type SetupState = Extract<StateView, { kind: 'setup' }>
 
@@ -89,123 +91,30 @@ function CameraPicker({ value, onChange }: { value: string; onChange: (label: st
     }
   }, [value])
 
+  const none = cameras !== null && cameras.length === 0
   const missing = value !== '' && cameras !== null && !cameras.some((c) => c.label === value)
+  const options = [
+    { value: '', label: none ? t.SETUP.cameraNone : t.SETUP.cameraDefault },
+    ...(cameras ?? []).map((camera) => ({ value: camera.label, label: camera.label })),
+  ]
   return (
     <div className="setup-field">
-      <label className="setup-label" htmlFor="setup-camera">
+      <span className="setup-label" id="setup-camera-label">
         {t.SETUP.camera}
-      </label>
+      </span>
       <div className="setup-camera">
         <video ref={video} muted playsInline className="setup-preview" />
         <div className="setup-camera-side">
-          <select
-            id="setup-camera"
+          <Select
+            labelId="setup-camera-label"
             value={missing ? '' : value}
-            onChange={(event) => onChange(event.target.value)}
-            disabled={cameras !== null && cameras.length === 0}
-          >
-            <option value="">
-              {cameras !== null && cameras.length === 0 ? t.SETUP.cameraNone : t.SETUP.cameraDefault}
-            </option>
-            {(cameras ?? []).map((camera) => (
-              <option key={camera.id} value={camera.label}>
-                {camera.label}
-              </option>
-            ))}
-          </select>
+            options={options}
+            onChange={onChange}
+            disabled={none}
+          />
           {missing && <span className="setup-hint warn">{t.SETUP.cameraMissing}</span>}
         </div>
       </div>
-    </div>
-  )
-}
-
-/** Раздел «Датчики»: режим, поиск и серийные номера по ролям дисциплины. */
-function SensorsSection({
-  state,
-  fields,
-  setFields,
-  send,
-}: {
-  state: SetupState
-  fields: SetupFields
-  setFields: (update: (fields: SetupFields) => SetupFields) => void
-  send: (command: Command) => void
-}) {
-  if (!state.sensors_available) return null
-  const scan = state.scan
-  const hardware = fields.sensors === 'hardware'
-  const setSerial = (role: string, serial: string) =>
-    setFields((f) => ({ ...f, devices: { ...f.devices, [role]: serial } }))
-  const offered = (role: string): SensorDevice[] =>
-    scan.devices.filter((d) => d.kind === t.SETUP.roleKind[role] && d.serial !== '')
-  return (
-    <div className="setup-field setup-sensors">
-      <label className="setup-label" htmlFor="setup-sensors">
-        {t.SETUP.sensors}
-      </label>
-      <select
-        id="setup-sensors"
-        value={fields.sensors}
-        onChange={(event) => setFields((f) => ({ ...f, sensors: event.target.value }))}
-      >
-        <option value="hardware">{t.SETUP.sensorsHardware}</option>
-        <option value="emulate">{t.SETUP.sensorsEmulate}</option>
-        <option value="">{t.SETUP.sensorsExternal}</option>
-      </select>
-      {hardware && (
-        <div className="sensors-panel">
-          <div className="sensors-scan">
-            <button
-              type="button"
-              className="setup-action"
-              disabled={scan.phase === 'scanning'}
-              onClick={() => send({ action: 'sensors_scan' })}
-            >
-              {t.SETUP.sensorsScan}
-            </button>
-            {scan.phase === 'scanning' && <span className="setup-hint">{t.SETUP.sensorsScanning}</span>}
-            {scan.phase === 'done' && scan.error && <span className="setup-hint warn">{scan.error}</span>}
-            {scan.phase === 'done' && !scan.error && scan.devices.length === 0 && (
-              <span className="setup-hint warn">{t.SETUP.sensorsNone}</span>
-            )}
-          </div>
-          {scan.devices.length > 0 && (
-            <ul className="sensors-found" data-testid="sensors-found">
-              {scan.devices.map((d) => (
-                <li key={d.address}>
-                  <b>{t.SETUP.sensorsDeviceKind[d.kind] ?? d.kind}</b> {d.name}{' '}
-                  <span className="setup-hint">
-                    {d.serial || t.SETUP.sensorsSerialUnknown} · {d.address}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-          {state.roles.length === 0 ? (
-            <p className="setup-hint">{t.SETUP.sensorsNeedCheck}</p>
-          ) : (
-            state.roles.map((role) => (
-              <label key={role} className="sensors-role">
-                <span>{t.SETUP.roles[role] ?? role}</span>
-                <input
-                  value={fields.devices[role] ?? ''}
-                  placeholder={t.SETUP.sensorsSerial}
-                  list={`serials-${role}`}
-                  spellCheck={false}
-                  autoComplete="off"
-                  onChange={(event) => setSerial(role, event.target.value)}
-                />
-                <datalist id={`serials-${role}`}>
-                  {offered(role).map((d) => (
-                    <option key={d.address} value={d.serial} label={d.name} />
-                  ))}
-                </datalist>
-              </label>
-            ))
-          )}
-        </div>
-      )}
     </div>
   )
 }
@@ -286,36 +195,31 @@ export function SetupScreen({
         />
 
         <div className="setup-result" aria-live="polite">
-          {state.phase === 'checking' && <Chip tone="muted">{t.SETUP.checking}</Chip>}
-          {state.phase === 'saved' && (
-            <Chip tone="good" icon="check">
-              {t.SETUP.saved}
-            </Chip>
+          {state.phase === 'checking' && (
+            <div className="notice notice-info">
+              <span className="scan-spinner" aria-hidden />
+              <div className="notice-text">{t.SETUP.checking}</div>
+            </div>
           )}
-          {ready && state.game && (
-            <span className="setup-hint" data-testid="setup-game">
-              {t.SETUP.gameWillRun}: {state.game}
-            </span>
-          )}
+          {state.phase === 'saved' && <Notice tone="good">{t.SETUP.saved}</Notice>}
           {state.error && (
             <motion.div key={state.error} initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}>
-              <Chip tone="bad" icon="warning">
-                {state.error}
-              </Chip>
+              <Notice tone="bad">{state.error}</Notice>
             </motion.div>
           )}
           {ready && state.discipline && (
-            <motion.div
-              className="setup-ok"
-              initial={{ opacity: 0, scale: 0.96 }}
-              animate={{ opacity: 1, scale: 1 }}
-              data-testid="setup-ok"
-            >
-              <Icon name="check" />
-              <span>
-                {t.SETUP.connected} «{t.DISCIPLINE_NAMES[state.discipline] ?? state.discipline}»,{' '}
-                {state.players_needed === 2 ? t.SETUP.playersTwo : t.SETUP.playersOne}
-              </span>
+            <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }}>
+              <Notice tone="good" testId="setup-ok">
+                <b>
+                  {t.SETUP.connected} «{t.DISCIPLINE_NAMES[state.discipline] ?? state.discipline}»
+                </b>
+                <div>{state.players_needed === 2 ? t.SETUP.playersTwo : t.SETUP.playersOne}</div>
+                {state.game && (
+                  <div className="notice-sub" data-testid="setup-game">
+                    {t.SETUP.gameWillRun}: {state.game}
+                  </div>
+                )}
+              </Notice>
             </motion.div>
           )}
         </div>

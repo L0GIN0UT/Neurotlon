@@ -69,7 +69,12 @@ export type StateView =
       game: string
       sensors_available: boolean
       roles: string[]
-      scan: { phase: 'idle' | 'scanning' | 'done'; devices: SensorDevice[]; error: string | null }
+      scan: {
+        seconds: number
+        phase: 'idle' | 'scanning' | 'done'
+        devices: SensorDevice[]
+        error: string | null
+      }
     }
 
 export interface StatusView {
