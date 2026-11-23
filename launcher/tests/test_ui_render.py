@@ -163,9 +163,7 @@ def test_chip_stays_within_max_width_and_needs_one_anchor() -> None:
     from neurotlon_launcher.widgets import Canvas
 
     canvas = Canvas(pygame.display.set_mode((1280, 720)))
-    x, y, w, h = canvas.chip(
-        "очень длинный текст " * 20, (240, 82, 79), max_width=400, topleft=(0, 0)
-    )
-    assert w <= 400
+    rect = canvas.chip("очень длинный текст " * 20, (240, 82, 79), max_width=400, topleft=(0, 0))
+    assert rect[2] <= 400
     with pytest.raises(TypeError):
         canvas.chip("x", (1, 2, 3))
