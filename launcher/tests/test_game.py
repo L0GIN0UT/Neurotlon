@@ -156,7 +156,7 @@ def test_timeout_kills_process_and_its_child(tmp_path: Path) -> None:
     assert parent is not None
     assert pid_alive(child)
     assert game.poll() is None
-    now[0] = 10 + 120 + 1  # duration_s + 120
+    now[0] = 10 + 420 + 1  # duration_s + 420
     outcome = game.poll()
     assert isinstance(outcome, Crashed)
     assert "вовремя" in outcome.detail
