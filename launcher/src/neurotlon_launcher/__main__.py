@@ -122,7 +122,7 @@ def run_web(
     """Веб-интерфейс: лаунчер отдаёт состояние по локальному HTTP, окно рисует Electron."""
     with StationRuntime(config, token, fullscreen=True) as runtime:
         serve_bridge(
-            Station(runtime.machine, runtime.status),
+            Station(runtime.machine, runtime.status, config.camera_name),
             ui_token=ui_token,
             ui_port=ui_port,
             detached=detached,

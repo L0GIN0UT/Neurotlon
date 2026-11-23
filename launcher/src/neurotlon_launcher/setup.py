@@ -58,6 +58,7 @@ class SetupForm:
     token: str = ""  # пусто — оставить уже сохранённый
     game_path: str = ""
     ca_file: str = ""  # необязательно
+    camera: str = ""  # имя камеры для QR; пусто — камера по умолчанию
 
 
 @dataclass(frozen=True)
@@ -105,6 +106,7 @@ class SetupService:
             "server_url": "",
             "game_path": "",
             "ca_file": "",
+            "camera": "",
             "has_token": bool(self.saved_token()),
         }
         try:
@@ -114,6 +116,7 @@ class SetupService:
         form["server_url"] = config.server_url
         form["game_path"] = config.game_command[0]
         form["ca_file"] = str(config.ca_file) if config.ca_file else ""
+        form["camera"] = config.camera_name or ""
         return form
 
     # --- проверка -------------------------------------------------------------------------
@@ -180,6 +183,9 @@ class SetupService:
         ]
         if ca_file is not None:
             lines.append(f"ca_file = {_toml(str(ca_file))}")
+        camera = form.camera.strip()
+        if camera:
+            lines.append(f"camera_name = {_toml(camera)}")
         lines += [
             "",
             "[game]",

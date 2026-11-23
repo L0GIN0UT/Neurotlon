@@ -156,7 +156,7 @@ describe('StationApp', () => {
         error: extra.error ?? null,
         discipline: extra.discipline ?? null,
         players_needed: extra.discipline === 'pong' ? 2 : extra.discipline ? 1 : null,
-        form: { server_url: 'https://192.168.1.10', game_path: '', ca_file: '' },
+        form: { server_url: 'https://192.168.1.10', game_path: '', ca_file: '', camera: '' },
         has_token: false,
       }, '')
 
@@ -182,6 +182,7 @@ describe('StationApp', () => {
           token: 'secret-token-0123456789',
           game_path: 'C:/g/Darts.exe',
           ca_file: '',
+          camera: '',
         },
       })
 
@@ -222,6 +223,89 @@ describe('StationApp', () => {
       await screen.findByLabelText(/Токен станции/)
       fireEvent.keyDown(window, { key: '7' })
       expect(sentActions(fetchMock)).toEqual([])
+    })
+  })
+
+  describe('camera choice', () => {
+    const devices = [
+      { kind: 'videoinput', deviceId: 'a1', label: 'Integrated Camera' },
+      { kind: 'videoinput', deviceId: 'b2', label: 'USB Webcam' },
+      { kind: 'audioinput', deviceId: 'm1', label: 'Mic' },
+    ]
+    const stubMedia = () => {
+      const stream = { getTracks: () => [{ stop: vi.fn() }] }
+      const getUserMedia = vi.fn().mockResolvedValue(stream)
+      vi.stubGlobal('navigator', {
+        ...navigator,
+        mediaDevices: { getUserMedia, enumerateDevices: vi.fn().mockResolvedValue(devices) },
+      })
+      return getUserMedia
+    }
+
+    it('offers the connected cameras and saves the chosen one with the form', async () => {
+      stubMedia()
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true })
+      vi.stubGlobal('fetch', fetchMock)
+      render(<StationApp />)
+      act(() =>
+        FakeEventSource.last?.emit(
+          snapshot(
+            {
+              kind: 'setup',
+              phase: 'form',
+              error: null,
+              discipline: null,
+              players_needed: null,
+              form: { server_url: 'https://h', game_path: '', ca_file: '', camera: '' },
+              has_token: false,
+            },
+            '',
+          ),
+        ),
+      )
+      const select = (await screen.findByLabelText('Камера для QR')) as HTMLSelectElement
+      await screen.findByRole('option', { name: 'USB Webcam' })
+      expect([...select.options].map((o) => o.textContent)).toEqual([
+        'По умолчанию',
+        'Integrated Camera',
+        'USB Webcam',
+      ])
+      fireEvent.change(select, { target: { value: 'USB Webcam' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Проверить подключение' }))
+      const sent = fetchMock.mock.calls.map((call) => JSON.parse((call[1] as RequestInit).body as string))
+      expect(sent.at(-1).value.camera).toBe('USB Webcam')
+    })
+
+    it('opens the camera saved in the settings by its name', async () => {
+      const getUserMedia = stubMedia()
+      render(<StationApp />)
+      act(() =>
+        FakeEventSource.last?.emit({
+          ...snapshot({ kind: 'idle', input: '', notice: null, taken: [] }),
+          camera: 'USB Webcam',
+        }),
+      )
+      await screen.findByTestId('id-field')
+      await vi.waitFor(() => {
+        const used = getUserMedia.mock.calls.map((call) => call[0])
+        expect(used).toContainEqual(
+          expect.objectContaining({ video: expect.objectContaining({ deviceId: { exact: 'b2' } }) }),
+        )
+      })
+    })
+
+    it('shows the NT prefix before typed digits only', async () => {
+      render(<StationApp />)
+      act(() =>
+        FakeEventSource.last?.emit(snapshot({ kind: 'idle', input: '7', notice: null, taken: [] })),
+      )
+      expect((await screen.findByTestId('id-field')).textContent).toContain('NT7')
+      act(() =>
+        FakeEventSource.last?.emit(snapshot({ kind: 'idle', input: 'NT0', notice: null, taken: [] })),
+      )
+      await vi.waitFor(() =>
+        expect(screen.getByTestId('id-field').textContent).not.toContain('NTNT'),
+      )
     })
   })
 })

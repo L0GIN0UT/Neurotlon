@@ -1,6 +1,8 @@
 import { motion } from 'motion/react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
+import { cameraConstraints, listCameras } from './camera.ts'
+import type { CameraInfo } from './camera.ts'
 import { Chip } from './Frame.tsx'
 import { Icon } from './Icon.tsx'
 import * as t from './texts.ts'
@@ -48,6 +50,73 @@ function Field({ label, hint, value, placeholder, onChange, type = 'text', actio
       </span>
       {hint && <span className="setup-hint">{hint}</span>}
     </label>
+  )
+}
+
+/** Выбор камеры для QR: список подключённых и живое превью выбранной. */
+function CameraPicker({ value, onChange }: { value: string; onChange: (label: string) => void }) {
+  const [cameras, setCameras] = useState<CameraInfo[] | null>(null)
+  const video = useRef<HTMLVideoElement>(null)
+
+  useEffect(() => {
+    let alive = true
+    const refresh = () => void listCameras().then((list) => alive && setCameras(list))
+    refresh()
+    navigator.mediaDevices?.addEventListener?.('devicechange', refresh)
+    return () => {
+      alive = false
+      navigator.mediaDevices?.removeEventListener?.('devicechange', refresh)
+    }
+  }, [])
+
+  useEffect(() => {
+    let stream: MediaStream | null = null
+    let alive = true
+    const element = video.current
+    if (typeof navigator.mediaDevices?.getUserMedia !== 'function' || !element) return
+    cameraConstraints(value || null)
+      .then((constraints) => navigator.mediaDevices.getUserMedia(constraints))
+      .then((media) => {
+        if (!alive) return media.getTracks().forEach((track) => track.stop())
+        stream = media
+        element.srcObject = media
+        void element.play()
+      })
+      .catch(() => undefined)
+    return () => {
+      alive = false
+      stream?.getTracks().forEach((track) => track.stop())
+    }
+  }, [value])
+
+  const missing = value !== '' && cameras !== null && !cameras.some((c) => c.label === value)
+  return (
+    <div className="setup-field">
+      <label className="setup-label" htmlFor="setup-camera">
+        {t.SETUP.camera}
+      </label>
+      <div className="setup-camera">
+        <video ref={video} muted playsInline className="setup-preview" />
+        <div className="setup-camera-side">
+          <select
+            id="setup-camera"
+            value={missing ? '' : value}
+            onChange={(event) => onChange(event.target.value)}
+            disabled={cameras !== null && cameras.length === 0}
+          >
+            <option value="">
+              {cameras !== null && cameras.length === 0 ? t.SETUP.cameraNone : t.SETUP.cameraDefault}
+            </option>
+            {(cameras ?? []).map((camera) => (
+              <option key={camera.id} value={camera.label}>
+                {camera.label}
+              </option>
+            ))}
+          </select>
+          {missing && <span className="setup-hint warn">{t.SETUP.cameraMissing}</span>}
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -110,6 +179,7 @@ export function SetupScreen({
           onChange={set('game_path')}
           action={pick('game', 'game_path')}
         />
+        <CameraPicker value={fields.camera} onChange={set('camera')} />
         <Field
           label={t.SETUP.cert}
           hint={t.SETUP.certHint}
@@ -173,6 +243,7 @@ function same(a: SetupFields, b: SetupFields): boolean {
     a.server_url === b.server_url &&
     a.token === b.token &&
     a.game_path === b.game_path &&
-    a.ca_file === b.ca_file
+    a.ca_file === b.ca_file &&
+    a.camera === b.camera
   )
 }

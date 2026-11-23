@@ -25,6 +25,7 @@ export interface SetupFormView {
   server_url: string
   game_path: string
   ca_file: string
+  camera: string
 }
 
 export interface SetupFields extends SetupFormView {
@@ -64,6 +65,7 @@ export interface StatusView {
 }
 
 export interface Snapshot {
+  camera?: string | null
   discipline: string
   players_needed: number
   status: StatusView

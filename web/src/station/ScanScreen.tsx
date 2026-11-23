@@ -9,8 +9,8 @@ import { useQrCamera } from './useQrCamera.ts'
 
 const DIGITS = ['1', '2', '3', '4', '5', '6', '7', '8', '9']
 
-function Camera({ onCode }: { onCode: (text: string) => void }) {
-  const { videoRef, state } = useQrCamera(onCode, true)
+function Camera({ onCode, name }: { onCode: (text: string) => void; name: string | null }) {
+  const { videoRef, state } = useQrCamera(onCode, true, name)
   return (
     <div className="camera card" data-state={state}>
       <video ref={videoRef} muted playsInline className={state === 'live' ? 'live' : ''} />
@@ -73,10 +73,11 @@ interface Props {
   notice: string | null
   taken: CandidateView[]
   playersNeeded: number
+  camera: string | null
   send: (command: Command) => void
 }
 
-export function ScanScreen({ input, notice, taken, playersNeeded, send }: Props) {
+export function ScanScreen({ input, notice, taken, playersNeeded, camera, send }: Props) {
   const two = playersNeeded === 2
   const prompt = two ? (t.SCAN_PROMPT_PONG[taken.length] ?? t.SCAN_PROMPT) : t.SCAN_PROMPT
   const onCode = (text: string) => {
@@ -84,7 +85,7 @@ export function ScanScreen({ input, notice, taken, playersNeeded, send }: Props)
   }
   return (
     <div className="scan">
-      <Camera onCode={onCode} />
+      <Camera onCode={onCode} name={camera} />
       <div className="scan-side">
         <h1 className="scan-title">{prompt}</h1>
         {two && (
@@ -98,6 +99,7 @@ export function ScanScreen({ input, notice, taken, playersNeeded, send }: Props)
         <div className={`field card ${input ? 'field-filled' : ''}`} data-testid="id-field">
           {input ? (
             <span className="field-text">
+              {/^\d+$/.test(input) && <span className="field-prefix">NT</span>}
               {input}
               <i className="caret" />
             </span>

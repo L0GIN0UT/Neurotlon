@@ -33,6 +33,7 @@ function Body({ snapshot, send }: { snapshot: Snapshot; send: (command: Command)
           notice={state.notice}
           taken={state.taken}
           playersNeeded={playersNeeded}
+          camera={snapshot.camera ?? null}
           send={send}
         />
       )

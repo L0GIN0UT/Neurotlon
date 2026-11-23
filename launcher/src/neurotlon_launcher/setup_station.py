@@ -25,7 +25,7 @@ def form_from(value: Any) -> SetupForm | None:
     if not isinstance(value, dict):
         return None
     fields: dict[str, str] = {}
-    for key in ("server_url", "token", "game_path", "ca_file"):
+    for key in ("server_url", "token", "game_path", "ca_file", "camera"):
         item = value.get(key, "")
         if not isinstance(item, str) or len(item) > 4096:
             return None
@@ -60,7 +60,9 @@ class SetupStation(LiveState):
                     "players_needed": (2 if self._discipline == "pong" else 1)
                     if self._discipline
                     else None,
-                    "form": {k: defaults[k] for k in ("server_url", "game_path", "ca_file")},
+                    "form": {
+                        k: defaults[k] for k in ("server_url", "game_path", "ca_file", "camera")
+                    },
                     "has_token": defaults["has_token"],
                 },
             }
