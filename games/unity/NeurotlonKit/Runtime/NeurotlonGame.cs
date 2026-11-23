@@ -9,17 +9,25 @@ namespace Neurotlon
     // Дартс и футбол: eeg + emg, один игрок. Понг: emg_left + emg_right, побеждает набравший больше.
     //
     // Что заменить в настоящей игре: OnGameStart / OnGameUpdate (механика, читайте Bridge.Value(...)),
-    // BuildResult (очки и победитель). Подключение к мосту, калибровку, отсчёт, таймер, Esc,
+    // BuildResult (очки и победитель). Подключение к мосту, калибровку, обучение, проверку, отсчёт, таймер, Esc,
     // потерю датчика и запись result.json делает этот класс.
+    //
+    // Порядок: подключение → калибровка → обучение (TutorialSteps) → демо-проверка (HasCheck, OnCheckUpdate, PassCheck) →
+    // отсчёт → игра. Очки обучения и проверки в результат не попадают: игра сама заводит для проверки отдельное состояние.
     public class NeurotlonGame : MonoBehaviour
     {
-        public enum Stage { Connecting, Calibrating, Countdown, Playing, SensorLost, ConfirmAbort, Finished }
+        public enum Stage { Connecting, Calibrating, Tutorial, Check, Countdown, Playing, SensorLost, ConfirmAbort, Finished }
 
         public const float ConnectTimeoutSeconds = 15f;
         public const float CountdownSeconds = 3f;
         public const float LostAbortSeconds = 30f;
         public const float FinishShowSeconds = 2f;
         public const float Threshold = 0.6f;
+        public const float TutorialStepSeconds = 6f;               // шаг обучения идёт сам: у игрока нет клавиатуры
+        public const float CheckHelpSeconds = 90f;                 // проверка не пройдена за это время: «Позовите волонтёра»
+        public const int CheckHelpFailures = 3;                    // или столько неудачных попыток
+        public const float PrepLimitSeconds = 360f;                // калибровка, обучение, проверка и отсчёт вместе: не больше 6 минут
+        public const float HardLimitAfterDurationSeconds = 405f;   // лаунчер убивает игру через duration_s + 420 с: уходим раньше
 
         public NeurotlonLaunch Launch { get; private set; }
         public NeurotlonBridge Bridge { get; private set; }
@@ -35,10 +43,18 @@ namespace Neurotlon
         float countdownLeft;
         float lostFor;
         float finishedFor;
+        float startedAt;                // Time.realtimeSinceStartup при запуске: от него считаются предохранители
+        bool prepDone;                  // зачётная часть уже началась: лимит подготовки больше не действует
+        string[] tutorial = new string[0];
+        int tutorialIndex;
+        float tutorialLeft;
+        float checkElapsed;
+        int checkFailures;
+        bool checkPassed;
         bool aborted;
         string startupError;
         List<string> lostNames = new List<string>();
-        GUIStyle big, medium, small;
+        GUIStyle big, medium, small, tutorialStyle;
 
         void Start()
         {
@@ -61,6 +77,7 @@ namespace Neurotlon
             Bridge.Start();
             Calibration = new NeurotlonCalibration(Bridge, Launch.Discipline);
             TimeLeft = Launch.DurationSeconds;
+            startedAt = Time.realtimeSinceStartup;
             countdownLeft = CountdownSeconds;
             foreach (var signal in Launch.Signals)
             {
@@ -84,12 +101,15 @@ namespace Neurotlon
             if (Input.GetKeyDown(KeyCode.Escape)) ToggleConfirm();
             else if (CurrentStage == Stage.ConfirmAbort && Input.GetKeyDown(KeyCode.Return))
             {
-                Abort("игра прервана оператором");
+                Abort(resumeStage == Stage.Check ? "демо-проверка не пройдена" : "игра прервана оператором");
             }
+            CheckFuses();
             switch (CurrentStage)
             {
                 case Stage.Connecting: TickConnecting(dt); break;
                 case Stage.Calibrating: TickCalibrating(dt); break;
+                case Stage.Tutorial: TickTutorial(dt); break;
+                case Stage.Check: TickCheck(dt); break;
                 case Stage.Countdown: TickCountdown(dt); break;
                 case Stage.Playing: TickPlaying(dt); break;
                 case Stage.SensorLost: TickLost(dt); break;
@@ -113,6 +133,32 @@ namespace Neurotlon
                 if (value.Value > Threshold) points[signal] += dt;
             }
         }
+
+        // --- обучение и проверка ---
+
+        // Короткие шаги обучения (одна-две строки каждый). Пустой список: обучения нет. Шаги идут сами, по TutorialStepSeconds.
+        protected virtual string[] TutorialSteps() { return new string[0]; }
+
+        // Есть ли демо-проверка перед игрой: игрок сам выполняет минимальное действие, и только потом начинается зачёт.
+        protected virtual bool HasCheck { get { return false; } }
+
+        // Проверка началась: заведите отдельное состояние (не то, что пойдёт в результат).
+        protected virtual void OnCheckStart() { }
+
+        // Каждый кадр проверки: читайте сигналы, двигайте картинку и вызовите PassCheck(), когда игрок справился.
+        protected virtual void OnCheckUpdate(float dt) { }
+
+        // Нарисовать экран проверки (инструкция и ход). Фон не затемняется: сцена остаётся видна.
+        protected virtual void DrawCheck() { }
+
+        // Игрок справился: проверка закончена, дальше отсчёт и игра.
+        protected void PassCheck() { checkPassed = true; }
+
+        // Неудачная попытка в проверке (бросок мимо и т. п.): после нескольких появится «Позовите волонтёра».
+        protected void ReportCheckFailure() { checkFailures++; }
+
+        // Показан ли призыв волонтёра: время проверки вышло или неудач слишком много.
+        public bool CheckNeedsHelp { get { return checkElapsed >= CheckHelpSeconds || checkFailures >= CheckHelpFailures; } }
 
         // Время вышло, а игра ещё не закончена (например, золотой мяч в понге): верните true и завершите
         // игру сами через FinishGame(). По умолчанию игра заканчивается вместе с таймером.
@@ -190,7 +236,68 @@ namespace Neurotlon
             }
             else if (Calibration.State == NeurotlonCalibration.CalibrationState.Done)
             {
+                BeginTutorial();
+            }
+        }
+
+        void BeginTutorial()
+        {
+            tutorial = TutorialSteps() ?? new string[0];
+            tutorialIndex = 0;
+            tutorialLeft = TutorialStepSeconds;
+            if (tutorial.Length == 0) BeginCheck();
+            else CurrentStage = Stage.Tutorial;
+        }
+
+        void TickTutorial(float dt)
+        {
+            if (EnterLostIfNeeded(Stage.Tutorial)) return;
+            tutorialLeft -= dt;
+            if (tutorialLeft > 0f) return;
+            tutorialIndex++;
+            tutorialLeft = TutorialStepSeconds;
+            if (tutorialIndex >= tutorial.Length) BeginCheck();
+        }
+
+        void BeginCheck()
+        {
+            checkElapsed = 0f;
+            checkFailures = 0;
+            checkPassed = false;
+            if (!HasCheck)
+            {
                 CurrentStage = Stage.Countdown;
+                return;
+            }
+            OnCheckStart();
+            CurrentStage = Stage.Check;
+        }
+
+        void TickCheck(float dt)
+        {
+            if (EnterLostIfNeeded(Stage.Check)) return;
+            checkElapsed += dt;
+            OnCheckUpdate(dt);
+            if (checkPassed) CurrentStage = Stage.Countdown;
+        }
+
+        // Предохранители. Подготовка (калибровка, обучение, проверка, отсчёт): не дольше PrepLimitSeconds, иначе игра
+        // уйдёт с aborted. Вся игра: не дольше duration_s + HardLimitAfterDurationSeconds. Лаунчер убивает процесс на 420 с,
+        // мы выходим раньше и пишем результат (в зачётной части) или aborted (в подготовке).
+        void CheckFuses()
+        {
+            if (CurrentStage == Stage.Finished) return;
+            float real = Time.realtimeSinceStartup - startedAt;
+            bool preparing = !prepDone;
+            if (preparing && real > PrepLimitSeconds)
+            {
+                Abort("подготовка заняла больше 6 минут");
+                return;
+            }
+            if (real > Launch.DurationSeconds + HardLimitAfterDurationSeconds)
+            {
+                if (preparing) Abort("игра не началась за отведённое время");
+                else Finish();
             }
         }
 
@@ -200,6 +307,7 @@ namespace Neurotlon
             countdownLeft -= dt;
             if (countdownLeft > 0f) return;
             OnGameStart();
+            prepDone = true;
             CurrentStage = Stage.Playing;
         }
 
@@ -293,7 +401,7 @@ namespace Neurotlon
             }
             EnsureStyles();
             float cx = Screen.width / 2f, cy = Screen.height / 2f;
-            if (CurrentStage != Stage.Playing)          // служебные экраны читаются поверх любой картинки
+            if (CurrentStage != Stage.Playing && CurrentStage != Stage.Check)          // служебные экраны читаются поверх любой картинки
             {
                 GUI.color = new Color(0f, 0f, 0f, 0.62f);
                 GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height), Texture2D.whiteTexture);
@@ -312,13 +420,21 @@ namespace Neurotlon
                         GUIContent.none);
                     if (Calibration.Retrying) Label(cx, Screen.height * 0.75f, NeurotlonCalibration.TextRetry, small);
                     break;
+                case Stage.Tutorial:
+                    Label(cx, Screen.height * 0.22f, "Обучение: " + (tutorialIndex + 1) + " из " + tutorial.Length, medium);
+                    Label(cx, cy, tutorial[Mathf.Min(tutorialIndex, tutorial.Length - 1)], tutorialStyle);
+                    break;
+                case Stage.Check:
+                    DrawCheck();
+                    if (CheckNeedsHelp) Label(cx, Screen.height * 0.88f, "Позовите волонтёра", big);
+                    break;
                 case Stage.Countdown:
                     Label(cx, cy - 120, "Приготовьтесь", medium);
                     Label(cx, cy, Mathf.Max(1, Mathf.CeilToInt(countdownLeft)).ToString(), big);
                     break;
                 case Stage.Playing:
                     DrawGame();
-                    Label(cx, 40, TimerText(), big);
+                    if (!DrawsOwnTimer) Label(cx, 40, TimerText(), big);
                     break;
                 case Stage.SensorLost:
                     Label(cx, cy - 60, "Датчик потерян", big);
@@ -336,15 +452,21 @@ namespace Neurotlon
             }
         }
 
+        // Игра рисует таймер сама (в своей плашке), текст берёт из TimerText(); тогда кит свой таймер не рисует.
+        protected virtual bool DrawsOwnTimer { get { return false; } }
+
         protected virtual string TimerText()
         {
             int seconds = Mathf.CeilToInt(TimeLeft);
             return (seconds / 60) + ":" + (seconds % 60).ToString("00");
         }
 
+        // Надпись по центру (cx, cy): ширина 90 % экрана, высота по тексту, длинные фразы переносятся и не обрезаются.
         void Label(float cx, float cy, string text, GUIStyle style)
         {
-            OutlinedLabel(new Rect(cx - Screen.width / 2f, cy - 60, Screen.width, 120), text, style);
+            float width = Screen.width * 0.9f;
+            float height = Mathf.Max(style.fontSize * 1.6f, style.CalcHeight(new GUIContent(text), width));
+            OutlinedLabel(new Rect(cx - width / 2f, cy - height / 2f, width, height), text, style);
         }
 
         // Надпись с тёмной обводкой: читается на светлом и пёстром фоне. Цвет берётся из стиля.
@@ -364,11 +486,19 @@ namespace Neurotlon
 
         void EnsureStyles()
         {
-            if (big != null) return;
-            big = new GUIStyle(GUI.skin.label) { fontSize = 72, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
-            medium = new GUIStyle(GUI.skin.label) { fontSize = 40, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
-            small = new GUIStyle(GUI.skin.label) { fontSize = 28, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
-            big.normal.textColor = medium.normal.textColor = small.normal.textColor = Color.white;
+            if (big == null)
+            {
+                big = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter, wordWrap = true };
+                medium = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter, wordWrap = true };
+                small = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter, wordWrap = true };
+                tutorialStyle = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter, wordWrap = true };
+                big.normal.textColor = medium.normal.textColor = small.normal.textColor = tutorialStyle.normal.textColor = Color.white;
+            }
+            float scale = Mathf.Clamp(Screen.height / 1080f, 0.5f, 2.5f);          // размер шрифта следует за размером окна
+            big.fontSize = Mathf.RoundToInt(72f * scale);
+            medium.fontSize = Mathf.RoundToInt(40f * scale);
+            small.fontSize = Mathf.RoundToInt(28f * scale);
+            tutorialStyle.fontSize = Mathf.RoundToInt(50f * scale);
         }
     }
 }
