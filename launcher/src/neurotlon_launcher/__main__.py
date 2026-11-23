@@ -1,4 +1,7 @@
-"""Точка входа: `neurotlon-launcher --config launcher.toml [--no-camera] [--windowed]`."""
+"""Точка входа: `neurotlon-launcher --config launcher.toml --ui-token <токен>`.
+
+Лаунчер не рисует окно сам: он отдаёт состояние окну Electron по локальному HTTP.
+"""
 
 from __future__ import annotations
 
@@ -12,7 +15,6 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from .config import ConfigError, LauncherConfig, load_config
-from .qr import create_scanner
 from .runtime import StationRuntime
 from .setup import SetupService
 from .setup_station import SetupStation
@@ -28,20 +30,16 @@ DEFAULT_CONFIG = Path("launcher.toml")
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="neurotlon-launcher", description="Лаунчер стенда")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG, help="путь к launcher.toml")
-    parser.add_argument("--no-camera", action="store_true", help="без вебки: только ввод ID")
-    parser.add_argument("--windowed", action="store_true", help="окно вместо полного экрана")
     parser.add_argument(
-        "--ui",
-        choices=("pygame", "web"),
-        default="pygame",
-        help="web: отдавать состояние окну Electron по локальному HTTP",
+        "--ui-token",
+        default="",
+        help="токен запуска (его знает окно, открывшее лаунчер), от 16 символов",
     )
-    parser.add_argument("--ui-token", default="", help="токен запуска для --ui web")
     parser.add_argument("--ui-port", type=int, default=0, help="порт моста (0 — любой свободный)")
     parser.add_argument(
         "--setup",
         action="store_true",
-        help="открыть экран настройки, даже если настройки уже есть (для --ui web)",
+        help="открыть экран настройки, даже если настройки уже есть",
     )
     parser.add_argument(
         "--ui-detached",
@@ -61,18 +59,6 @@ def setup_logging(config: LauncherConfig) -> None:
             logging.FileHandler(config.data_dir / "launcher.log", encoding="utf-8"),
         ],
     )
-
-
-def run(config: LauncherConfig, token: str, *, camera: bool, windowed: bool) -> None:
-    """Интерфейс на pygame (запасной): окно рисует сам лаунчер."""
-    from .ui import Ui  # pygame подключаем только здесь
-
-    with StationRuntime(config, token, fullscreen=not windowed) as station:
-        scanner = create_scanner(config.camera_index, enabled=camera)
-        try:
-            Ui(station.machine, scanner, station.status, windowed=windowed).run()
-        finally:
-            scanner.stop()
 
 
 def serve_bridge(
@@ -142,7 +128,7 @@ def run_setup(
 
 def main_web(args: argparse.Namespace) -> int:
     if len(args.ui_token) < 16:
-        print("Ошибка настроек: для --ui web нужен --ui-token (от 16 символов)", file=sys.stderr)
+        print("Ошибка настроек: нужен --ui-token (от 16 символов)", file=sys.stderr)
         return EXIT_CONFIG
     error: str | None = None
     if not args.setup:
@@ -174,18 +160,7 @@ def main_web(args: argparse.Namespace) -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-    if args.ui == "web":
-        return main_web(args)
-    try:
-        config = load_config(args.config)
-        token = config.read_token()
-        setup_logging(config)
-        run(config, token, camera=not args.no_camera, windowed=args.windowed)
-    except ConfigError as exc:
-        print(f"Ошибка настроек: {exc}", file=sys.stderr)
-        return EXIT_CONFIG
-    return EXIT_OK
+    return main_web(build_parser().parse_args(argv))
 
 
 if __name__ == "__main__":

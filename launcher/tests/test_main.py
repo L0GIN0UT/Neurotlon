@@ -5,27 +5,20 @@ import pytest
 from neurotlon_launcher.__main__ import EXIT_CONFIG, build_parser, main
 
 
-def test_missing_config_exits_with_message(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    assert main(["--config", str(tmp_path / "nope.toml")]) == EXIT_CONFIG
-    assert "Ошибка настроек" in capsys.readouterr().err
-
-
-def test_missing_token_file_exits_with_message(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    config = tmp_path / "launcher.toml"
-    config.write_text(
-        'server_url = "https://x"\ntoken_file = "none.token"\ndiscipline = "darts"\n'
-        '[game]\ncommand = ["g"]\n',
-        encoding="utf-8",
-    )
-    assert main(["--config", str(config)]) == EXIT_CONFIG
-    assert "токен" in capsys.readouterr().err
+def test_launch_token_is_required(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["--config", str(tmp_path / "launcher.toml")]) == EXIT_CONFIG
+    assert "--ui-token" in capsys.readouterr().err
 
 
 def test_parser_flags() -> None:
-    args = build_parser().parse_args(["--no-camera", "--windowed", "--config", "x.toml"])
-    assert (args.no_camera, args.windowed, args.config) == (True, True, Path("x.toml"))
-    assert build_parser().parse_args([]).config == Path("launcher.toml")
+    args = build_parser().parse_args(
+        ["--config", "x.toml", "--ui-token", "t" * 16, "--ui-port", "9000", "--setup"]
+    )
+    assert (args.config, args.ui_token, args.ui_port, args.setup) == (
+        Path("x.toml"),
+        "t" * 16,
+        9000,
+        True,
+    )
+    defaults = build_parser().parse_args([])
+    assert (defaults.config, defaults.ui_port, defaults.setup) == (Path("launcher.toml"), 0, False)

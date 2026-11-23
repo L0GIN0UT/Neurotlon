@@ -322,9 +322,7 @@ def test_web_mode_without_config_starts_setup_and_exits_for_restart(
         return EXIT_RESTART
 
     monkeypatch.setattr("neurotlon_launcher.__main__.run_setup", fake_setup)
-    code = main(
-        ["--config", str(tmp_path / "launcher.toml"), "--ui", "web", "--ui-token", "t" * 32]
-    )
+    code = main(["--config", str(tmp_path / "launcher.toml"), "--ui-token", "t" * 32])
     assert code == EXIT_RESTART
     assert seen["error"] is None  # файла нет — это первая настройка, а не ошибка
     assert capsys.readouterr().err == ""
@@ -339,7 +337,7 @@ def test_web_mode_with_a_broken_config_shows_the_reason_in_the_form(
         "neurotlon_launcher.__main__.run_setup",
         lambda config_path, **kwargs: record(seen, kwargs),
     )
-    main(["--config", str(tmp_path / "launcher.toml"), "--ui", "web", "--ui-token", "t" * 32])
+    main(["--config", str(tmp_path / "launcher.toml"), "--ui-token", "t" * 32])
     assert "не удалось разобрать" in seen["error"]
 
 
@@ -357,8 +355,6 @@ def test_setup_flag_forces_the_form_even_with_a_valid_config(
         [
             "--config",
             str(tmp_path / "cfg" / "launcher.toml"),
-            "--ui",
-            "web",
             "--setup",
             "--ui-token",
             "t" * 32,
@@ -368,4 +364,4 @@ def test_setup_flag_forces_the_form_even_with_a_valid_config(
 
 
 def test_web_mode_requires_a_launch_token(tmp_path: Path) -> None:
-    assert main(["--config", str(tmp_path / "x.toml"), "--ui", "web"]) == 2
+    assert main(["--config", str(tmp_path / "x.toml")]) == 2
