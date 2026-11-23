@@ -38,13 +38,14 @@ def warn_if_token_is_shared(path: Path) -> None:
 class LauncherConfig:
     server_url: str
     token_file: Path
-    discipline: str
+    discipline: str | None  # None: станция узнаёт её у сервера по токену
     game_command: tuple[str, ...]
     game_workdir: Path | None
     bridge_host: str
     bridge_port: int
     data_dir: Path
     camera_index: int
+    camera_name: str | None = None  # имя камеры для QR в веб-интерфейсе; None — по умолчанию
     ca_file: Path | None = None
     allow_insecure_http: bool = False
     fallback_duration_s: int = DEFAULT_FALLBACK_DURATION_S
@@ -91,8 +92,8 @@ def parse_config(data: dict[str, Any], base_dir: Path) -> LauncherConfig:
         path = Path(value)
         return path if path.is_absolute() else base_dir / path
 
-    discipline = _string(data, "discipline")
-    if discipline not in DISCIPLINES:
+    discipline = data.get("discipline")
+    if discipline is not None and discipline not in DISCIPLINES:
         raise ConfigError(f"discipline должна быть одной из: {', '.join(DISCIPLINES)}")
     game = _table(data, "game")
     command = game.get("command")
@@ -118,6 +119,9 @@ def parse_config(data: dict[str, Any], base_dir: Path) -> LauncherConfig:
     camera = data.get("camera_index", 0)
     if not isinstance(camera, int) or isinstance(camera, bool) or camera < 0:
         raise ConfigError("camera_index должен быть целым числом, не меньше 0")
+    camera_name = data.get("camera_name")
+    if camera_name is not None and (not isinstance(camera_name, str) or not camera_name.strip()):
+        raise ConfigError("camera_name должен быть непустой строкой — именем камеры")
     server_url = _string(data, "server_url").rstrip("/")
     insecure = data.get("allow_insecure_http", False)
     if not isinstance(insecure, bool):
@@ -148,6 +152,7 @@ def parse_config(data: dict[str, Any], base_dir: Path) -> LauncherConfig:
         bridge_port=port,
         data_dir=path_of(_string(data, "data_dir", "data")),
         camera_index=camera,
+        camera_name=camera_name.strip() if camera_name else None,
         ca_file=path_of(ca_file) if ca_file else None,
         allow_insecure_http=insecure,
         fallback_duration_s=fallback,

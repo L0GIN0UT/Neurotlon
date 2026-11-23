@@ -5,7 +5,7 @@ ca_file = "hall-ca.crt"                 # корневой сертификат 
 # allow_insecure_http = true             # ТОЛЬКО для разработки: разрешает http://, токен идёт открыто
 fallback_duration_s = 240                 # время игры, если настройки с сервера ещё ни разу не получены
 token_file = "station.token"              # файл с токеном станции (в .gitignore); сам токен сюда не пишем
-discipline = "darts"                      # darts | football | pong
+# discipline = "darts"                   # необязательно: дисциплину сообщает сервер по токену; если задана, служит проверкой
 data_dir = "data"                         # буфер результатов, кэш настроек, папки сессий
 camera_index = 0                          # номер вебки для QR
 

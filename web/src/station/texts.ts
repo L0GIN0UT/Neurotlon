@@ -77,3 +77,31 @@ export function splitResultLine(line: string): { label: string; value: string } 
   const at = line.indexOf(': ')
   return at < 0 ? { label: line, value: '' } : { label: line.slice(0, at), value: line.slice(at + 2) }
 }
+
+export const SETUP = {
+  title: 'Настройка стенда',
+  lead: 'Делается один раз. Дальше стенд запускается сам и работает без админа.',
+  server: 'Адрес сервера',
+  serverHint: 'https://192.168.1.10',
+  token: 'Токен станции',
+  tokenHint: 'Скопируйте из админки при создании станции',
+  tokenSaved: 'Сохранён. Оставьте пустым, чтобы не менять',
+  show: 'Показать',
+  hide: 'Скрыть',
+  game: 'Игра (файл .exe)',
+  gameHint: 'C:/Neurotlon/games/Darts/Darts.exe',
+  cert: 'Сертификат зала',
+  certHint: 'Необязательно. Корневой сертификат, если сервер с самоподписанным',
+  browse: 'Выбрать…',
+  camera: 'Камера для QR',
+  cameraDefault: 'По умолчанию',
+  cameraNone: 'Камеры не найдены',
+  cameraMissing: 'Выбранной камеры сейчас нет, будет использована камера по умолчанию',
+  check: 'Проверить подключение',
+  checking: 'Проверяем…',
+  save: 'Сохранить и запустить',
+  saved: 'Сохранено. Запускаем стенд…',
+  connected: 'Подключена станция',
+  playersOne: '1 игрок',
+  playersTwo: '2 игрока: слева и справа',
+}

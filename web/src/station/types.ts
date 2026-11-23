@@ -21,6 +21,17 @@ export interface RejectedItem {
   error: string
 }
 
+export interface SetupFormView {
+  server_url: string
+  game_path: string
+  ca_file: string
+  camera: string
+}
+
+export interface SetupFields extends SetupFormView {
+  token: string
+}
+
 export type StateView =
   | { kind: 'idle'; input: string; notice: string | null; taken: CandidateView[] }
   | { kind: 'checking'; code: string; taken: CandidateView[] }
@@ -37,6 +48,15 @@ export type StateView =
   | { kind: 'problem'; reason: string; players: CandidateView[] }
   | { kind: 'blocked'; message: string }
   | { kind: 'rejected'; items: RejectedItem[]; exported_to: string | null }
+  | {
+      kind: 'setup'
+      phase: 'form' | 'checking' | 'ok' | 'saved'
+      error: string | null
+      discipline: string | null
+      players_needed: number | null
+      form: SetupFormView
+      has_token: boolean
+    }
 
 export interface StatusView {
   pending: number
@@ -45,6 +65,7 @@ export interface StatusView {
 }
 
 export interface Snapshot {
+  camera?: string | null
   discipline: string
   players_needed: number
   status: StatusView
@@ -53,6 +74,7 @@ export interface Snapshot {
 
 export type Command =
   | { action: 'type_char' | 'enter_code'; value: string }
+  | { action: 'setup_check' | 'setup_save'; value: SetupFields }
   | {
       action:
         | 'backspace'

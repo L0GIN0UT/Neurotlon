@@ -8,8 +8,9 @@ from __future__ import annotations
 import logging
 from types import TracebackType
 
-from .api import HttpStationApi
-from .config import LauncherConfig
+from . import texts
+from .api import HttpStationApi, StationApiError, Unauthorized
+from .config import ConfigError, LauncherConfig
 from .game import SubprocessGameRunner
 from .heartbeat import HeartbeatLoop
 from .machine import StationMachine
@@ -41,8 +42,9 @@ class StationRuntime:
             config.bridge_port,
             fullscreen=fullscreen,
         )
+        discipline = config.discipline or self._discover_discipline()
         self.machine = StationMachine(
-            config.discipline,
+            discipline,
             self.api,
             self.outbox,
             runner,
@@ -53,9 +55,18 @@ class StationRuntime:
             self.api, self.machine.heartbeat_view, self.outbox.pending_count
         )
         recover_active(self.machine, self.outbox, data_dir)
-        problem = check_discipline(self.api, config.discipline)
+        problem = check_discipline(self.api, config.discipline) if config.discipline else None
         if problem:
             self.machine.block(problem)
+
+    def _discover_discipline(self) -> str:
+        """Дисциплина станции с сервера (без связи — из кэша прошлого запуска)."""
+        try:
+            return self.api.get_config().discipline
+        except Unauthorized as exc:
+            raise ConfigError(texts.UNAUTHORIZED) from exc
+        except StationApiError as exc:
+            raise ConfigError(texts.DISCIPLINE_UNKNOWN) from exc
 
     def status(self) -> StationStatus:
         return StationStatus(

@@ -97,8 +97,11 @@ def state_view(machine: StationMachine) -> dict[str, Any]:
     raise AssertionError(f"unknown state: {state!r}")
 
 
-def snapshot(machine: StationMachine, status: StationStatus) -> dict[str, Any]:
+def snapshot(
+    machine: StationMachine, status: StationStatus, camera: str | None = None
+) -> dict[str, Any]:
     return {
+        "camera": camera,
         "discipline": machine.discipline,
         "players_needed": machine.players_needed,
         "status": {

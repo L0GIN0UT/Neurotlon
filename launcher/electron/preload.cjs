@@ -1,7 +1,7 @@
 'use strict'
-// Передаёт странице адрес и токен моста. Страница больше ничего из Electron не видит.
+// Передаёт странице адрес и токен моста и диалог выбора файла. Больше страница ничего не видит.
 
-const { contextBridge } = require('electron')
+const { contextBridge, ipcRenderer } = require('electron')
 
 const find = (name) => {
   const prefix = `--${name}=`
@@ -14,3 +14,7 @@ const token = find('bridge-token')
 if (/^\d{2,5}$/.test(port) && token) {
   contextBridge.exposeInMainWorld('stationBridge', { url: `http://127.0.0.1:${port}`, token })
 }
+
+contextBridge.exposeInMainWorld('stationShell', {
+  pickFile: (kind) => ipcRenderer.invoke('pick-file', kind),
+})

@@ -1,6 +1,7 @@
 import { LayoutGroup, motion } from 'motion/react'
 import type { ReactNode } from 'react'
 import { DisciplineIcon } from '../shared/icons/DisciplineIcon.tsx'
+import logo from './assets/logo.png'
 import type { Connection } from './bridge.ts'
 import { Icon } from './Icon.tsx'
 import type { IconName } from './Icon.tsx'
@@ -27,12 +28,12 @@ export function Chip({
   children,
 }: {
   tone: 'good' | 'warn' | 'bad' | 'muted'
-  icon?: IconName
+  icon?: IconName | 'dot'
   children: ReactNode
 }) {
   return (
     <span className={`chip chip-${tone}`}>
-      {icon && <Icon name={icon} />}
+      {icon === 'dot' ? <i className="dot" /> : icon && <Icon name={icon} />}
       <span>{children}</span>
     </span>
   )
@@ -41,9 +42,9 @@ export function Chip({
 function LinkChip({ snapshot, connection }: { snapshot: Snapshot | null; connection: Connection }) {
   if (connection === 'lost') return <Chip tone="bad" icon="offline">{t.BRIDGE_LOST}</Chip>
   const online = snapshot?.status.online
-  if (online === true) return <Chip tone="good"><span className="dot" />{t.LINK.live}</Chip>
+  if (online === true) return <Chip tone="good" icon="dot">{t.LINK.live}</Chip>
   if (online === false) return <Chip tone="warn" icon="offline">{t.LINK.lost}</Chip>
-  return <Chip tone="muted"><span className="dot" />{t.LINK.unknown}</Chip>
+  return <Chip tone="muted" icon="dot">{t.LINK.unknown}</Chip>
 }
 
 function Steps({ current }: { current: number }) {
@@ -69,13 +70,7 @@ export function TopBar({ snapshot, connection }: { snapshot: Snapshot | null; co
   const step = snapshot ? stepOf(snapshot.state.kind) : null
   return (
     <header className="topbar">
-      <div className="brand">
-        <span className="brand-dot" />
-        <div>
-          <div className="brand-name">{t.BRAND}</div>
-          <div className="brand-sub">{t.BRAND_SUB}</div>
-        </div>
-      </div>
+      <img className="brand-logo" src={logo} alt={`${t.BRAND} · ${t.BRAND_SUB}`} />
       <LayoutGroup>{step !== null && <Steps current={step} />}</LayoutGroup>
       <LinkChip snapshot={snapshot} connection={connection} />
     </header>

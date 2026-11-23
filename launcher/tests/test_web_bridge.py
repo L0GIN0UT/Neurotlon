@@ -42,7 +42,7 @@ def make_machine(discipline: str = "darts") -> tuple[StationMachine, Time]:
 @pytest.fixture
 def bridge() -> Iterator[tuple[BridgeServer, StationMachine]]:
     machine, _ = make_machine()
-    station = Station(machine, lambda: StationStatus(2, 1, True))
+    station = Station(machine, lambda: StationStatus(2, 1, True), "USB Camera")
     server = BridgeServer(station, TOKEN)
     station.start()
     threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -84,6 +84,7 @@ def test_state_requires_token(bridge: tuple[BridgeServer, StationMachine]) -> No
     assert status == 200
     data = json.loads(body)
     assert data["discipline"] == "darts"
+    assert data["camera"] == "USB Camera"
     assert data["state"] == {"kind": "idle", "input": "", "notice": None, "taken": []}
     assert data["status"] == {"pending": 2, "rejected": 1, "online": True}
 

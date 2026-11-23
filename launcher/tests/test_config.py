@@ -60,6 +60,8 @@ def test_missing_and_empty_token_file(tmp_path: Path) -> None:
         {"bridge": {"port": 70000}},
         {"bridge": {"port": True}},
         {"camera_index": -1},
+        {"camera_name": ""},
+        {"camera_name": 5},
         {"server_url": "http://10.0.0.5:8000"},
         {"server_url": "ftp://x"},
         {"allow_insecure_http": "yes"},
@@ -130,3 +132,11 @@ def test_warns_when_token_file_is_world_readable(
 
 def test_warn_helper_is_quiet_on_missing_file(tmp_path: Path) -> None:
     warn_if_token_is_shared(tmp_path / "none.token")
+
+
+def test_camera_name_is_optional_and_trimmed() -> None:
+    assert parse_config(VALID, Path("/x")).camera_name is None
+    assert (
+        parse_config(VALID | {"camera_name": "  USB Camera "}, Path("/x")).camera_name
+        == "USB Camera"
+    )
