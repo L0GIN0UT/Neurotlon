@@ -33,6 +33,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--ui-token", default="", help="токен запуска для --ui web")
     parser.add_argument("--ui-port", type=int, default=0, help="порт моста (0 — любой свободный)")
+    parser.add_argument(
+        "--ui-detached",
+        action="store_true",
+        help="для разработки: не следить за stdin, работать до Ctrl+C",
+    )
     return parser
 
 
@@ -60,7 +65,9 @@ def run(config: LauncherConfig, token: str, *, camera: bool, windowed: bool) -> 
             scanner.stop()
 
 
-def run_web(config: LauncherConfig, token: str, *, ui_token: str, ui_port: int) -> None:
+def run_web(
+    config: LauncherConfig, token: str, *, ui_token: str, ui_port: int, detached: bool = False
+) -> None:
     """Веб-интерфейс: лаунчер отдаёт состояние по локальному HTTP, окно рисует Electron.
 
     После запуска печатает в stdout строку `{"ready": true, "port": N}` и работает, пока не
@@ -74,7 +81,10 @@ def run_web(config: LauncherConfig, token: str, *, ui_token: str, ui_port: int) 
         thread.start()
         print(json.dumps({"ready": True, "port": server.port}), flush=True)
         try:
-            sys.stdin.read()  # возвращается, когда родитель закрыл канал
+            if detached:
+                threading.Event().wait()
+            else:
+                sys.stdin.read()  # возвращается, когда родитель закрыл канал
         except KeyboardInterrupt:
             pass
         finally:
@@ -96,7 +106,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "Ошибка настроек: для --ui web нужен --ui-token (от 16 символов)", file=sys.stderr
             )
             return EXIT_CONFIG
-        run_web(config, token, ui_token=args.ui_token, ui_port=args.ui_port)
+        run_web(
+            config,
+            token,
+            ui_token=args.ui_token,
+            ui_port=args.ui_port,
+            detached=args.ui_detached,
+        )
     else:
         run(config, token, camera=not args.no_camera, windowed=args.windowed)
     return EXIT_OK

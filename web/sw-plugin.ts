@@ -6,6 +6,9 @@ import type { Plugin } from 'vite'
 // Файлы из public/, которых нет в бандле, но нужны оболочке приложения офлайн.
 const STATIC_FILES = ['/favicon.svg', '/icon.svg', '/manifest.webmanifest']
 
+/** Окно стенда (Electron) работает без service worker, планшету его файлы не нужны. */
+const isStationFile = (name: string): boolean => /(^|\/)station[.-]/.test(name)
+
 /**
  * Пишет sw.js после сборки: список файлов оболочки приложения известен только тогда.
  * Кэшируются только свои файлы, запросы к /api не трогаются, внешних адресов нет.
@@ -20,7 +23,7 @@ export function serviceWorkerPlugin(): Plugin {
     },
     generateBundle(_options, bundle) {
       const assets = Object.keys(bundle)
-        .filter((name) => name !== 'index.html')
+        .filter((name) => name !== 'index.html' && !isStationFile(name))
         .map((name) => `/${name}`)
       const files = ['/', ...assets, ...STATIC_FILES].sort()
       const source = buildServiceWorker(files, hashPublicFiles(publicDir))
