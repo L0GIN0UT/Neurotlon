@@ -280,6 +280,8 @@ body:has(.station) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  position: relative;
+  top: -0.07em; /* строка шрифта оставляет место под хвосты букв: поднимаем текст к центру плашки */
 }
 
 .chip-good {
@@ -303,10 +305,9 @@ body:has(.station) {
 }
 
 .dot {
-  display: inline-block;
+  flex: none;
   width: 0.7rem;
   height: 0.7rem;
-  margin-right: 0.5rem;
   border-radius: 50%;
   background: currentcolor;
 }
