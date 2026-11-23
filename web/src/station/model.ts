@@ -44,6 +44,8 @@ export function hintsFor(state: StateView): readonly Hint[] {
       return [['E', 'Экспорт'], ['Esc', 'Назад']]
     case 'blocked':
       return [['Ctrl+Q', 'Выход']]
+    case 'setup':
+      return [['Tab', 'Следующее поле'], ['Enter', 'Проверить']]
     default:
       return []
   }

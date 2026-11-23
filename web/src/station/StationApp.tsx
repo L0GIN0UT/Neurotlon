@@ -8,6 +8,7 @@ import { commandForKey, screenKey } from './flow.ts'
 import { accentFor, accentStyle, stepOf } from './model.ts'
 import { ScanScreen } from './ScanScreen.tsx'
 import { Screen } from './Screen.tsx'
+import { SetupScreen } from './SetupScreen.tsx'
 import type { Direction } from './Screen.tsx'
 import {
   BlockedScreen,
@@ -74,6 +75,8 @@ function Body({ snapshot, send }: { snapshot: Snapshot; send: (command: Command)
       return <BlockedScreen message={state.message} />
     case 'rejected':
       return <RejectedScreen items={state.items} exportedTo={state.exported_to} send={send} />
+    case 'setup':
+      return <SetupScreen state={state} send={send} />
   }
 }
 

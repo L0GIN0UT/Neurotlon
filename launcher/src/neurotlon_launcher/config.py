@@ -38,7 +38,7 @@ def warn_if_token_is_shared(path: Path) -> None:
 class LauncherConfig:
     server_url: str
     token_file: Path
-    discipline: str
+    discipline: str | None  # None: станция узнаёт её у сервера по токену
     game_command: tuple[str, ...]
     game_workdir: Path | None
     bridge_host: str
@@ -91,8 +91,8 @@ def parse_config(data: dict[str, Any], base_dir: Path) -> LauncherConfig:
         path = Path(value)
         return path if path.is_absolute() else base_dir / path
 
-    discipline = _string(data, "discipline")
-    if discipline not in DISCIPLINES:
+    discipline = data.get("discipline")
+    if discipline is not None and discipline not in DISCIPLINES:
         raise ConfigError(f"discipline должна быть одной из: {', '.join(DISCIPLINES)}")
     game = _table(data, "game")
     command = game.get("command")

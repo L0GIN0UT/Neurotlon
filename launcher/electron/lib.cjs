@@ -3,13 +3,19 @@
 
 const path = require('node:path')
 
+const EXIT_RESTART = 75 // лаунчер сохранил настройки и просит запустить его заново
+const RESTART_DELAY_MS = 2000
+const CRASH_WINDOW_MS = 60_000
+const MAX_CRASHES = 5
+
 /** Разбор аргументов: `--config путь`, `--windowed`, `--dev`. */
 function parseArgs(argv) {
-  const result = { config: null, windowed: false, dev: false }
+  const result = { config: null, windowed: false, dev: false, setup: false }
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]
     if (arg === '--windowed') result.windowed = true
     else if (arg === '--dev') result.dev = true
+    else if (arg === '--setup') result.setup = true
     else if (arg === '--config') {
       result.config = argv[i + 1] ?? null
       i += 1
@@ -71,4 +77,29 @@ const MIME = {
 
 const mimeFor = (file) => MIME[path.extname(file).toLowerCase()] ?? 'application/octet-stream'
 
-module.exports = { parseArgs, splitCommand, parseReadyLine, resolveInside, contentSecurityPolicy, mimeFor }
+/**
+ * Что делать, когда лаунчер вышел сам. `crashes` — время прежних аварий (мс), массив дополняется.
+ * Выход по просьбе (код 75) — сразу заново; авария — через 2 с; больше 5 аварий за минуту — стоп.
+ */
+function nextAction(code, crashes, now) {
+  if (code === EXIT_RESTART) return { action: 'restart', delayMs: 0 }
+  crashes.push(now)
+  while (crashes.length > 0 && now - crashes[0] > CRASH_WINDOW_MS) crashes.shift()
+  if (crashes.length > MAX_CRASHES) return { action: 'quit', code: code || 1 }
+  return { action: 'restart', delayMs: RESTART_DELAY_MS }
+}
+
+/**
+ * Источник страницы: схема и хост. `new URL('app://x').origin` для своей схемы даёт «null»,
+ * поэтому по нему разрешение на камеру не сравнить.
+ */
+function originOf(value) {
+  try {
+    const url = new URL(value)
+    return url.host ? `${url.protocol}//${url.host}` : ''
+  } catch {
+    return ''
+  }
+}
+
+module.exports = { originOf, EXIT_RESTART, nextAction, parseArgs, splitCommand, parseReadyLine, resolveInside, contentSecurityPolicy, mimeFor }
