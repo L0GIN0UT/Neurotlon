@@ -72,7 +72,16 @@ export function TopBar({ snapshot, connection }: { snapshot: Snapshot | null; co
     <header className="topbar">
       <img className="brand-logo" src={logo} alt={`${t.BRAND} · ${t.BRAND_SUB}`} />
       <LayoutGroup>{step !== null && <Steps current={step} />}</LayoutGroup>
-      <LinkChip snapshot={snapshot} connection={connection} />
+      <div className="topbar-right">
+        {snapshot?.sensors && !snapshot.sensors.ok && (
+          <span title={snapshot.sensors.error ?? undefined}>
+            <Chip tone="bad" icon="warning">
+              {t.SENSORS_DOWN}
+            </Chip>
+          </span>
+        )}
+        <LinkChip snapshot={snapshot} connection={connection} />
+      </div>
     </header>
   )
 }

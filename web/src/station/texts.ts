@@ -13,6 +13,7 @@ export const STEPS = ['Бейдж', 'Проверка', 'Игра', 'Резул�
 
 export const LINK = { live: 'Связь есть', lost: 'Нет связи', unknown: 'Проверяем связь' }
 export const BRIDGE_LOST = 'Нет связи с лаунчером'
+export const SENSORS_DOWN = 'Датчики не подключены'
 
 export const SCAN_PROMPT = 'Покажите QR-код бейджа камере'
 export const SCAN_PROMPT_PONG = ['Игрок 1: покажите QR-код бейджа', 'Игрок 2: покажите QR-код бейджа']
@@ -93,6 +94,27 @@ export const SETUP = {
   cert: 'Сертификат зала',
   certHint: 'Необязательно. Корневой сертификат, если сервер с самоподписанным',
   browse: 'Выбрать…',
+  sensors: 'Датчики',
+  sensorsHardware: 'Настоящие датчики (BrainBit, Callibri)',
+  sensorsEmulate: 'Эмулятор: значения клавишами, для проверки без датчиков',
+  sensorsExternal: 'Мост запускаю отдельно',
+  sensorsScan: 'Найти датчики',
+  sensorsScanning: 'Ищем датчики (около 12 секунд)…',
+  sensorsNone: 'Датчики не найдены. Проверьте питание, Bluetooth и расстояние.',
+  sensorsSerialUnknown: 'серийный номер неизвестен: впишите с наклейки на корпусе',
+  sensorsSerial: 'Серийный номер',
+  sensorsNeedCheck: 'Нажмите «Проверить подключение»: станция сообщит, какие датчики нужны.',
+  sensorsDeviceKind: { brainbit: 'BrainBit', callibri: 'Callibri' } as Record<string, string>,
+  roles: {
+    eeg: 'ЭЭГ (BrainBit)',
+    emg: 'ЭМГ (Callibri)',
+    emg_left: 'Левая рука (Callibri)',
+    emg_right: 'Правая рука (Callibri)',
+  } as Record<string, string>,
+  roleKind: { eeg: 'brainbit', emg: 'callibri', emg_left: 'callibri', emg_right: 'callibri' } as Record<
+    string,
+    string
+  >,
   camera: 'Камера для QR',
   cameraDefault: 'По умолчанию',
   cameraNone: 'Камеры не найдены',

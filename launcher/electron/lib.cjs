@@ -1,6 +1,7 @@
 'use strict'
 // Чистые функции оболочки: без Electron, проверяются `node --test`.
 
+const fs = require('node:fs')
 const path = require('node:path')
 
 const EXIT_RESTART = 75 // лаунчер сохранил настройки и просит запустить его заново
@@ -102,4 +103,17 @@ function originOf(value) {
   }
 }
 
-module.exports = { originOf, EXIT_RESTART, nextAction, parseArgs, splitCommand, parseReadyLine, resolveInside, contentSecurityPolicy, mimeFor }
+/** Первая `.exe` в папке (игра, вложенная в установщик); `''`, если папки или файла нет. */
+function firstExe(dir) {
+  try {
+    const name = fs
+      .readdirSync(dir)
+      .sort()
+      .find((entry) => entry.toLowerCase().endsWith('.exe') && fs.statSync(path.join(dir, entry)).isFile())
+    return name ? path.join(dir, name) : ''
+  } catch {
+    return ''
+  }
+}
+
+module.exports = { firstExe, originOf, EXIT_RESTART, nextAction, parseArgs, splitCommand, parseReadyLine, resolveInside, contentSecurityPolicy, mimeFor }

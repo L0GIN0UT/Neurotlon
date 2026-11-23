@@ -1,7 +1,7 @@
 {
   "name": "neurotlon-station-shell",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Окно стенда Нейротлон: Electron вокруг Python-лаунчера",
   "main": "main.cjs",
   "scripts": {
@@ -32,8 +32,20 @@
     ],
     "extraResources": [
       {
-        "from": "../../web/dist",
+        "from": "stage/web",
         "to": "web"
+      },
+      {
+        "from": "stage/core",
+        "to": "core"
+      },
+      {
+        "from": "stage/bridge",
+        "to": "bridge"
+      },
+      {
+        "from": "stage/game",
+        "to": "game"
       }
     ],
     "win": {

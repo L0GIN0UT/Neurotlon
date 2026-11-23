@@ -1230,6 +1230,84 @@ body:has(.station) {
   background: var(--surface);
 }
 
+.setup-sensors select {
+  height: 4.4rem;
+  padding: 0 1rem;
+  border: 2px solid var(--border);
+  border-radius: 1rem;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 1.7rem;
+}
+
+.setup-sensors select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.sensors-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  padding: 1rem 1.2rem;
+  border: 1px solid rgb(255 255 255 / 8%);
+  border-radius: 1rem;
+  background: rgb(0 0 0 / 18%);
+}
+
+.sensors-scan {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.sensors-scan .setup-action {
+  height: 3.6rem;
+}
+
+.sensors-found {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.sensors-role {
+  display: grid;
+  grid-template-columns: 17rem 1fr;
+  align-items: center;
+  gap: 1rem;
+  font-size: 1.5rem;
+  color: var(--muted);
+}
+
+.sensors-role input {
+  height: 4rem;
+  padding: 0 1.2rem;
+  border: 2px solid var(--border);
+  border-radius: 1rem;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 1.7rem;
+  user-select: text;
+}
+
+.sensors-role input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
 .setup-actions {
   display: flex;
   gap: 1.2rem;

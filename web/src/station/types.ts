@@ -26,6 +26,15 @@ export interface SetupFormView {
   game_path: string
   ca_file: string
   camera: string
+  sensors: string
+  devices: Record<string, string>
+}
+
+export interface SensorDevice {
+  kind: string
+  name: string
+  serial: string
+  address: string
 }
 
 export interface SetupFields extends SetupFormView {
@@ -56,6 +65,9 @@ export type StateView =
       players_needed: number | null
       form: SetupFormView
       has_token: boolean
+      sensors_available: boolean
+      roles: string[]
+      scan: { phase: 'idle' | 'scanning' | 'done'; devices: SensorDevice[]; error: string | null }
     }
 
 export interface StatusView {
@@ -66,6 +78,7 @@ export interface StatusView {
 
 export interface Snapshot {
   camera?: string | null
+  sensors?: { mode: string; ok: boolean; error: string | null } | null
   discipline: string
   players_needed: number
   status: StatusView
@@ -75,6 +88,7 @@ export interface Snapshot {
 export type Command =
   | { action: 'type_char' | 'enter_code'; value: string }
   | { action: 'setup_check' | 'setup_save'; value: SetupFields }
+  | { action: 'sensors_scan'; value?: undefined }
   | {
       action:
         | 'backspace'

@@ -9,6 +9,7 @@ __pycache__/
 htmlcov/
 dist/
 build/
+!launcher/electron/build/
 *.egg-info/
 
 # Node
@@ -52,3 +53,9 @@ deploy/backup/
 # Local browser check artefacts
 .playwright-mcp/
 web/vite.preview-local.config.ts
+
+# Сборки игр (games/build-games.ps1)
+games/builds/
+
+# Подготовка установщика стенда (deploy/scripts/build-station-installer.ps1)
+launcher/electron/stage/

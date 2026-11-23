@@ -16,6 +16,7 @@ from pathlib import Path
 
 from .config import ConfigError, LauncherConfig, load_config
 from .runtime import StationRuntime
+from .sensors import SensorService
 from .setup import SetupService
 from .setup_station import SetupStation
 from .web_bridge import BridgeServer, LiveState, Station
@@ -36,6 +37,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="токен запуска (его знает окно, открывшее лаунчер), от 16 символов",
     )
     parser.add_argument("--ui-port", type=int, default=0, help="порт моста (0 — любой свободный)")
+    parser.add_argument(
+        "--default-game",
+        default="",
+        help="путь к игре, вложенной в установщик: экран настройки подставит его в форму",
+    )
+    parser.add_argument(
+        "--bridge-exe",
+        default="",
+        help="путь к neurotlon-bridge.exe, вложенному в установщик (мост датчиков)",
+    )
     parser.add_argument(
         "--setup",
         action="store_true",
@@ -103,12 +114,18 @@ def serve_bridge(
 
 
 def run_web(
-    config: LauncherConfig, token: str, *, ui_token: str, ui_port: int, detached: bool = False
+    config: LauncherConfig,
+    token: str,
+    *,
+    ui_token: str,
+    ui_port: int,
+    detached: bool = False,
+    bridge_exe: str = "",
 ) -> None:
     """Веб-интерфейс: лаунчер отдаёт состояние по локальному HTTP, окно рисует Electron."""
-    with StationRuntime(config, token, fullscreen=True) as runtime:
+    with StationRuntime(config, token, fullscreen=True, bridge_exe=bridge_exe) as runtime:
         serve_bridge(
-            Station(runtime.machine, runtime.status, config.camera_name),
+            Station(runtime.machine, runtime.status, config.camera_name, runtime.bridge_status),
             ui_token=ui_token,
             ui_port=ui_port,
             detached=detached,
@@ -116,10 +133,24 @@ def run_web(
 
 
 def run_setup(
-    config_path: Path, *, error: str | None, ui_token: str, ui_port: int, detached: bool
+    config_path: Path,
+    *,
+    error: str | None,
+    ui_token: str,
+    ui_port: int,
+    detached: bool,
+    default_game: str = "",
+    bridge_exe: str = "",
 ) -> int:
     """Экран первой настройки: `EXIT_RESTART`, если настройки сохранены."""
-    station = SetupStation(SetupService(config_path), error)
+    station = SetupStation(
+        SetupService(
+            config_path,
+            default_game=default_game,
+            sensors=SensorService(config_path.parent, bridge_exe),
+        ),
+        error,
+    )
     saved = serve_bridge(
         station, ui_token=ui_token, ui_port=ui_port, detached=detached, done=station.saved
     )
@@ -142,6 +173,7 @@ def main_web(args: argparse.Namespace) -> int:
                 ui_token=args.ui_token,
                 ui_port=args.ui_port,
                 detached=args.ui_detached,
+                bridge_exe=args.bridge_exe,
             )
             return EXIT_OK
         except ConfigError as exc:
@@ -156,6 +188,8 @@ def main_web(args: argparse.Namespace) -> int:
         ui_token=args.ui_token,
         ui_port=args.ui_port,
         detached=args.ui_detached,
+        default_game=args.default_game,
+        bridge_exe=args.bridge_exe,
     )
 
 

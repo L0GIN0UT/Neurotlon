@@ -11,7 +11,7 @@ import os
 import ssl
 import tomllib
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -23,9 +23,20 @@ from .api import (
     Unauthorized,
 )
 from .config import ConfigError, load_config
+from .sensors import SensorService, duplicate_serials, missing_roles
 
 TOKEN_FILE = "station.token"
 MIN_TOKEN_LENGTH = 16
+ROLE_TITLES = {
+    "eeg": "ЭЭГ (BrainBit)",
+    "emg": "ЭМГ (Callibri)",
+    "emg_left": "левая рука (Callibri)",
+    "emg_right": "правая рука (Callibri)",
+}
+SENSORS_MODE = "Режим датчиков: настоящие датчики или эмулятор"
+NO_BRIDGE_IN_BUILD = "Мост датчиков не входит в эту установку: выберите «запускаю мост отдельно»"
+SENSORS_MISSING = "Укажите серийные номера датчиков: {roles}"
+SENSORS_DUPLICATE = "Один и тот же датчик указан для двух сигналов"
 
 URL_REQUIRED = "Введите адрес сервера, например https://192.168.1.10"
 URL_SCHEME = "Адрес должен начинаться с https://: токен станции не отправляется открыто"
@@ -59,6 +70,8 @@ class SetupForm:
     game_path: str = ""
     ca_file: str = ""  # необязательно
     camera: str = ""  # имя камеры для QR; пусто — камера по умолчанию
+    sensors: str = ""  # hardware | emulate; пусто — мост запускают отдельно (external)
+    devices: dict[str, str] = field(default_factory=dict)  # сигнал -> серийный номер датчика
 
 
 @dataclass(frozen=True)
@@ -84,9 +97,13 @@ class SetupService:
         self,
         config_path: Path,
         client_factory: ClientFactory = _http_client,
+        default_game: str = "",
+        sensors: SensorService | None = None,
     ) -> None:
+        self.sensors = sensors or SensorService(config_path.parent)
         self._path = config_path
         self._client_factory = client_factory
+        self._default_game = default_game  # игра, вложенная в установщик: подставляется в форму
 
     # --- что уже сохранено ----------------------------------------------------------------
 
@@ -104,9 +121,11 @@ class SetupService:
         """Прежние значения для формы. Токен не отдаётся: только признак, что он сохранён."""
         form: dict[str, Any] = {
             "server_url": "",
-            "game_path": "",
+            "game_path": self._default_game,
             "ca_file": "",
             "camera": "",
+            "sensors": "hardware" if self.sensors.available else "",
+            "devices": self.sensors.saved_devices(),
             "has_token": bool(self.saved_token()),
         }
         try:
@@ -114,9 +133,19 @@ class SetupService:
         except ConfigError:
             return form
         form["server_url"] = config.server_url
-        form["game_path"] = config.game_command[0]
+        saved_game = config.game_command[0]
+        # Сохранённая игра пропала (например, переустановка в другую папку): берём вложенную.
+        form["game_path"] = (
+            saved_game
+            if Path(saved_game).is_file() or not self._default_game
+            else self._default_game
+        )
         form["ca_file"] = str(config.ca_file) if config.ca_file else ""
         form["camera"] = config.camera_name or ""
+        if config.bridge_mode in ("hardware", "emulate"):
+            form["sensors"] = config.bridge_mode
+        elif self.sensors.available:
+            form["sensors"] = ""  # админ сознательно оставил внешний мост
         return form
 
     # --- проверка -------------------------------------------------------------------------
@@ -163,7 +192,20 @@ class SetupService:
             return CheckResult(None, f"Сервер ответил ошибкой: {exc}")
         finally:
             client.close()
-        return CheckResult(config.discipline, None)
+        return CheckResult(config.discipline, self._sensor_problem(form, config.discipline))
+
+    def _sensor_problem(self, form: SetupForm, discipline: str) -> str | None:
+        if form.sensors not in ("", "hardware", "emulate"):
+            return SENSORS_MODE
+        if form.sensors and not self.sensors.available:
+            return NO_BRIDGE_IN_BUILD
+        if form.sensors == "hardware":
+            missing = missing_roles(discipline, form.devices)
+            if missing:
+                return SENSORS_MISSING.format(roles=", ".join(ROLE_TITLES[r] for r in missing))
+            if duplicate_serials(discipline, form.devices):
+                return SENSORS_DUPLICATE
+        return None
 
     # --- запись ---------------------------------------------------------------------------
 
@@ -193,6 +235,10 @@ class SetupService:
             f"workdir = {_toml(str(game.parent))}",
             "",
         ]
+        if form.sensors in ("hardware", "emulate"):
+            lines += ["[bridge]", f'mode = "{form.sensors}"', ""]
+            if form.sensors == "hardware":
+                self.sensors.save_devices(form.devices)
         _atomic_write(self.token_path, token + "\n", private=True)
         _atomic_write(self._path, "\n".join(lines), private=False)
         tomllib.loads(self._path.read_text(encoding="utf-8"))  # записали читаемый файл

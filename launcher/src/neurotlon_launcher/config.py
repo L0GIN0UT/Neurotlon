@@ -45,6 +45,7 @@ class LauncherConfig:
     bridge_port: int
     data_dir: Path
     camera_index: int
+    bridge_mode: str = "external"  # external: мост запускают отдельно; hardware | emulate: лаунчер
     camera_name: str | None = None  # имя камеры для QR в веб-интерфейсе; None — по умолчанию
     ca_file: Path | None = None
     allow_insecure_http: bool = False
@@ -116,6 +117,9 @@ def parse_config(data: dict[str, Any], base_dir: Path) -> LauncherConfig:
         or not 1 <= port <= 65535
     ):
         raise ConfigError("в [bridge] host — строка, port — число 1…65535")
+    mode = bridge.get("mode", "external")
+    if mode not in ("external", "hardware", "emulate"):
+        raise ConfigError("в [bridge] mode — external, hardware или emulate")
     camera = data.get("camera_index", 0)
     if not isinstance(camera, int) or isinstance(camera, bool) or camera < 0:
         raise ConfigError("camera_index должен быть целым числом, не меньше 0")
@@ -150,6 +154,7 @@ def parse_config(data: dict[str, Any], base_dir: Path) -> LauncherConfig:
         game_workdir=path_of(workdir) if workdir else None,
         bridge_host=host,
         bridge_port=port,
+        bridge_mode=mode,
         data_dir=path_of(_string(data, "data_dir", "data")),
         camera_index=camera,
         camera_name=camera_name.strip() if camera_name else None,

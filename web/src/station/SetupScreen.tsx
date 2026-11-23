@@ -6,7 +6,7 @@ import type { CameraInfo } from './camera.ts'
 import { Chip } from './Frame.tsx'
 import { Icon } from './Icon.tsx'
 import * as t from './texts.ts'
-import type { Command, SetupFields, StateView } from './types.ts'
+import type { Command, SensorDevice, SetupFields, StateView } from './types.ts'
 
 type SetupState = Extract<StateView, { kind: 'setup' }>
 
@@ -120,6 +120,96 @@ function CameraPicker({ value, onChange }: { value: string; onChange: (label: st
   )
 }
 
+/** Раздел «Датчики»: режим, поиск и серийные номера по ролям дисциплины. */
+function SensorsSection({
+  state,
+  fields,
+  setFields,
+  send,
+}: {
+  state: SetupState
+  fields: SetupFields
+  setFields: (update: (fields: SetupFields) => SetupFields) => void
+  send: (command: Command) => void
+}) {
+  if (!state.sensors_available) return null
+  const scan = state.scan
+  const hardware = fields.sensors === 'hardware'
+  const setSerial = (role: string, serial: string) =>
+    setFields((f) => ({ ...f, devices: { ...f.devices, [role]: serial } }))
+  const offered = (role: string): SensorDevice[] =>
+    scan.devices.filter((d) => d.kind === t.SETUP.roleKind[role] && d.serial !== '')
+  return (
+    <div className="setup-field setup-sensors">
+      <label className="setup-label" htmlFor="setup-sensors">
+        {t.SETUP.sensors}
+      </label>
+      <select
+        id="setup-sensors"
+        value={fields.sensors}
+        onChange={(event) => setFields((f) => ({ ...f, sensors: event.target.value }))}
+      >
+        <option value="hardware">{t.SETUP.sensorsHardware}</option>
+        <option value="emulate">{t.SETUP.sensorsEmulate}</option>
+        <option value="">{t.SETUP.sensorsExternal}</option>
+      </select>
+      {hardware && (
+        <div className="sensors-panel">
+          <div className="sensors-scan">
+            <button
+              type="button"
+              className="setup-action"
+              disabled={scan.phase === 'scanning'}
+              onClick={() => send({ action: 'sensors_scan' })}
+            >
+              {t.SETUP.sensorsScan}
+            </button>
+            {scan.phase === 'scanning' && <span className="setup-hint">{t.SETUP.sensorsScanning}</span>}
+            {scan.phase === 'done' && scan.error && <span className="setup-hint warn">{scan.error}</span>}
+            {scan.phase === 'done' && !scan.error && scan.devices.length === 0 && (
+              <span className="setup-hint warn">{t.SETUP.sensorsNone}</span>
+            )}
+          </div>
+          {scan.devices.length > 0 && (
+            <ul className="sensors-found" data-testid="sensors-found">
+              {scan.devices.map((d) => (
+                <li key={d.address}>
+                  <b>{t.SETUP.sensorsDeviceKind[d.kind] ?? d.kind}</b> {d.name}{' '}
+                  <span className="setup-hint">
+                    {d.serial || t.SETUP.sensorsSerialUnknown} · {d.address}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {state.roles.length === 0 ? (
+            <p className="setup-hint">{t.SETUP.sensorsNeedCheck}</p>
+          ) : (
+            state.roles.map((role) => (
+              <label key={role} className="sensors-role">
+                <span>{t.SETUP.roles[role] ?? role}</span>
+                <input
+                  value={fields.devices[role] ?? ''}
+                  placeholder={t.SETUP.sensorsSerial}
+                  list={`serials-${role}`}
+                  spellCheck={false}
+                  autoComplete="off"
+                  onChange={(event) => setSerial(role, event.target.value)}
+                />
+                <datalist id={`serials-${role}`}>
+                  {offered(role).map((d) => (
+                    <option key={d.address} value={d.serial} label={d.name} />
+                  ))}
+                </datalist>
+              </label>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 /** Первая настройка: адрес сервера, токен станции, игра. Дисциплину сообщает сервер. */
 export function SetupScreen({
   state,
@@ -128,7 +218,11 @@ export function SetupScreen({
   state: SetupState
   send: (command: Command) => void
 }) {
-  const [fields, setFields] = useState<SetupFields>({ ...state.form, token: '' })
+  const [fields, setFields] = useState<SetupFields>({
+    ...state.form,
+    devices: { ...state.form.devices },
+    token: '',
+  })
   const [showToken, setShowToken] = useState(false)
   // Сохранить можно только проверенное: правка поля после проверки сбрасывает «готово».
   const [checked, setChecked] = useState<SetupFields | null>(null)
@@ -180,6 +274,7 @@ export function SetupScreen({
           action={pick('game', 'game_path')}
         />
         <CameraPicker value={fields.camera} onChange={set('camera')} />
+        <SensorsSection state={state} fields={fields} setFields={setFields} send={send} />
         <Field
           label={t.SETUP.cert}
           hint={t.SETUP.certHint}
@@ -244,6 +339,8 @@ function same(a: SetupFields, b: SetupFields): boolean {
     a.token === b.token &&
     a.game_path === b.game_path &&
     a.ca_file === b.ca_file &&
-    a.camera === b.camera
+    a.camera === b.camera &&
+    a.sensors === b.sensors &&
+    JSON.stringify(a.devices) === JSON.stringify(b.devices)
   )
 }
