@@ -8,12 +8,6 @@ from dataclasses import dataclass
 Rect = tuple[int, int, int, int]  # x, y, ширина, высота
 Color = tuple[int, int, int]
 
-GRAY: Color = (150, 150, 150)
-WHITE: Color = (245, 245, 245)
-DARK: Color = (24, 26, 32)
-RED: Color = (235, 90, 90)
-YELLOW: Color = (240, 200, 60)
-GREEN: Color = (70, 170, 110)
 DEFAULT_TEAM_COLOR: Color = (110, 110, 120)
 
 
@@ -70,14 +64,3 @@ class Button:
 
     def hit(self, point: tuple[int, int]) -> bool:
         return contains(self.rect, point)
-
-
-def button_row(screen_w: int, screen_h: int, count: int) -> list[Rect]:
-    """Ряд из `count` равных кнопок внизу экрана."""
-    gap = screen_w // 40
-    width = min(screen_w // 3, (screen_w - gap * (count + 1)) // max(count, 1))
-    height = screen_h // 9
-    total = width * count + gap * (count - 1)
-    left = (screen_w - total) // 2
-    top = screen_h - height - screen_h // 8
-    return [(left + i * (width + gap), top, width, height) for i in range(count)]

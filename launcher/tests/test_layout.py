@@ -1,7 +1,6 @@
 from neurotlon_launcher.layout import (
     DEFAULT_TEAM_COLOR,
     Button,
-    button_row,
     contains,
     fit_rect,
     parse_hex_color,
@@ -43,12 +42,3 @@ def test_button_hit_is_half_open() -> None:
     assert not button.hit((110, 30))
     assert not button.hit((50, 60))
     assert contains((0, 0, 1, 1), (0, 0))
-
-
-def test_button_row_fits_screen_without_overlap() -> None:
-    for count in (1, 2):
-        rects = button_row(1920, 1080, count)
-        assert len(rects) == count
-        assert all(x >= 0 and x + w <= 1920 and y + h <= 1080 for x, y, w, h in rects)
-    left, right = button_row(1920, 1080, 2)
-    assert left[0] + left[2] < right[0]

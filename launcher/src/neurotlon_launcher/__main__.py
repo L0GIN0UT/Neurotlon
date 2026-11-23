@@ -18,6 +18,7 @@ from .qr import create_scanner
 from .recovery import recover_active
 from .sender import Sender
 from .startup import check_discipline
+from .status import StationStatus
 
 EXIT_OK = 0
 EXIT_CONFIG = 2
@@ -84,7 +85,9 @@ def run(config: LauncherConfig, token: str, *, camera: bool, windowed: bool) -> 
         Ui(
             machine,
             scanner,
-            lambda: (outbox.pending_count(), outbox.rejected_count()),
+            lambda: StationStatus(
+                outbox.pending_count(), outbox.rejected_count(), heartbeat.online
+            ),
             windowed=windowed,
         ).run()
     finally:
