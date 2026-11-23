@@ -48,8 +48,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--grace-s",
         type=float,
-        default=120.0,
-        help="запас на выход сверх duration_s, как у лаунчера (по умолчанию 120)",
+        default=420.0,
+        help="запас на выход сверх duration_s, как у лаунчера (по умолчанию 420)",
     )
     parser.add_argument(
         "--bridge-speed",
