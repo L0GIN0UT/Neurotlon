@@ -84,7 +84,7 @@ class Options:
     command: tuple[str, ...]
     duration_s: int = 10
     max_points: int | None = None
-    grace_s: float = 120.0
+    grace_s: float = 420.0
     bridge_speed: float = 10.0
     time_scale: float = 1.0
     abort_test: bool = False

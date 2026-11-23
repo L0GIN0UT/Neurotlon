@@ -10,7 +10,9 @@ namespace Neurotlon.Games.Football
     {
         enum Phase { Intro, Playing, Result }
 
-        const float IntroSeconds = 2.8f;
+        const float IntroSeconds = 1.8f;
+        const float CheckIntroSeconds = 0.8f;       // в демо-проверке заставки короче: игрок уже обучен
+        const float CheckResultSeconds = 1.0f;
         const float ResultSeconds = 1.8f;
         const float EndDelaySeconds = 1.2f;
         const float CameraHeight = 1.6f;
@@ -46,6 +48,8 @@ namespace Neurotlon.Games.Football
         Phase phase;
         float phaseTimer;
         float endTimer = -1f;
+        bool worldReady;                                  // сцена и физика мяча подготовлены (один раз: для проверки и для игры)
+        bool checking;                                    // идёт демо-проверка: правила свои, очки в результат не идут
         FootballElement shown;                           // элемент, который сейчас показывается
         float lastEmg;
         string resultText = "";
@@ -135,6 +139,18 @@ namespace Neurotlon.Games.Football
 
         protected override void OnGameStart()
         {
+            PrepareWorld();
+            checking = false;
+            var real = new FootballRules(tuning, () => (float)random.NextDouble());
+            if (Launch.MaxPoints > 0) real.MaxPoints = Launch.MaxPoints;
+            StartRules(real);
+        }
+
+        // Сцена и физика мяча: один раз на запуск, и для проверки, и для игры.
+        void PrepareWorld()
+        {
+            if (worldReady) return;
+            worldReady = true;
             if (ball != null) ballScale = ball.localScale;
             if (cones != null)
             {
@@ -145,13 +161,83 @@ namespace Neurotlon.Games.Football
             string demoMode = ReadArg("--demo");
             if (demoMode == "right" || demoMode == "wrong") demo = new FootballDemo(demoMode == "right", tuning);
             CreateBallProxy();
-            rules = new FootballRules(tuning, () => (float)random.NextDouble());
-            if (Launch.MaxPoints > 0) rules.MaxPoints = Launch.MaxPoints;
+        }
+
+        // Запустить правила (проверки или игры) с чистого листа: очки, надписи и физика прошлого прогона не переходят.
+        void StartRules(FootballRules next)
+        {
+            rules = next;
             rules.Raised += OnRulesEvent;
+            for (int i = 0; i < elementPoints.Length; i++) elementPoints[i] = -1;
+            endTimer = -1f;
+            bonusShown = -1;
+            resultText = "";
+            attemptTimer = 0f;
             EnterIntro(rules.Current.Kind);
         }
 
+        // Обучение: по шагу на элемент, коротко.
+        protected override string[] TutorialSteps()
+        {
+            return new[]
+            {
+                SnakeTutorial(),
+                "Передача: сосредоточьтесь, круг сузится, сожмите ногу, мяч уйдёт в золотое кольцо",
+                "Остановка: мяч катится сам, тормозите ногой, остановите его в жёлтой зоне",
+                "Удар: бейте в красное или жёлтое кольцо мишени, это 2 очка",
+            };
+        }
+
+        string SnakeTutorial()
+        {
+            switch (tuning.Dribble)
+            {
+                case DribbleMode.Rhythm: return "Ведение: напрягайте ногу в такт, когда кольцо сожмётся вокруг мяча";
+                case DribbleMode.Level: return "Ведение: сильнее напряжение, мяч вправо, слабее, влево. Обведите конусы";
+                default: return "Ведение: напряжение ноги даёт газ, расслабление тормозит. Обведите конусы, на поворотах сбавьте";
+            }
+        }
+
+        protected override bool HasCheck { get { return true; } }
+
+        // Демо-проверка: довести мяч до первого конуса, потом один раз ударить в мишень. Отдельные правила и отдельные мячи:
+        // очки проверки в результат не идут. Неудачный удар (мимо мишени) повторяется, после трёх неудач просят волонтёра.
+        protected override void OnCheckStart()
+        {
+            PrepareWorld();
+            checking = true;
+            StartRules(new FootballRules(tuning.CopyForCheck(), () => (float)random.NextDouble(), new[] { 0, 3 }));
+        }
+
+        protected override void OnCheckUpdate(float dt)
+        {
+            StepGame(dt);
+        }
+
+        // Проверка закончилась: удар попал в мишень: пройдено; мимо: ещё одна попытка (одним ударом, без змейки).
+        void CompleteCheck()
+        {
+            int kick = rules.PointsOf(rules.Count - 1);
+            if (kick >= 1)
+            {
+                checking = false;
+                ClearSpent();
+                ResetCones();
+                HideAll();
+                PassCheck();
+                return;
+            }
+            ReportCheckFailure();
+            StartRules(new FootballRules(tuning.CopyForCheck(), () => (float)random.NextDouble(), new[] { 3 }));
+        }
+
         protected override void OnGameUpdate(float dt)
+        {
+            StepGame(dt);
+        }
+
+        // Ход игры или проверки: сигналы, фазы (заставка, игра, итог элемента), картинка.
+        void StepGame(float dt)
         {
             float? eeg = Bridge.Value(NeurotlonProtocol.SignalEeg);
             float? emg = Bridge.Value(NeurotlonProtocol.SignalEmg);
@@ -164,7 +250,7 @@ namespace Neurotlon.Games.Football
                 emg = demoEmg;
             }
             if (emg.HasValue) lastEmg = emg.Value;
-            HandleKeys();
+            if (!checking) HandleKeys();
             phaseTimer -= dt;
             attemptTimer -= dt;
             switch (phase)
@@ -178,7 +264,11 @@ namespace Neurotlon.Games.Football
                 case Phase.Result:
                     if (phaseTimer <= 0f)
                     {
-                        if (rules.Over) { if (endTimer < 0f) endTimer = EndDelaySeconds; }
+                        if (rules.Over)
+                        {
+                            if (checking) { CompleteCheck(); return; }
+                            if (endTimer < 0f) endTimer = EndDelaySeconds;
+                        }
                         else EnterIntro(rules.Current.Kind);
                     }
                     break;
@@ -198,10 +288,7 @@ namespace Neurotlon.Games.Football
             return new List<ResultEntryData> { NeurotlonResult.Completed(Launch.Participants[0].code, points) };
         }
 
-        protected override string TimerText()
-        {
-            return "";
-        }
+        protected override bool DrawsOwnTimer { get { return true; } }
 
         protected override string FinishedMessage()
         {
@@ -249,7 +336,7 @@ namespace Neurotlon.Games.Football
                     resultText = "готово";
                     resultElement = e.Element;
                     phase = Phase.Result;
-                    phaseTimer = ResultSeconds;
+                    phaseTimer = checking ? CheckResultSeconds : ResultSeconds;
                     break;
                 case FootballEventKind.GameOver:
                     bonusShown = rules.AccuracyBonus;
@@ -265,7 +352,7 @@ namespace Neurotlon.Games.Football
             if (kind == FootballElement.Snake) ResetCones();
             shown = kind;
             phase = Phase.Intro;
-            phaseTimer = IntroSeconds;
+            phaseTimer = checking ? CheckIntroSeconds : IntroSeconds;
             ballPos = StartPosition(kind);
             lastBallPos = ballPos;
             if (ball != null) ball.position = ballPos;
@@ -946,16 +1033,15 @@ namespace Neurotlon.Games.Football
             nameStyle.alignment = TextAnchor.MiddleLeft;
             OutlinedLabel(new Rect(top.x + 36f * s, top.y, plaqueW * 0.3f, top.height), PlayerName(), nameStyle);
             DrawPips(top, s);
+            scoreStyle.alignment = TextAnchor.MiddleLeft;
+            OutlinedLabel(new Rect(top.center.x + 150f * s, top.y, 170f * s, top.height), TimerText(), scoreStyle);
             scoreStyle.alignment = TextAnchor.MiddleRight;
             int score = rules != null ? rules.Score : 0;
-            OutlinedLabel(new Rect(top.xMax - plaqueW * 0.3f - 36f * s, top.y, plaqueW * 0.3f, top.height), "Очки  " + score, scoreStyle);
+            OutlinedLabel(new Rect(top.xMax - plaqueW * 0.2f - 36f * s, top.y, plaqueW * 0.2f, top.height), "Очки  " + score, scoreStyle);
 
-            // подсказка и шкалы внизу
-            var bottom = new Rect(px, h - 20f * s - 150f * s, plaqueW, 150f * s);
+            // шкалы внизу (без подсказок: правила показаны в обучении)
+            var bottom = new Rect(px, h - 20f * s - 112f * s, plaqueW, 112f * s);
             Plaque(bottom, s);
-            midStyle.alignment = TextAnchor.UpperCenter;
-            hintStyle.alignment = TextAnchor.UpperCenter;
-            OutlinedLabel(new Rect(bottom.x + 20f * s, bottom.y + 12f * s, bottom.width - 40f * s, 44f * s), Hint(shown), hintStyle);
             DrawBars(bottom, s);
 
             DrawAttempts(top, s);
@@ -965,6 +1051,25 @@ namespace Neurotlon.Games.Football
                 if (attemptTimer > 0f && phase != Phase.Result) DrawAttemptPopup(s);                // в итоге элемента отдельная надпись попытки не нужна: она бы наложилась на итог
                 if (phase == Phase.Result && !string.IsNullOrEmpty(resultText)) DrawResultPopup(s);
             }
+        }
+
+        // Экран демо-проверки: что сделать, шкалы и попытки. Очков и таймера нет.
+        protected override void DrawCheck()
+        {
+            float s = Screen.height / 1080f;
+            float w = Screen.width, h = Screen.height;
+            EnsureStyles(s);
+            float plaqueW = Mathf.Min(w * 0.94f, 1180f * s);
+            float px = (w - plaqueW) * 0.5f;
+            var top = new Rect(px, 20f * s, plaqueW, 88f * s);
+            Plaque(top, s);
+            nameStyle.alignment = TextAnchor.MiddleCenter;
+            string task = shown == FootballElement.Kick ? "ПРОВЕРКА: ударьте в мишень" : "ПРОВЕРКА: проведите мяч до конуса";
+            OutlinedLabel(top, task, nameStyle);
+            var bottom = new Rect(px, h - 20f * s - 112f * s, plaqueW, 112f * s);
+            Plaque(bottom, s);
+            DrawBars(bottom, s);
+            if (attemptTimer > 0f && phase == Phase.Playing) DrawAttemptPopup(s);
         }
 
         void DrawIntro(float s)
@@ -977,10 +1082,6 @@ namespace Neurotlon.Games.Football
             midStyle.alignment = TextAnchor.MiddleCenter;
             OutlinedLabel(new Rect(0f, h * 0.32f, w, 50f * s), "ЭЛЕМЕНТ " + ((int)shown + 1) + " ИЗ 4", midStyle);
             OutlinedLabel(new Rect(0f, h * 0.38f, w, 100f * s), ElementName(shown).ToUpper(), bigStyle);
-            if (shown == FootballElement.Pass || shown == FootballElement.Kick)
-                OutlinedLabel(new Rect(0f, h * 0.50f, w, 44f * s), tuning.Attempts + " попытки, за каждую 0–2 очка", midStyle);
-            if (shown == FootballElement.Snake)
-                OutlinedLabel(new Rect(0f, h * 0.50f, w, 44f * s), "Способ ведения: " + DribbleName(tuning.Dribble) + "   (F1 / F2 / F3 — другой)", midStyle);
         }
 
         // Под верхней плашкой: три кружка попыток у передачи и удара (цвет — очки попытки, рамка — текущая).
@@ -1048,11 +1149,10 @@ namespace Neurotlon.Games.Football
 
         void DrawBars(Rect bottom, float s)
         {
-            float pad = 40f * s, barW = (bottom.width - pad * 3f) * 0.5f, barH = 22f * s, y = bottom.y + 112f * s;
+            float pad = 40f * s, barW = (bottom.width - pad * 3f) * 0.5f, barH = 22f * s, y = bottom.y + 72f * s;
             bool aimed = shown == FootballElement.Pass || shown == FootballElement.Kick;
             float grip = tuning.GripOn;
-            string leftLabel = aimed ? (lastEmg >= grip ? "НОГА: УДАР!" : "НОГА: сожмите выше линии")
-                : (shown == FootballElement.Stop ? "НОГА: торможение" : "НОГА: напряжение");
+            string leftLabel = "НОГА";
             Color leftColor = aimed && lastEmg >= grip ? Good : Okay;
             DrawBar(new Rect(bottom.x + pad, y, barW, barH), leftLabel, lastEmg, leftColor, aimed ? grip : -1f, s);
             string rightLabel;
@@ -1146,30 +1246,6 @@ namespace Neurotlon.Games.Football
                 case FootballElement.Stop: return "Остановка в зоне";
                 case FootballElement.Kick: return "Удар в мишень";
                 default: return "Ведение змейкой";
-            }
-        }
-
-        static string DribbleName(DribbleMode m)
-        {
-            switch (m)
-            {
-                case DribbleMode.Throttle: return "газ и тормоз";
-                case DribbleMode.Rhythm: return "ритм";
-                default: return "уровень напряжения";
-            }
-        }
-
-        string Hint(FootballElement e)
-        {
-            switch (e)
-            {
-                case FootballElement.Snake:
-                    if (tuning.Dribble == DribbleMode.Throttle) return "Напряжение — газ, расслабление — тормоз; на поворотах сбавьте";
-                    if (tuning.Dribble == DribbleMode.Rhythm) return "Напрягайте ногу в такт: когда кольцо сожмётся вокруг мяча";
-                    return "Сильнее напряжение — мяч вправо, слабее — влево";
-                case FootballElement.Pass: return "Бейте в золотое кольцо. Сосредоточьтесь — круг сузится";
-                case FootballElement.Stop: return "Мяч катится сам: тормозите ногой, оранжевое кольцо — где он встанет";
-                default: return "Красное и жёлтое — 2 очка. Сосредоточьтесь — круг сузится";
             }
         }
 

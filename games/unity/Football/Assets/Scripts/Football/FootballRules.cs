@@ -9,22 +9,34 @@ namespace Neurotlon.Games.Football
         public const int ElementCount = 4;
         readonly FootballTuning t;
         readonly Func<float> random01;
-        readonly IElement[] elements = new IElement[ElementCount];
-        readonly int[] results = { -1, -1, -1, -1 };
+        readonly int[] order;                               // какие элементы идут и в каком порядке (индексы 0…3)
+        readonly IElement[] elements;
+        readonly int[] results;
         int index;
         public event Action<FootballEvent> Raised;
 
-        public FootballRules(FootballTuning tuning, Func<float> random01)
+        public FootballRules(FootballTuning tuning, Func<float> random01) : this(tuning, random01, new[] { 0, 1, 2, 3 })
+        {
+        }
+
+        // order: элементы по очереди (0 змейка, 1 передача, 2 остановка, 3 удар). Короткий порядок нужен демо-проверке.
+        public FootballRules(FootballTuning tuning, Func<float> random01, int[] order)
         {
             t = tuning;
             this.random01 = random01;
+            this.order = order;
+            elements = new IElement[order.Length];
+            results = new int[order.Length];
+            for (int i = 0; i < results.Length; i++) results[i] = -1;
             Begin(0);
         }
+
+        public int Count { get { return order.Length; } }
 
         public FootballTuning Tuning { get { return t; } }
         public int CurrentIndex { get { return index; } }
         public bool Over { get; private set; }
-        public IElement Current { get { return elements[Math.Min(index, ElementCount - 1)]; } }
+        public IElement Current { get { return elements[Math.Min(index, order.Length - 1)]; } }
         public int PointsOf(int i) { return results[i]; }
 
         // Очки за элементы без бонуса.
@@ -33,7 +45,7 @@ namespace Neurotlon.Games.Football
             get
             {
                 int sum = 0;
-                for (int i = 0; i < ElementCount; i++) if (results[i] > 0) sum += results[i];
+                for (int i = 0; i < order.Length; i++) if (results[i] > 0) sum += results[i];
                 return sum;
             }
         }
@@ -45,8 +57,8 @@ namespace Neurotlon.Games.Football
             {
                 if (!Over) return 0;
                 float sum = 0f;
-                for (int i = 0; i < ElementCount; i++) sum += elements[i].Accuracy;
-                return (int)Math.Round(2.0 * sum / ElementCount, MidpointRounding.AwayFromZero);
+                for (int i = 0; i < order.Length; i++) sum += elements[i].Accuracy;
+                return (int)Math.Round(2.0 * sum / order.Length, MidpointRounding.AwayFromZero);
             }
         }
 
@@ -61,7 +73,7 @@ namespace Neurotlon.Games.Football
             if (e.Finished)
             {
                 results[index] = e.Points;
-                if (index + 1 >= ElementCount)
+                if (index + 1 >= order.Length)
                 {
                     Over = true;
                     Raise(new FootballEvent(FootballEventKind.GameOver, e.Kind, Score));
@@ -86,7 +98,7 @@ namespace Neurotlon.Games.Football
         {
             index = i;
             IElement e;
-            switch (i)
+            switch (order[i])
             {
                 case 0: e = new SnakeElement(t); break;
                 case 1: e = new PassElement(t, random01); break;

@@ -67,6 +67,7 @@ namespace Neurotlon.Games.Darts
         float endTimer;
         float popupTimer;
         int popupPoints;
+        bool checkHit;                              // демо-проверка: бросок попал в мишень, ждём, пока исчезнет результат
         GUIStyle nameStyle, scoreStyle, labelStyle, popupStyle, legendStyle;
 
         void Awake()
@@ -96,6 +97,57 @@ namespace Neurotlon.Games.Darts
             SetReticleVisible(true);
         }
 
+        // Обучение: три коротких шага.
+        protected override string[] TutorialSteps()
+        {
+            return new[]
+            {
+                "Сосредоточьтесь: светлый круг сужается, прицел успокаивается",
+                "Расслабьте руку и сожмите её: дротик летит в прицел",
+                "Зелёное кольцо: 2 очка, оранжевое: 1",
+            };
+        }
+
+        protected override bool HasCheck { get { return true; } }
+
+        // Демо-проверка: бросить дротик в мишень. Отдельные правила и отдельные дротики: очки проверки в результат не идут.
+        protected override void OnCheckStart()
+        {
+            ClearBoard();
+            checkHit = false;
+            rules = new DartsRules(new DartsTuning { Throws = 99 }, () => (float)random.NextDouble());
+            rules.Raised += OnRulesEvent;
+            SetReticleVisible(true);
+        }
+
+        protected override void OnCheckUpdate(float dt)
+        {
+            float? eeg = Bridge.Value(NeurotlonProtocol.SignalEeg);
+            float? emg = Bridge.Value(NeurotlonProtocol.SignalEmg);
+            if (emg.HasValue) lastEmg = emg.Value;
+            rules.Step(dt, eeg, emg);
+            UpdateVisuals();
+            if (popupTimer > 0f) popupTimer -= dt;
+            if (checkHit && rules.Phase == DartsPhase.Aiming)
+            {
+                ClearBoard();
+                rules = null;
+                SetReticleVisible(false);
+                if (heldDart != null) heldDart.gameObject.SetActive(false);
+                PassCheck();
+            }
+        }
+
+        // Убрать воткнутые и летящие дротики: проверка не должна оставлять следов на мишени.
+        void ClearBoard()
+        {
+            foreach (var dart in stuck) if (dart != null) Destroy(dart.gameObject);
+            stuck.Clear();
+            if (flying != null) Destroy(flying.gameObject);
+            flying = null;
+            popupTimer = 0f;
+        }
+
         protected override void OnGameUpdate(float dt)
         {
             float? eeg = Bridge.Value(NeurotlonProtocol.SignalEeg);
@@ -118,10 +170,7 @@ namespace Neurotlon.Games.Darts
             return new List<ResultEntryData> { NeurotlonResult.Completed(Launch.Participants[0].code, points) };
         }
 
-        protected override string TimerText()
-        {
-            return "";
-        }
+        protected override bool DrawsOwnTimer { get { return true; } }
 
         protected override string FinishedMessage()
         {
@@ -138,27 +187,55 @@ namespace Neurotlon.Games.Darts
             float plaqueW = Mathf.Min(w * 0.94f, 1180f * s);
             float px = (w - plaqueW) * 0.5f;
 
-            // верхняя плашка: имя, броски, очки
+            // верхняя плашка: имя, броски, таймер, очки
             var top = new Rect(px, 22f * s, plaqueW, 92f * s);
             Plaque(top, s);
             nameStyle.alignment = TextAnchor.MiddleLeft;
             OutlinedLabel(new Rect(top.x + 38f * s, top.y, plaqueW * 0.3f, top.height), PlayerName(), nameStyle);
             DrawThrowDots(top, s);
+            scoreStyle.alignment = TextAnchor.MiddleLeft;
+            OutlinedLabel(new Rect(top.center.x + 175f * s, top.y, 170f * s, top.height), TimerText(), scoreStyle);
             scoreStyle.alignment = TextAnchor.MiddleRight;
-            OutlinedLabel(new Rect(top.xMax - plaqueW * 0.3f - 38f * s, top.y, plaqueW * 0.3f, top.height),
+            OutlinedLabel(new Rect(top.xMax - plaqueW * 0.2f - 38f * s, top.y, plaqueW * 0.2f, top.height),
                 "Очки  " + (rules != null ? rules.Score : 0), scoreStyle);
 
-            // нижняя плашка: две шкалы рядом
+            DrawBars(px, plaqueW, s);
+            DrawPopup(s);
+        }
+
+        // Экран демо-проверки: что сделать, шкалы и легенда зон. Очков и таймера нет.
+        protected override void DrawCheck()
+        {
+            float s = Screen.height / 1080f;
+            float w = Screen.width, h = Screen.height;
+            EnsureStyles(s);
+            float plaqueW = Mathf.Min(w * 0.94f, 1180f * s);
+            float px = (w - plaqueW) * 0.5f;
+            var top = new Rect(px, 22f * s, plaqueW, 92f * s);
+            Plaque(top, s);
+            nameStyle.alignment = TextAnchor.MiddleCenter;
+            OutlinedLabel(top, "ПРОВЕРКА: бросьте дротик в мишень", nameStyle);
+            DrawBars(px, plaqueW, s);
+            DrawLegend(s);
+            DrawPopup(s);
+        }
+
+        // Нижняя плашка: две шкалы рядом (сосредоточение и сжатие руки с линией порога).
+        void DrawBars(float px, float plaqueW, float s)
+        {
+            float h = Screen.height;
             var bottom = new Rect(px, h - 22f * s - 124f * s, plaqueW, 124f * s);
             Plaque(bottom, s);
             float pad = 40f * s, barW = (plaqueW - pad * 3f) * 0.5f, barH = 22f * s, y = bottom.y + 72f * s;
             DrawBar(new Rect(bottom.x + pad, y, barW, barH), "СОСРЕДОТОЧЕНИЕ", rules != null ? rules.Concentration : 0f, Cyan, -1f, s);
             bool gripped = lastEmg >= tuning.GripOn;
-            DrawBar(new Rect(bottom.x + pad * 2f + barW, y, barW, barH), gripped ? "РУКА: БРОСОК!" : "РУКА: сожмите выше линии", lastEmg,
+            DrawBar(new Rect(bottom.x + pad * 2f + barW, y, barW, barH), "РУКА", lastEmg,
                 gripped ? new Color(0.4f, 1f, 0.5f) : new Color(1f, 0.75f, 0.2f), tuning.GripOn, s);
+        }
 
-            DrawLegend(s);
-
+        void DrawPopup(float s)
+        {
+            float w = Screen.width, h = Screen.height;
             // результат броска справа от мишени, не на ней
             if (popupTimer > 0f)
             {
@@ -183,7 +260,19 @@ namespace Neurotlon.Games.Darts
         {
             if (sounds != null) sounds.Play(e);
             if (e.Kind == DartsEventKind.Throw) BeginFlight();
-            else if (e.Kind == DartsEventKind.Hit) OnLanded(e.Points);
+            else if (e.Kind == DartsEventKind.Hit)
+            {
+                OnLanded(e.Points);
+                if (CurrentStage == Stage.Check) EvaluateCheckThrow();
+            }
+        }
+
+        // Проверка пройдена, если дротик попал в мишень (в любое место внутри её края), иначе это неудачная попытка.
+        void EvaluateCheckThrow()
+        {
+            float r = Mathf.Sqrt(rules.HitX * rules.HitX + rules.HitZ * rules.HitZ);
+            if (r <= tuning.BoardRadius) checkHit = true;
+            else ReportCheckFailure();
         }
 
         void BeginFlight()

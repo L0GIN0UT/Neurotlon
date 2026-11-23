@@ -22,6 +22,15 @@ namespace Neurotlon.Games.Football
         public float StartY = -10f;
         public float FinishPastLastCone = 1.6f;
         public float PassSideOffset = 0.8f;                // на сколько обходить конус сбоку
+        // Копия для демо-проверки: один конус (мяч доводят только до него) и одна попытка в прицельных элементах.
+        public FootballTuning CopyForCheck()
+        {
+            var copy = (FootballTuning)MemberwiseClone();
+            copy.ConeY = new[] { ConeY[0] };
+            copy.Attempts = 1;
+            return copy;
+        }
+
         public float TouchRadius = 0.28f;                  // ближе — касание конуса
         public float LateralMax = 1.4f;                    // край коридора по X
         public float ForwardSpeed = 1.7f;                  // скорость вперёд (уровень и ритм)
