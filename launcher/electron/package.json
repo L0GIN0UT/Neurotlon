@@ -6,9 +6,57 @@
   "main": "main.cjs",
   "scripts": {
     "start": "electron .",
-    "test": "node --test lib.test.cjs"
+    "test": "node --test lib.test.cjs",
+    "dist": "electron-builder --win",
+    "pack": "electron-builder --win --dir"
   },
   "devDependencies": {
-    "electron": "^45.4.1"
+    "electron": "^45.4.1",
+    "electron-builder": "^26.18.0"
+  },
+  "author": "Нейротлон",
+  "build": {
+    "appId": "ru.neurotlon.station",
+    "productName": "Нейротлон Стенд",
+    "copyright": "Нейротлон BCI Samara-2027",
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "lib.cjs",
+      "build/icon.png",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../../web/dist",
+        "to": "web"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "createDesktopShortcut": true,
+      "shortcutName": "Нейротлон Стенд",
+      "language": "1049"
+    }
   }
 }

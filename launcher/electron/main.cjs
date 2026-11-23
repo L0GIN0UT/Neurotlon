@@ -20,7 +20,12 @@ protocol.registerSchemesAsPrivileged([
 ])
 
 const options = lib.parseArgs(process.argv.slice(1))
-const webDir = path.resolve(process.env.NEUROTLON_WEB_DIR ?? path.join(__dirname, '..', '..', 'web', 'dist'))
+// В собранном приложении интерфейс лежит рядом (resources/web), при разработке — в web/dist.
+const bundledWeb = app.isPackaged
+  ? path.join(process.resourcesPath, 'web')
+  : path.join(__dirname, '..', '..', 'web', 'dist')
+const webDir = path.resolve(process.env.NEUROTLON_WEB_DIR ?? bundledWeb)
+const ICON = path.join(__dirname, 'build', 'icon.png')
 const devUrl = process.env.NEUROTLON_DEV_URL ?? ''
 
 let configPath = ''
@@ -133,6 +138,8 @@ function lockPermissions(origins) {
 function createWindow(port, token) {
   const window = new BrowserWindow({
     backgroundColor: '#0b0f1a',
+    icon: ICON,
+    title: 'Нейротлон',
     fullscreen: !options.windowed,
     kiosk: !options.windowed && !options.dev,
     width: 1280,
@@ -220,6 +227,9 @@ async function main() {
   lockPermissions([`${SCHEME}://station`, ...(devUrl ? [lib.originOf(devUrl)] : [])])
   await launch({ setup: options.setup })
 }
+
+// Своё имя для Windows: группа значков на панели задач и уведомления без «Electron».
+app.setAppUserModelId('ru.neurotlon.station')
 
 if (!app.requestSingleInstanceLock()) {
   app.quit()

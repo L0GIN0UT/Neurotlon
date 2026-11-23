@@ -1,6 +1,7 @@
 import { LayoutGroup, motion } from 'motion/react'
 import type { ReactNode } from 'react'
 import { DisciplineIcon } from '../shared/icons/DisciplineIcon.tsx'
+import logo from './assets/logo.png'
 import type { Connection } from './bridge.ts'
 import { Icon } from './Icon.tsx'
 import type { IconName } from './Icon.tsx'
@@ -69,13 +70,7 @@ export function TopBar({ snapshot, connection }: { snapshot: Snapshot | null; co
   const step = snapshot ? stepOf(snapshot.state.kind) : null
   return (
     <header className="topbar">
-      <div className="brand">
-        <span className="brand-dot" />
-        <div>
-          <div className="brand-name">{t.BRAND}</div>
-          <div className="brand-sub">{t.BRAND_SUB}</div>
-        </div>
-      </div>
+      <img className="brand-logo" src={logo} alt={`${t.BRAND} · ${t.BRAND_SUB}`} />
       <LayoutGroup>{step !== null && <Steps current={step} />}</LayoutGroup>
       <LinkChip snapshot={snapshot} connection={connection} />
     </header>
