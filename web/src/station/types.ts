@@ -65,6 +65,8 @@ export type StateView =
       players_needed: number | null
       form: SetupFormView
       has_token: boolean
+      games_bundled: boolean
+      game: string
       sensors_available: boolean
       roles: string[]
       scan: { phase: 'idle' | 'scanning' | 'done'; devices: SensorDevice[]; error: string | null }

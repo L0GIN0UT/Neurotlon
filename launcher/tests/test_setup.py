@@ -195,6 +195,7 @@ def test_defaults_are_empty_without_config(tmp_path: Path) -> None:
         "camera": "",
         "sensors": "",
         "devices": {},
+        "games_bundled": False,
         "has_token": False,
     }
 
@@ -369,16 +370,64 @@ def test_web_mode_requires_a_launch_token(tmp_path: Path) -> None:
     assert main(["--config", str(tmp_path / "x.toml")]) == 2
 
 
-def test_bundled_game_is_offered_by_default_but_never_overrides_a_working_choice(
-    tmp_path: Path, game: Path
+def games_folder(tmp_path: Path, names: tuple[str, ...] = ("Darts", "Football", "Pong")) -> Path:
+    root = tmp_path / "resources" / "games"
+    for name in names:
+        (root / name).mkdir(parents=True)
+        (root / name / f"{name}.exe").write_bytes(b"MZ")
+    return root
+
+
+def test_game_is_picked_by_the_stations_discipline(tmp_path: Path) -> None:
+    root = games_folder(tmp_path)
+    for discipline, folder in (("darts", "Darts"), ("football", "Football"), ("pong", "Pong")):
+        svc = SetupService(
+            tmp_path / discipline / "launcher.toml",
+            Factory(DisciplineConfig(discipline, "bci", 240)),
+            games_dir=str(root),
+        )
+        result = svc.check(form(Path("unused"), game_path=""))
+        assert (result.ok, result.discipline) == (True, discipline)
+        assert result.game == str(root / folder / f"{folder}.exe")
+        svc.save(form(Path("unused"), game_path=""), discipline)
+        assert load_config(tmp_path / discipline / "launcher.toml").game_command == (result.game,)
+
+
+def test_the_admin_can_still_choose_another_game_file(tmp_path: Path, game: Path) -> None:
+    root = games_folder(tmp_path)
+    svc = SetupService(tmp_path / "cfg" / "launcher.toml", Factory(DARTS), games_dir=str(root))
+    result = svc.check(form(game))
+    assert result.ok and result.game == str(game)
+
+
+def test_a_missing_game_in_the_installer_is_reported_once_the_discipline_is_known(
+    tmp_path: Path,
 ) -> None:
-    bundled = tmp_path / "resources" / "game" / "Pong.exe"
-    bundled.parent.mkdir(parents=True)
-    bundled.write_bytes(b"MZ")
-    factory = Factory(DARTS)
-    svc = SetupService(tmp_path / "cfg" / "launcher.toml", factory, default_game=str(bundled))
-    assert svc.defaults()["game_path"] == str(bundled)  # настроек ещё нет
-    svc.save(form(game))
-    assert svc.defaults()["game_path"] == str(game)  # рабочий выбор админа не трогаем
-    game.unlink()
-    assert svc.defaults()["game_path"] == str(bundled)  # выбранной игры уже нет
+    root = games_folder(tmp_path, ("Darts",))
+    svc = SetupService(
+        tmp_path / "cfg" / "launcher.toml",
+        Factory(DisciplineConfig("pong", "bci", 240)),
+        games_dir=str(root),
+    )
+    result = svc.check(form(Path("unused"), game_path=""))
+    assert result.discipline == "pong"
+    assert result.error == setup_mod.GAME_NOT_BUNDLED
+    with pytest.raises(ConfigError):
+        svc.save(form(Path("unused"), game_path=""), "pong")
+
+
+def test_without_bundled_games_the_game_file_is_required(tmp_path: Path) -> None:
+    svc = SetupService(tmp_path / "cfg" / "launcher.toml", Factory(DARTS))
+    assert svc.check(form(Path("unused"), game_path="")).error == setup_mod.GAME_REQUIRED
+
+
+def test_a_bundled_game_is_not_remembered_as_the_admins_choice(tmp_path: Path) -> None:
+    root = games_folder(tmp_path)
+    svc = SetupService(
+        tmp_path / "cfg" / "launcher.toml",
+        Factory(DisciplineConfig("pong", "bci", 240)),
+        games_dir=str(root),
+    )
+    svc.save(form(Path("unused"), game_path=""), "pong")
+    assert svc.defaults()["game_path"] == ""  # снова подбирается по станции
+    assert svc.defaults()["games_bundled"] is True

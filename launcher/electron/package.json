@@ -44,8 +44,8 @@
         "to": "bridge"
       },
       {
-        "from": "stage/game",
-        "to": "game"
+        "from": "stage/games",
+        "to": "games"
       }
     ],
     "win": {

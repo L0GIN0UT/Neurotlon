@@ -58,7 +58,8 @@ strict = true
 mypy_path = ["shared/python/src", "server/src", "launcher/src", "bci-bridge/src", "games/src"]
 files = ["shared/tests", "shared/python", "server", "launcher", "bci-bridge", "games"]
 explicit_package_bases = true
-exclude = ["^games/unity/.*/ArtSource/"]
+# Сборки установщика (launcher/electron/dist, stage) содержат чужие .py: их не проверяем.
+exclude = ["^games/unity/.*/ArtSource/", "^launcher/electron/(dist|stage|node_modules)/"]
 
 [tool.pytest.ini_options]
 testpaths = ["shared/tests", "shared/python/tests", "server/tests", "launcher/tests", "bci-bridge/tests", "games/tests"]

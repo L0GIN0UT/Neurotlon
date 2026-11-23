@@ -27,6 +27,8 @@ from .sensors import SensorService, duplicate_serials, missing_roles
 
 TOKEN_FILE = "station.token"
 MIN_TOKEN_LENGTH = 16
+GAME_DIRS = {"darts": "Darts", "football": "Football", "pong": "Pong"}  # папка и имя .exe игры
+GAME_NOT_BUNDLED = "В установщике нет игры для этой станции: укажите файл игры (.exe)"
 ROLE_TITLES = {
     "eeg": "ЭЭГ (BrainBit)",
     "emg": "ЭМГ (Callibri)",
@@ -78,6 +80,7 @@ class SetupForm:
 class CheckResult:
     discipline: str | None
     error: str | None
+    game: str = ""  # файл игры, который будет запускаться
 
     @property
     def ok(self) -> bool:
@@ -97,13 +100,13 @@ class SetupService:
         self,
         config_path: Path,
         client_factory: ClientFactory = _http_client,
-        default_game: str = "",
+        games_dir: str = "",
         sensors: SensorService | None = None,
     ) -> None:
         self.sensors = sensors or SensorService(config_path.parent)
         self._path = config_path
         self._client_factory = client_factory
-        self._default_game = default_game  # игра, вложенная в установщик: подставляется в форму
+        self._games_dir = games_dir  # папка с играми, вложенными в установщик
 
     # --- что уже сохранено ----------------------------------------------------------------
 
@@ -121,7 +124,8 @@ class SetupService:
         """Прежние значения для формы. Токен не отдаётся: только признак, что он сохранён."""
         form: dict[str, Any] = {
             "server_url": "",
-            "game_path": self._default_game,
+            "game_path": "",  # пусто: игра подбирается по дисциплине станции
+            "games_bundled": bool(self._games_dir),
             "ca_file": "",
             "camera": "",
             "sensors": "hardware" if self.sensors.available else "",
@@ -134,12 +138,8 @@ class SetupService:
             return form
         form["server_url"] = config.server_url
         saved_game = config.game_command[0]
-        # Сохранённая игра пропала (например, переустановка в другую папку): берём вложенную.
-        form["game_path"] = (
-            saved_game
-            if Path(saved_game).is_file() or not self._default_game
-            else self._default_game
-        )
+        # Игра из установщика не запоминается как выбор админа: её подбирают заново по станции.
+        form["game_path"] = "" if self._is_bundled(saved_game) else saved_game
         form["ca_file"] = str(config.ca_file) if config.ca_file else ""
         form["camera"] = config.camera_name or ""
         if config.bridge_mode in ("hardware", "emulate"):
@@ -147,6 +147,28 @@ class SetupService:
         elif self.sensors.available:
             form["sensors"] = ""  # админ сознательно оставил внешний мост
         return form
+
+    def _is_bundled(self, path: str) -> bool:
+        if not self._games_dir:
+            return False
+        try:
+            Path(path).resolve().relative_to(Path(self._games_dir).resolve())
+        except ValueError:
+            return False
+        return True
+
+    def bundled_game(self, discipline: str) -> str:
+        """Игра дисциплины из установщика; пустая строка, если её там нет."""
+        folder = GAME_DIRS.get(discipline)
+        if not self._games_dir or not folder:
+            return ""
+        exe = Path(self._games_dir) / folder / f"{folder}.exe"
+        return str(exe) if exe.is_file() else ""
+
+    def resolve_game(self, chosen: str, discipline: str) -> str:
+        """Выбранный админом файл игры или игра из установщика для этой дисциплины."""
+        path = _clean_path(chosen)
+        return path or self.bundled_game(discipline)
 
     # --- проверка -------------------------------------------------------------------------
 
@@ -163,9 +185,9 @@ class SetupService:
         if len(token) < MIN_TOKEN_LENGTH:
             return url, token, None, TOKEN_SHORT
         game = _clean_path(form.game_path)
-        if not game:
+        if not game and not self._games_dir:
             return url, token, None, GAME_REQUIRED
-        if not Path(game).is_file():
+        if game and not Path(game).is_file():
             return url, token, None, GAME_MISSING
         ca_text = _clean_path(form.ca_file)
         ca_file = Path(ca_text) if ca_text else None
@@ -192,7 +214,11 @@ class SetupService:
             return CheckResult(None, f"Сервер ответил ошибкой: {exc}")
         finally:
             client.close()
-        return CheckResult(config.discipline, self._sensor_problem(form, config.discipline))
+        game = self.resolve_game(form.game_path, config.discipline)
+        if not game:
+            return CheckResult(config.discipline, GAME_NOT_BUNDLED)
+        problem = self._sensor_problem(form, config.discipline)
+        return CheckResult(config.discipline, problem, game)
 
     def _sensor_problem(self, form: SetupForm, discipline: str) -> str | None:
         if form.sensors not in ("", "hardware", "emulate"):
@@ -209,12 +235,15 @@ class SetupService:
 
     # --- запись ---------------------------------------------------------------------------
 
-    def save(self, form: SetupForm) -> None:
+    def save(self, form: SetupForm, discipline: str | None = None) -> None:
         """Записать токен и `launcher.toml` рядом друг с другом. Бросает `ConfigError`."""
         url, token, ca_file, error = self._validate(form)
         if error:
             raise ConfigError(error)
-        game = Path(_clean_path(form.game_path))
+        resolved = self.resolve_game(form.game_path, discipline or "")
+        if not resolved or not Path(resolved).is_file():
+            raise ConfigError(GAME_NOT_BUNDLED)
+        game = Path(resolved)
         folder = self._path.parent
         folder.mkdir(parents=True, exist_ok=True)
         lines = [

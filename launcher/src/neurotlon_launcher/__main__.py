@@ -38,9 +38,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--ui-port", type=int, default=0, help="порт моста (0 — любой свободный)")
     parser.add_argument(
-        "--default-game",
+        "--games-dir",
         default="",
-        help="путь к игре, вложенной в установщик: экран настройки подставит его в форму",
+        help="папка с играми из установщика (Darts, Football, Pong): игра подбирается по станции",
     )
     parser.add_argument(
         "--bridge-exe",
@@ -139,14 +139,14 @@ def run_setup(
     ui_token: str,
     ui_port: int,
     detached: bool,
-    default_game: str = "",
+    games_dir: str = "",
     bridge_exe: str = "",
 ) -> int:
     """Экран первой настройки: `EXIT_RESTART`, если настройки сохранены."""
     station = SetupStation(
         SetupService(
             config_path,
-            default_game=default_game,
+            games_dir=games_dir,
             sensors=SensorService(config_path.parent, bridge_exe),
         ),
         error,
@@ -188,7 +188,7 @@ def main_web(args: argparse.Namespace) -> int:
         ui_token=args.ui_token,
         ui_port=args.ui_port,
         detached=args.ui_detached,
-        default_game=args.default_game,
+        games_dir=args.games_dir,
         bridge_exe=args.bridge_exe,
     )
 

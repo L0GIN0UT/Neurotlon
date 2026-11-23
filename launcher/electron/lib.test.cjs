@@ -2,8 +2,6 @@
 const assert = require('node:assert/strict')
 const path = require('node:path')
 const { test } = require('node:test')
-const fs = require('node:fs')
-const os = require('node:os')
 const lib = require('./lib.cjs')
 
 test('parseArgs reads the config path and flags', () => {
@@ -84,15 +82,4 @@ test('originOf works for the private app:// scheme and for http', () => {
   assert.equal(lib.originOf('app://station'), 'app://station')
   assert.equal(lib.originOf('http://127.0.0.1:5180/station.html?x=1'), 'http://127.0.0.1:5180')
   for (const bad of ['', 'nonsense', 'file:///C:/x.html']) assert.equal(lib.originOf(bad), '', bad)
-})
-
-test('firstExe finds the bundled game and tolerates a missing folder', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nt-game-'))
-  assert.equal(lib.firstExe(dir), '')
-  fs.writeFileSync(path.join(dir, 'readme.txt'), 'x')
-  fs.mkdirSync(path.join(dir, 'Folder.exe'))
-  fs.writeFileSync(path.join(dir, 'Pong.EXE'), 'MZ')
-  assert.equal(lib.firstExe(dir), path.join(dir, 'Pong.EXE'))
-  assert.equal(lib.firstExe(path.join(dir, 'nope')), '')
-  fs.rmSync(dir, { recursive: true })
 })
