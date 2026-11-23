@@ -1,0 +1,14 @@
+{
+  "name": "neurotlon-station-shell",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Окно стенда Нейротлон: Electron вокруг Python-лаунчера",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test lib.test.cjs"
+  },
+  "devDependencies": {
+    "electron": "^45.4.1"
+  }
+}

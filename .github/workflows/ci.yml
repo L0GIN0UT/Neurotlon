@@ -45,6 +45,8 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - name: Electron shell helpers
+        run: node --test ../launcher/electron/lib.test.cjs
 
   deploy:
     runs-on: ubuntu-latest
