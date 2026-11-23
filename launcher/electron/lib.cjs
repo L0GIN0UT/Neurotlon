@@ -1,7 +1,6 @@
 'use strict'
 // Чистые функции оболочки: без Electron, проверяются `node --test`.
 
-const fs = require('node:fs')
 const path = require('node:path')
 
 const EXIT_RESTART = 75 // лаунчер сохранил настройки и просит запустить его заново
@@ -103,6 +102,19 @@ function originOf(value) {
   }
 }
 
+/**
+ * Источник страницы: схема и хост. `new URL('app://x').origin` для своей схемы даёт «null»,
+ * поэтому по нему разрешение на камеру не сравнить.
+ */
+function originOf(value) {
+  try {
+    const url = new URL(value)
+    return url.host ? `${url.protocol}//${url.host}` : ''
+  } catch {
+    return ''
+  }
+}
+
 /** Первая `.exe` в папке (игра, вложенная в установщик); `''`, если папки или файла нет. */
 function firstExe(dir) {
   try {
@@ -116,4 +128,4 @@ function firstExe(dir) {
   }
 }
 
-module.exports = { firstExe, originOf, EXIT_RESTART, nextAction, parseArgs, splitCommand, parseReadyLine, resolveInside, contentSecurityPolicy, mimeFor }
+module.exports = { originOf, EXIT_RESTART, nextAction, parseArgs, splitCommand, parseReadyLine, resolveInside, contentSecurityPolicy, mimeFor }

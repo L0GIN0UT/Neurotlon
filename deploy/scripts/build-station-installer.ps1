@@ -1,21 +1,22 @@
 ﻿<#
 .SYNOPSIS
-  Собирает установщики стенда для Windows: по одному на игру («Нейротлон Стенд» + ядро лаунчера + игра).
+  Собирает установщик стенда для Windows: «Нейротлон Стенд» + ядро лаунчера + мост датчиков + все игры.
 
 .DESCRIPTION
   Что делает:
     1. собирает интерфейс окна (web) и кладёт его в установщик;
     2. упаковывает Python-ядро лаунчера и мост датчиков в .exe (PyInstaller);
     3. берёт собранные игры из games\builds (их делает games\build-games.ps1);
-    4. для каждой игры собирает свой установщик Electron (NSIS) с нашей иконкой.
+    4. собирает один установщик Electron (NSIS) с нашей иконкой: нужная игра выбирается
+       на стенде по дисциплине станции, которую сообщает сервер по токену.
 
   Нужен интернет (npm, PyInstaller, движок Electron, NSIS). Готовые установщики лежат в
   launcher\electron\dist и переносятся на стенды без интернета: на стенде достаточно запустить
   установщик, при первом запуске админ вводит адрес сервера и токен станции.
 
 .EXAMPLE
-  .\build-station-installer.ps1                    # установщики для всех собранных игр
-  .\build-station-installer.ps1 -Games Pong        # только понг
+  .\build-station-installer.ps1                    # установщик со всеми тремя играми
+  .\build-station-installer.ps1 -Games Pong        # только с понгом (для проверки)
   .\build-station-installer.ps1 -SkipWeb -SkipCore # интерфейс и ядро уже собраны
 #>
 [CmdletBinding()]
@@ -106,26 +107,29 @@ Invoke-Step 'Зависимости оболочки Electron' {
     try { npm ci } finally { Pop-Location }
 }
 
-$built = @()
-foreach ($game in $Games) {
-    Invoke-Step "Установщик: $game" {
-        $target = Join-Path $stage 'game'
-        Remove-Item $target -Recurse -Force -ErrorAction SilentlyContinue
-        New-Item -ItemType Directory -Force $target | Out-Null
+Invoke-Step 'Игры' {
+    $target = Join-Path $stage 'games'
+    Remove-Item $target -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force $target | Out-Null
+    foreach ($game in $Games) {
         # Папка *_BackUpThisFolder_* нужна разработчику Unity, на стенде она не нужна.
+        $to = Join-Path $target $game
+        New-Item -ItemType Directory -Force $to | Out-Null
         Get-ChildItem (Join-Path $BuildsDir $game) |
-            Where-Object { $_.Name -notlike '*_BackUpThisFolder_*' } |
-            Copy-Item -Destination $target -Recurse
-        Push-Location $electron
-        try {
-            npx electron-builder --win "--config.nsis.artifactName=Neurotlon-Station-$game-Setup-`${version}.exe"
-        } finally { Pop-Location }
+            Where-Object { $_.Name -notlike '*_BackUpThisFolder_*' -and $_.Name -ne '_logs' } |
+            Copy-Item -Destination $to -Recurse
     }
-    $built += $game
+}
+
+Invoke-Step 'Установщик (NSIS)' {
+    Push-Location $electron
+    try {
+        npx electron-builder --win "--config.nsis.artifactName=Neurotlon-Station-Setup-`${version}.exe"
+    } finally { Pop-Location }
 }
 
 Write-Host ''
-Write-Host 'Готово. Установщики:'
+Write-Host 'Готово. Установщик:'
 Get-ChildItem (Join-Path $electron 'dist') -Filter '*Setup*.exe' | ForEach-Object {
     Write-Host ('  {0}  ({1} МБ)' -f $_.FullName, [math]::Round($_.Length / 1MB))
 }

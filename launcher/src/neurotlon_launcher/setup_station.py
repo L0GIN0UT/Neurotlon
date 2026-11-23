@@ -50,6 +50,7 @@ class SetupStation(LiveState):
         self._phase = "form"  # form → checking → ok → saved
         self._error = error
         self._discipline: str | None = None
+        self._game = ""
         self._checked: SetupForm | None = None
         self._scan_phase = "idle"  # idle → scanning → done
         self._scan_devices: list[SensorDevice] = []
@@ -84,6 +85,8 @@ class SetupStation(LiveState):
                         )
                     },
                     "has_token": defaults["has_token"],
+                    "games_bundled": defaults["games_bundled"],
+                    "game": self._game,
                     "sensors_available": self._service.sensors.available,
                     "roles": list(roles_for(self._discipline)),
                     "scan": {
@@ -108,6 +111,7 @@ class SetupStation(LiveState):
                 return False
             if action == "setup_check":
                 self._phase, self._error, self._discipline = "checking", None, None
+                self._game = ""
                 threading.Thread(target=self._check, args=(form,), name="setup-check").start()
             else:
                 self._save(form)
@@ -142,6 +146,7 @@ class SetupStation(LiveState):
         with self._lock:
             self._phase = "ok" if result.ok else "form"
             self._error, self._discipline = result.error, result.discipline
+            self._game = result.game
             self._checked = form if result.ok else None
             self._publish()
 
@@ -151,7 +156,7 @@ class SetupStation(LiveState):
             self._error = texts.SETUP_CHECK_FIRST
             return
         try:
-            self._service.save(form)
+            self._service.save(form, self._discipline)
         except (ConfigError, OSError) as exc:
             self._error = str(exc)
             return

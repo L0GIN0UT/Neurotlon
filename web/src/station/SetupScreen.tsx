@@ -268,8 +268,9 @@ export function SetupScreen({
         />
         <Field
           label={t.SETUP.game}
+          hint={state.games_bundled ? t.SETUP.gameAutoHint : undefined}
           value={fields.game_path}
-          placeholder={t.SETUP.gameHint}
+          placeholder={state.games_bundled ? t.SETUP.gameAuto : t.SETUP.gameHint}
           onChange={set('game_path')}
           action={pick('game', 'game_path')}
         />
@@ -290,6 +291,11 @@ export function SetupScreen({
             <Chip tone="good" icon="check">
               {t.SETUP.saved}
             </Chip>
+          )}
+          {ready && state.game && (
+            <span className="setup-hint" data-testid="setup-game">
+              {t.SETUP.gameWillRun}: {state.game}
+            </span>
           )}
           {state.error && (
             <motion.div key={state.error} initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}>

@@ -65,6 +65,21 @@ const SCREENS: [string, StateView, string][] = [
   ],
 ]
 
+const readyState = (): StateView => ({
+  kind: 'setup',
+  phase: 'ok',
+  error: null,
+  discipline: 'pong',
+  players_needed: 2,
+  form: { server_url: 'https://h', game_path: '', ca_file: '', camera: '', sensors: '', devices: {} },
+  has_token: false,
+  games_bundled: true,
+  game: 'C:/Neurotlon/games/Pong/Pong.exe',
+  sensors_available: false,
+  roles: [],
+  scan: { phase: 'idle', devices: [], error: null },
+})
+
 describe('StationApp', () => {
   beforeEach(() => {
     vi.stubGlobal('EventSource', FakeEventSource)
@@ -165,6 +180,8 @@ describe('StationApp', () => {
           devices: {},
         },
         has_token: false,
+        games_bundled: false,
+        game: '',
         sensors_available: false,
         roles: [],
         scan: { phase: 'idle', devices: [], error: null },
@@ -277,6 +294,8 @@ describe('StationApp', () => {
                 devices: {},
               },
               has_token: false,
+              games_bundled: false,
+              game: '',
               sensors_available: false,
               roles: [],
               scan: { phase: 'idle', devices: [], error: null },
@@ -358,6 +377,8 @@ describe('StationApp', () => {
             devices: overrides.devices ?? {},
           },
           has_token: false,
+          games_bundled: false,
+          game: '',
           sensors_available: overrides.available ?? true,
           roles: overrides.roles ?? [],
           scan: (overrides.scan ?? { phase: 'idle', devices: [], error: null }) as never,
@@ -453,6 +474,47 @@ describe('StationApp', () => {
         }),
       )
       await vi.waitFor(() => expect(screen.queryByText('Датчики не подключены')).toBeNull())
+    })
+  })
+
+  describe('bundled game', () => {
+    it('shows which game the station will run once the check is green', async () => {
+      render(<StationApp />)
+      act(() =>
+        FakeEventSource.last?.emit(
+          snapshot(
+            {
+              kind: 'setup',
+              phase: 'ok',
+              error: null,
+              discipline: 'pong',
+              players_needed: 2,
+              form: {
+                server_url: 'https://h',
+                game_path: '',
+                ca_file: '',
+                camera: '',
+                sensors: '',
+                devices: {},
+              },
+              has_token: false,
+              games_bundled: true,
+              game: 'C:/Neurotlon/games/Pong/Pong.exe',
+              sensors_available: false,
+              roles: [],
+              scan: { phase: 'idle', devices: [], error: null },
+            },
+            '',
+          ),
+        ),
+      )
+      fireEvent.change(await screen.findByLabelText(/Токен станции/), {
+        target: { value: 'secret-token-0123456789' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: 'Проверить подключение' }))
+      act(() => FakeEventSource.last?.emit(snapshot(readyState(), '')))
+      expect((await screen.findByTestId('setup-game')).textContent).toContain('Pong.exe')
+      expect(screen.getByPlaceholderText('Подбирается по станции')).toBeTruthy()
     })
   })
 })
