@@ -51,7 +51,9 @@ namespace Neurotlon.Games.Pong
         float previousArcSign = 1f;
         float endTimer;
         bool timeExpiredHandled;
-        GUIStyle hudName, hudScore;
+        PongCheck checkLeft;                     // демо-проверка перед матчем: у каждого игрока своя, идут одновременно
+        PongCheck checkRight;
+        GUIStyle hudName, hudScore, checkStyle;
 
         void Awake()
         {
@@ -80,15 +82,54 @@ namespace Neurotlon.Games.Pong
             targetRight = 0.5f;
         }
 
-        protected override void OnGameUpdate(float dt)
+        // Обучение: два коротких шага. Ракетка и так показывает, как работает сигнал, поэтому текста мало.
+        protected override string[] TutorialSteps()
+        {
+            return new[]
+            {
+                "Сила мышцы двигает вашу ракетку из стороны в сторону",
+                "Отбивайте мяч: побеждает тот, кто первым наберёт " + tuning.TargetScore,
+            };
+        }
+
+        protected override bool HasCheck { get { return true; } }
+
+        // Проверка идёт у обоих игроков одновременно; матч начинается, когда справились оба.
+        protected override void OnCheckStart()
+        {
+            if (playerLeft == null) ResolvePlayers();
+            checkLeft = new PongCheck();
+            checkRight = new PongCheck();
+            zLeft = 0f;
+            zRight = 0f;
+            targetLeft = 0.5f;
+            targetRight = 0.5f;
+        }
+
+        protected override void OnCheckUpdate(float dt)
         {
             float? l = Bridge.Value(signalLeft);
             float? r = Bridge.Value(signalRight);
+            FollowSignals(l, r, dt);
+            checkLeft.Step(dt, l);
+            checkRight.Step(dt, r);
+            PlaceObjects(dt);
+            if (checkLeft.Passed && checkRight.Passed) PassCheck();
+        }
+
+        // Ракетки идут за сигналом: в проверке и в матче одинаково.
+        void FollowSignals(float? l, float? r, float dt)
+        {
             if (l.HasValue) targetLeft = Mathf.Clamp01(l.Value);      // сигнала нет: ракетка стоит на месте
             if (r.HasValue) targetRight = Mathf.Clamp01(r.Value);
             // критическое затухание: плавно и без дрожи даже при шумном сигнале
             zLeft = Mathf.SmoothDamp(zLeft, ZFor(targetLeft), ref zLeftVelocity, FollowSmoothSeconds, MaxPaddleSpeed, dt);
             zRight = Mathf.SmoothDamp(zRight, ZFor(targetRight), ref zRightVelocity, FollowSmoothSeconds, MaxPaddleSpeed, dt);
+        }
+
+        protected override void OnGameUpdate(float dt)
+        {
+            FollowSignals(Bridge.Value(signalLeft), Bridge.Value(signalRight), dt);
 
             if (TimeLeft <= 0f && !timeExpiredHandled)
             {
@@ -166,6 +207,47 @@ namespace Neurotlon.Games.Pong
             GUI.Label(new Rect(cx - 85f, area.y + 10f, 170f, 110f), ScoreLeft + ":" + ScoreRight, hudScore);
         }
 
+        // Экран проверки: у каждого игрока своя половина, два пункта и отметка «готово». Значений сигнала и шкал нет.
+        protected override void DrawCheck()
+        {
+            if (displays != null && !displays.ShowsPlayers) return;
+            if (checkLeft == null || checkRight == null) return;
+            if (checkStyle == null)
+                checkStyle = new GUIStyle(GUI.skin.label) { fontSize = 34, fontStyle = FontStyle.Bold, wordWrap = true, alignment = TextAnchor.UpperCenter };
+            Rect area = displays != null ? displays.PlayerViewArea : new Rect(0f, 0f, Screen.width, Screen.height);
+            DrawCheckHalf(new Rect(area.x, area.y, area.width * 0.5f, area.height), playerLeft, checkLeft, checkRight.Passed);
+            DrawCheckHalf(new Rect(area.x + area.width * 0.5f, area.y, area.width * 0.5f, area.height), playerRight, checkRight, checkLeft.Passed);
+        }
+
+        void DrawCheckHalf(Rect half, LaunchParticipant player, PongCheck check, bool otherPassed)
+        {
+            float scale = Mathf.Clamp(Screen.height / 1080f, 0.5f, 2.5f);
+            checkStyle.fontSize = Mathf.RoundToInt(34f * scale);
+            float pad = half.width * 0.06f, gap = 8f * scale;
+            float width = half.width - 2f * pad;
+            // сначала собираем строки и считаем их высоту (перенос по словам), потом рисуем подложку по размеру текста
+            var lines = new List<KeyValuePair<string, Color>>();
+            Color green = new Color(0.55f, 0.95f, 0.55f);
+            lines.Add(new KeyValuePair<string, Color>("ПРОВЕРКА: " + NameOf(player), Color.white));
+            lines.Add(new KeyValuePair<string, Color>(check.HighDone ? "Сожмите мышцу сильно и держите: готово" : "Сожмите мышцу сильно и держите", check.HighDone ? green : Color.white));
+            lines.Add(new KeyValuePair<string, Color>(check.LowDone ? "Расслабьте мышцу полностью и держите: готово" : "Расслабьте мышцу полностью и держите", check.LowDone ? green : Color.white));
+            if (check.Passed && !otherPassed) lines.Add(new KeyValuePair<string, Color>("Ждём второго игрока", green));
+            float total = gap;
+            foreach (var line in lines) total += checkStyle.CalcHeight(new GUIContent(line.Key), width) + gap;
+            var box = new Rect(half.x + pad * 0.5f, half.y + half.height * 0.10f, half.width - pad, total + gap);
+            GUI.color = new Color(0f, 0f, 0f, 0.55f);
+            GUI.DrawTexture(box, Texture2D.whiteTexture);
+            GUI.color = Color.white;
+            float y = box.y + gap;
+            foreach (var line in lines)
+            {
+                float height = checkStyle.CalcHeight(new GUIContent(line.Key), width);
+                checkStyle.normal.textColor = line.Value;
+                OutlinedLabel(new Rect(half.x + pad, y, width, height), line.Key, checkStyle);
+                y += height + gap;
+            }
+        }
+
         // --- внутреннее ---
 
         int ScoreLeft { get { return rules != null ? rules.ScoreLeft : 0; } }
@@ -201,6 +283,8 @@ namespace Neurotlon.Games.Pong
             {
                 case Stage.Connecting: return "ПОДКЛЮЧЕНИЕ";
                 case Stage.Calibrating: return "КАЛИБРОВКА";
+                case Stage.Tutorial: return "ОБУЧЕНИЕ";
+                case Stage.Check: return "ПРОВЕРКА";
                 case Stage.Countdown: return "ПРИГОТОВЬТЕСЬ";
                 case Stage.SensorLost: return "ПАУЗА";
                 case Stage.ConfirmAbort: return "ПАУЗА";

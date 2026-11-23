@@ -5,7 +5,7 @@ using UnityEngine;
 namespace Neurotlon.Games.Pong
 {
     // Запись видео игры изнутри: для проверок и демонстраций. Включается только параметром запуска
-    //   --record <папка> [--record-seconds N]
+    //   --record <папка> [--record-seconds N] [--record-all]
     // Игра работает с фиксированным шагом 30 кадров/с и сохраняет каждый кадр экрана в JPG; потом кадры собираются
     // в видео (ffmpeg). Запись начинается, когда идёт игра, и не зависит от окон на рабочем столе.
     public sealed class PongRecorder : MonoBehaviour
@@ -37,7 +37,8 @@ namespace Neurotlon.Games.Pong
         IEnumerator Start()
         {
             // ждём начала игры (после калибровки и отсчёта)
-            while (game == null || game.CurrentStage != NeurotlonGame.Stage.Playing) yield return null;
+            bool all = System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "--record-all") >= 0;     // с самого начала: обучение и проверка тоже
+            while (!all && (game == null || game.CurrentStage != NeurotlonGame.Stage.Playing)) yield return null;
             while (frame < framesToRecord)
             {
                 yield return new WaitForEndOfFrame();
