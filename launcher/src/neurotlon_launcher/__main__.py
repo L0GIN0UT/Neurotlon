@@ -3,22 +3,17 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
+import threading
 from collections.abc import Sequence
 from pathlib import Path
 
-from .api import HttpStationApi
 from .config import ConfigError, LauncherConfig, load_config
-from .game import SubprocessGameRunner
-from .heartbeat import HeartbeatLoop
-from .machine import StationMachine
-from .outbox import Outbox
 from .qr import create_scanner
-from .recovery import recover_active
-from .sender import Sender
-from .startup import check_discipline
-from .status import StationStatus
+from .runtime import StationRuntime
+from .web_bridge import BridgeServer, Station
 
 EXIT_OK = 0
 EXIT_CONFIG = 2
@@ -30,6 +25,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG, help="путь к launcher.toml")
     parser.add_argument("--no-camera", action="store_true", help="без вебки: только ввод ID")
     parser.add_argument("--windowed", action="store_true", help="окно вместо полного экрана")
+    parser.add_argument(
+        "--ui",
+        choices=("pygame", "web"),
+        default="pygame",
+        help="web: отдавать состояние окну Electron по локальному HTTP",
+    )
+    parser.add_argument("--ui-token", default="", help="токен запуска для --ui web")
+    parser.add_argument("--ui-port", type=int, default=0, help="порт моста (0 — любой свободный)")
     return parser
 
 
@@ -46,60 +49,36 @@ def setup_logging(config: LauncherConfig) -> None:
 
 
 def run(config: LauncherConfig, token: str, *, camera: bool, windowed: bool) -> None:
+    """Интерфейс на pygame (запасной): окно рисует сам лаунчер."""
     from .ui import Ui  # pygame подключаем только здесь
 
-    data_dir = config.data_dir
-    api = HttpStationApi(
-        config.server_url,
-        token,
-        cache_path=data_dir / "config-cache.json",
-        ca_file=config.ca_file,
-    )
-    outbox = Outbox(data_dir / "outbox.db")
-    sender = Sender(outbox, api)
-    runner = SubprocessGameRunner(
-        config.game_command,
-        config.game_workdir,
-        data_dir,
-        config.bridge_host,
-        config.bridge_port,
-        fullscreen=not windowed,
-    )
-    machine = StationMachine(
-        config.discipline,
-        api,
-        outbox,
-        runner,
-        on_enqueue=sender.kick,
-        fallback_duration_s=config.fallback_duration_s,
-    )
-    heartbeat = HeartbeatLoop(api, machine.heartbeat_view, outbox.pending_count)
-    recover_active(machine, outbox, data_dir)
-    problem = check_discipline(api, config.discipline)
-    if problem:
-        machine.block(problem)
-    scanner = create_scanner(config.camera_index, enabled=camera)
-    sender.start()
-    heartbeat.start()
-    try:
-        Ui(
-            machine,
-            scanner,
-            lambda: StationStatus(
-                outbox.pending_count(), outbox.rejected_count(), heartbeat.online
-            ),
-            windowed=windowed,
-        ).run()
-    finally:
-        machine.close()
-        scanner.stop()
-        heartbeat.stop()
-        sender_stopped = sender.stop()
-        api.close()
-        if sender_stopped:
-            outbox.close()  # пока поток досылки жив, базу не закрываем
-        else:
-            logging.getLogger(__name__).warning("sender thread did not stop, outbox left open")
+    with StationRuntime(config, token, fullscreen=not windowed) as station:
+        scanner = create_scanner(config.camera_index, enabled=camera)
+        try:
+            Ui(station.machine, scanner, station.status, windowed=windowed).run()
+        finally:
+            scanner.stop()
+
+
+def run_web(config: LauncherConfig, token: str, *, ui_token: str, ui_port: int) -> None:
+    """Веб-интерфейс: лаунчер отдаёт состояние по локальному HTTP, окно рисует Electron.
+
+    После запуска печатает в stdout строку `{"ready": true, "port": N}` и работает, пока не
+    закроется stdin (так Electron сообщает, что окно закрыто) или не придёт прерывание.
+    """
+    with StationRuntime(config, token, fullscreen=True) as runtime:
+        station = Station(runtime.machine, runtime.status)
+        server = BridgeServer(station, ui_token, ui_port)
+        station.start()
+        thread = threading.Thread(target=server.serve_forever, name="web-bridge", daemon=True)
+        thread.start()
+        print(json.dumps({"ready": True, "port": server.port}), flush=True)
+        try:
+            sys.stdin.read()  # возвращается, когда родитель закрыл канал
+        except KeyboardInterrupt:
+            pass
+        finally:
+            server.close()
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -111,7 +90,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"Ошибка настроек: {exc}", file=sys.stderr)
         return EXIT_CONFIG
     setup_logging(config)
-    run(config, token, camera=not args.no_camera, windowed=args.windowed)
+    if args.ui == "web":
+        if len(args.ui_token) < 16:
+            print(
+                "Ошибка настроек: для --ui web нужен --ui-token (от 16 символов)", file=sys.stderr
+            )
+            return EXIT_CONFIG
+        run_web(config, token, ui_token=args.ui_token, ui_port=args.ui_port)
+    else:
+        run(config, token, camera=not args.no_camera, windowed=args.windowed)
     return EXIT_OK
 
 

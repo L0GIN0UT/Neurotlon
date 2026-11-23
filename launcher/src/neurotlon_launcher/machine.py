@@ -203,6 +203,11 @@ class StationMachine:
     def players_needed(self) -> int:
         return 2 if self.discipline == "pong" else 1
 
+    def done_seconds_left(self) -> float:
+        """Сколько секунд осталось показывать экран «Готово» (0 вне этого экрана)."""
+        state = self.state
+        return max(0.0, state.until - self._monotonic()) if isinstance(state, Done) else 0.0
+
     def heartbeat_view(self) -> tuple[str, uuid.UUID | None]:
         """Состояние и session_id для heartbeat (значения из openapi `StationState`)."""
         match self.state:
