@@ -6,10 +6,9 @@ import time
 from types import TracebackType
 
 from neurotlon_bridge.emulator import EmulatedSource
+from neurotlon_bridge.scripted import ScriptedInput
 from neurotlon_bridge.server import BridgeServer, BridgeThread
 from neurotlon_bridge.source import CalibrationStep, Reading
-
-from .scripted import ScriptedInput
 
 
 class RecordingSource(EmulatedSource):

@@ -12,7 +12,7 @@ from typing import Any
 
 from . import texts
 from .config import ConfigError
-from .sensors import SensorDevice, roles_for
+from .sensors import SCAN_SECONDS, SensorDevice, roles_for
 from .setup import CheckResult, SetupForm, SetupService
 from .web_bridge import LiveState
 
@@ -90,6 +90,7 @@ class SetupStation(LiveState):
                     "sensors_available": self._service.sensors.available,
                     "roles": list(roles_for(self._discipline)),
                     "scan": {
+                        "seconds": SCAN_SECONDS,
                         "phase": self._scan_phase,
                         "devices": [d.view() for d in self._scan_devices],
                         "error": self._scan_error,

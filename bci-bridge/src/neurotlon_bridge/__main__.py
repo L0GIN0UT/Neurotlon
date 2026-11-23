@@ -23,7 +23,8 @@ from .source import PROFILES
 EXIT_OK = 0
 EXIT_CONFIG = 2
 EXIT_DEVICES = 3
-SCAN_SECONDS = 10.0
+SCAN_SECONDS = 15.0  # BLE находит датчики не сразу: 10 секунд бывало мало
+SCAN_JSON_MARK = "NEUROTLON_SCAN_JSON="
 
 BackendFactory = Callable[[float], DeviceBackend]
 
@@ -38,6 +39,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--headless", action="store_true", help="без окна")
     parser.add_argument(
         "--json", action="store_true", help="с --scan: список датчиков в JSON (для лаунчера)"
+    )
+    parser.add_argument(
+        "--auto",
+        action="store_true",
+        help="с --emulate: сигналы подаются сами по сценарию, клавиши не нужны",
     )
     return parser
 
@@ -68,7 +74,9 @@ def _scan(args: argparse.Namespace, factory: BackendFactory) -> int:
             backend.check()
             if args.json:
                 found = scan_devices(backend, SCAN_SECONDS)
-                print(json.dumps([dataclasses.asdict(d) for d in found], ensure_ascii=False))
+                # SDK пишет свои сообщения в тот же stdout: список — на строке с меткой
+                payload = json.dumps([dataclasses.asdict(d) for d in found], ensure_ascii=False)
+                print(f"{SCAN_JSON_MARK}{payload}", flush=True)
             else:
                 print(f"Поиск датчиков, {SCAN_SECONDS:g} с...", flush=True)
                 print(format_devices(scan_devices(backend, SCAN_SECONDS)))
@@ -83,6 +91,10 @@ def _scan(args: argparse.Namespace, factory: BackendFactory) -> int:
 def _emulate(args: argparse.Namespace) -> int:
     source = EmulatedSource(args.profile, time.monotonic)
     server = BridgeServer(source, port=args.port)
+    if args.auto:
+        from .scripted import ScriptedInput
+
+        ScriptedInput(source, args.profile).start()
     if args.headless:
         with contextlib.suppress(KeyboardInterrupt):
             asyncio.run(server.serve_forever())
