@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import dataclasses
+import json
 import logging
 import sys
 import time
@@ -34,6 +36,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--config", type=Path, help="путь к bridge.toml (по умолчанию рядом)")
     parser.add_argument("--headless", action="store_true", help="без окна")
+    parser.add_argument(
+        "--json", action="store_true", help="с --scan: список датчиков в JSON (для лаунчера)"
+    )
     return parser
 
 
@@ -61,8 +66,12 @@ def _scan(args: argparse.Namespace, factory: BackendFactory) -> int:
         backend = factory(SCAN_SECONDS)
         try:
             backend.check()
-            print(f"Поиск датчиков, {SCAN_SECONDS:g} с...", flush=True)
-            print(format_devices(scan_devices(backend, SCAN_SECONDS)))
+            if args.json:
+                found = scan_devices(backend, SCAN_SECONDS)
+                print(json.dumps([dataclasses.asdict(d) for d in found], ensure_ascii=False))
+            else:
+                print(f"Поиск датчиков, {SCAN_SECONDS:g} с...", flush=True)
+                print(format_devices(scan_devices(backend, SCAN_SECONDS)))
         finally:
             backend.close()
     except DeviceError as exc:

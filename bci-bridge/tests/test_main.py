@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -98,3 +99,12 @@ def test_hardware_without_bluetooth_exits_3(
     assert "Bluetooth" in capsys.readouterr().err
     assert backend.closed
     assert backend.open_calls == []
+
+
+def test_scan_json_is_machine_readable(capsys: pytest.CaptureFixture[str]) -> None:
+    backend = FakeBackend([FakeRawSensor("brainbit", "BB-777"), FakeRawSensor("callibri", "CA-1")])
+    assert main(["--scan", "--json"], backend_factory=factory_for(backend)) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert {item["serial"] for item in data} == {"BB-777", "CA-1"}
+    assert {item["kind"] for item in data} == {"brainbit", "callibri"}
+    assert all(set(item) == {"kind", "name", "serial", "address"} for item in data)

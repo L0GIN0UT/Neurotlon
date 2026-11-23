@@ -156,8 +156,18 @@ describe('StationApp', () => {
         error: extra.error ?? null,
         discipline: extra.discipline ?? null,
         players_needed: extra.discipline === 'pong' ? 2 : extra.discipline ? 1 : null,
-        form: { server_url: 'https://192.168.1.10', game_path: '', ca_file: '', camera: '' },
+        form: {
+          server_url: 'https://192.168.1.10',
+          game_path: '',
+          ca_file: '',
+          camera: '',
+          sensors: '',
+          devices: {},
+        },
         has_token: false,
+        sensors_available: false,
+        roles: [],
+        scan: { phase: 'idle', devices: [], error: null },
       }, '')
 
     const sentActions = (fetchMock: ReturnType<typeof vi.fn>) =>
@@ -183,6 +193,8 @@ describe('StationApp', () => {
           game_path: 'C:/g/Darts.exe',
           ca_file: '',
           camera: '',
+          sensors: '',
+          devices: {},
         },
       })
 
@@ -256,8 +268,18 @@ describe('StationApp', () => {
               error: null,
               discipline: null,
               players_needed: null,
-              form: { server_url: 'https://h', game_path: '', ca_file: '', camera: '' },
+              form: {
+                server_url: 'https://h',
+                game_path: '',
+                ca_file: '',
+                camera: '',
+                sensors: '',
+                devices: {},
+              },
               has_token: false,
+              sensors_available: false,
+              roles: [],
+              scan: { phase: 'idle', devices: [], error: null },
             },
             '',
           ),
@@ -306,6 +328,131 @@ describe('StationApp', () => {
       await vi.waitFor(() =>
         expect(screen.getByTestId('id-field').textContent).not.toContain('NTNT'),
       )
+    })
+  })
+
+  describe('sensors', () => {
+    const withSensors = (
+      overrides: Partial<{
+        roles: string[]
+        discipline: string | null
+        scan: { phase: 'idle' | 'scanning' | 'done'; devices: object[]; error: string | null }
+        mode: string
+        devices: Record<string, string>
+        available: boolean
+      }> = {},
+    ): Snapshot =>
+      snapshot(
+        {
+          kind: 'setup',
+          phase: 'form',
+          error: null,
+          discipline: overrides.discipline ?? null,
+          players_needed: null,
+          form: {
+            server_url: 'https://h',
+            game_path: 'C:/g.exe',
+            ca_file: '',
+            camera: '',
+            sensors: overrides.mode ?? 'hardware',
+            devices: overrides.devices ?? {},
+          },
+          has_token: false,
+          sensors_available: overrides.available ?? true,
+          roles: overrides.roles ?? [],
+          scan: (overrides.scan ?? { phase: 'idle', devices: [], error: null }) as never,
+        },
+        '',
+      )
+
+    const lastBody = (mock: ReturnType<typeof vi.fn>) => {
+      const call = mock.mock.calls.at(-1)
+      if (!call) throw new Error('no request was sent')
+      return JSON.parse((call[1] as RequestInit).body as string)
+    }
+
+    it('is hidden when the build has no bridge', async () => {
+      render(<StationApp />)
+      act(() => FakeEventSource.last?.emit(withSensors({ available: false })))
+      await screen.findByLabelText(/Токен станции/)
+      expect(screen.queryByLabelText('Датчики')).toBeNull()
+    })
+
+    it('asks for a check first, then shows one serial field per role', async () => {
+      render(<StationApp />)
+      act(() => FakeEventSource.last?.emit(withSensors()))
+      expect(await screen.findByText(/станция сообщит, какие датчики нужны/)).toBeTruthy()
+      act(() => FakeEventSource.last?.emit(withSensors({ roles: ['emg_left', 'emg_right'], discipline: 'pong' })))
+      expect(await screen.findByText('Левая рука (Callibri)')).toBeTruthy()
+      expect(screen.getByText('Правая рука (Callibri)')).toBeTruthy()
+    })
+
+    it('scans on request and lists the devices with their serials', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true })
+      vi.stubGlobal('fetch', fetchMock)
+      render(<StationApp />)
+      act(() => FakeEventSource.last?.emit(withSensors({ roles: ['eeg', 'emg'], discipline: 'darts' })))
+      fireEvent.click(await screen.findByRole('button', { name: 'Найти датчики' }))
+      expect(lastBody(fetchMock)).toEqual({ action: 'sensors_scan' })
+      act(() =>
+        FakeEventSource.last?.emit(
+          withSensors({
+            roles: ['eeg', 'emg'],
+            discipline: 'darts',
+            scan: {
+              phase: 'done',
+              error: null,
+              devices: [
+                { kind: 'brainbit', name: 'BrainBit', serial: 'BB-777', address: 'AA:01' },
+                { kind: 'callibri', name: 'Callibri', serial: '', address: 'AA:02' },
+              ],
+            },
+          }),
+        ),
+      )
+      const found = await screen.findByTestId('sensors-found')
+      expect(found.textContent).toContain('BB-777')
+      expect(found.textContent).toContain('серийный номер неизвестен')
+    })
+
+    it('sends the serials typed for each role with the check', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true })
+      vi.stubGlobal('fetch', fetchMock)
+      render(<StationApp />)
+      act(() => FakeEventSource.last?.emit(withSensors({ roles: ['eeg', 'emg'], discipline: 'darts' })))
+      const inputs = await screen.findAllByPlaceholderText('Серийный номер')
+      fireEvent.change(inputs[0] as HTMLElement, { target: { value: 'BB-777' } })
+      fireEvent.change(inputs[1] as HTMLElement, { target: { value: 'CA-1' } })
+      fireEvent.change(screen.getByLabelText(/Токен станции/), { target: { value: 'secret-token-0123456789' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Проверить подключение' }))
+      const sent = lastBody(fetchMock)
+      expect(sent.value.sensors).toBe('hardware')
+      expect(sent.value.devices).toEqual({ eeg: 'BB-777', emg: 'CA-1' })
+    })
+
+    it('hides serials and scanning for the emulator', async () => {
+      render(<StationApp />)
+      act(() => FakeEventSource.last?.emit(withSensors({ mode: 'emulate', roles: ['eeg', 'emg'], discipline: 'darts' })))
+      await screen.findByLabelText('Датчики')
+      expect(screen.queryByRole('button', { name: 'Найти датчики' })).toBeNull()
+    })
+
+    it('warns in the top bar when the bridge is down, and only then', async () => {
+      render(<StationApp />)
+      act(() =>
+        FakeEventSource.last?.emit({
+          ...snapshot({ kind: 'idle', input: '', notice: null, taken: [] }),
+          sensors: { mode: 'hardware', ok: false, error: 'Ошибка: нет Bluetooth-адаптера' },
+        }),
+      )
+      expect(await screen.findByText('Датчики не подключены')).toBeTruthy()
+      act(() =>
+        FakeEventSource.last?.emit({
+          ...snapshot({ kind: 'idle', input: '', notice: null, taken: [] }),
+          sensors: { mode: 'hardware', ok: true, error: null },
+        }),
+      )
+      await vi.waitFor(() => expect(screen.queryByText('Датчики не подключены')).toBeNull())
     })
   })
 })

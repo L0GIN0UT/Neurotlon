@@ -12,12 +12,13 @@ from typing import Any
 
 from . import texts
 from .config import ConfigError
+from .sensors import SensorDevice, roles_for
 from .setup import CheckResult, SetupForm, SetupService
 from .web_bridge import LiveState
 
 log = logging.getLogger(__name__)
 
-SETUP_ACTIONS = frozenset({"setup_check", "setup_save"})
+SETUP_ACTIONS = frozenset({"setup_check", "setup_save", "sensors_scan"})
 
 
 def form_from(value: Any) -> SetupForm | None:
@@ -25,12 +26,20 @@ def form_from(value: Any) -> SetupForm | None:
     if not isinstance(value, dict):
         return None
     fields: dict[str, str] = {}
-    for key in ("server_url", "token", "game_path", "ca_file", "camera"):
+    for key in ("server_url", "token", "game_path", "ca_file", "camera", "sensors"):
         item = value.get(key, "")
         if not isinstance(item, str) or len(item) > 4096:
             return None
         fields[key] = item
-    return SetupForm(**fields)
+    raw_devices = value.get("devices", {})
+    if not isinstance(raw_devices, dict) or len(raw_devices) > 8:
+        return None
+    devices: dict[str, str] = {}
+    for role, serial in raw_devices.items():
+        if not isinstance(role, str) or not isinstance(serial, str) or len(serial) > 128:
+            return None
+        devices[role] = serial
+    return SetupForm(**fields, devices=devices)
 
 
 class SetupStation(LiveState):
@@ -42,6 +51,9 @@ class SetupStation(LiveState):
         self._error = error
         self._discipline: str | None = None
         self._checked: SetupForm | None = None
+        self._scan_phase = "idle"  # idle → scanning → done
+        self._scan_devices: list[SensorDevice] = []
+        self._scan_error: str | None = None
         self.saved = threading.Event()
         self._publish()
 
@@ -61,9 +73,24 @@ class SetupStation(LiveState):
                     if self._discipline
                     else None,
                     "form": {
-                        k: defaults[k] for k in ("server_url", "game_path", "ca_file", "camera")
+                        k: defaults[k]
+                        for k in (
+                            "server_url",
+                            "game_path",
+                            "ca_file",
+                            "camera",
+                            "sensors",
+                            "devices",
+                        )
                     },
                     "has_token": defaults["has_token"],
+                    "sensors_available": self._service.sensors.available,
+                    "roles": list(roles_for(self._discipline)),
+                    "scan": {
+                        "phase": self._scan_phase,
+                        "devices": [d.view() for d in self._scan_devices],
+                        "error": self._scan_error,
+                    },
                 },
             }
         )
@@ -71,6 +98,8 @@ class SetupStation(LiveState):
     def command(self, action: str, value: Any) -> bool:
         if action not in SETUP_ACTIONS:
             return False
+        if action == "sensors_scan":
+            return self._start_scan()
         form = form_from(value)
         if form is None:
             return False
@@ -84,6 +113,25 @@ class SetupStation(LiveState):
                 self._save(form)
             self._publish()
         return True
+
+    def _start_scan(self) -> bool:
+        with self._lock:
+            if self._scan_phase == "scanning" or not self._service.sensors.available:
+                return False
+            self._scan_phase, self._scan_error = "scanning", None
+            threading.Thread(target=self._scan, name="sensors-scan").start()
+            self._publish()
+        return True
+
+    def _scan(self) -> None:
+        try:
+            devices, error = self._service.sensors.scan()
+        except Exception:
+            log.exception("sensor scan failed")
+            devices, error = [], texts.SETUP_FAILED
+        with self._lock:
+            self._scan_devices, self._scan_error, self._scan_phase = devices, error, "done"
+            self._publish()
 
     def _check(self, form: SetupForm) -> None:
         try:

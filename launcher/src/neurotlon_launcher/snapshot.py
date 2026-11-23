@@ -22,6 +22,7 @@ from .machine import (
     StationMachine,
     TechnicalProblem,
 )
+from .sensors import BridgeStatus
 from .status import StationStatus
 
 
@@ -98,10 +99,16 @@ def state_view(machine: StationMachine) -> dict[str, Any]:
 
 
 def snapshot(
-    machine: StationMachine, status: StationStatus, camera: str | None = None
+    machine: StationMachine,
+    status: StationStatus,
+    camera: str | None = None,
+    sensors: BridgeStatus | None = None,
 ) -> dict[str, Any]:
     return {
         "camera": camera,
+        "sensors": (
+            {"mode": sensors.mode, "ok": sensors.ok, "error": sensors.error} if sensors else None
+        ),
         "discipline": machine.discipline,
         "players_needed": machine.players_needed,
         "status": {

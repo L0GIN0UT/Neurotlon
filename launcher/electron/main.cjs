@@ -28,6 +28,9 @@ const webDir = path.resolve(process.env.NEUROTLON_WEB_DIR ?? bundledWeb)
 const ICON = path.join(__dirname, 'build', 'icon.png')
 // В установщике рядом лежат ядро лаунчера (core) и игра этого стенда (game).
 const bundledGame = app.isPackaged ? lib.firstExe(path.join(process.resourcesPath, 'game')) : ''
+const bundledBridge = app.isPackaged
+  ? path.join(process.resourcesPath, 'bridge', 'neurotlon-bridge.exe')
+  : ''
 const devUrl = process.env.NEUROTLON_DEV_URL ?? ''
 
 let configPath = ''
@@ -56,6 +59,7 @@ function startLauncher(token, { setup }) {
   const { file, args } = launcherCommand()
   const full = [...args, '--config', configPath, '--ui-token', token]
   if (bundledGame) full.push('--default-game', bundledGame)
+  if (bundledBridge && fs.existsSync(bundledBridge)) full.push('--bridge-exe', bundledBridge)
   if (setup) full.push('--setup')
   const proc = spawn(file, full, { stdio: ['pipe', 'pipe', 'inherit'], windowsHide: true })
   child = proc

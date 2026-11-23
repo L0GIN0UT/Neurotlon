@@ -22,6 +22,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 from .machine import StationMachine
+from .sensors import BridgeStatus
 from .snapshot import snapshot
 from .status import StationStatus
 
@@ -91,8 +92,10 @@ class Station(LiveState):
         machine: StationMachine,
         status: Callable[[], StationStatus],
         camera: str | None = None,
+        sensors: Callable[[], BridgeStatus | None] | None = None,
     ) -> None:
         super().__init__()
+        self._sensors = sensors or (lambda: None)
         self._machine = machine
         self._status = status
         self._camera = camera
@@ -101,7 +104,7 @@ class Station(LiveState):
         self._refresh()
 
     def _refresh(self) -> None:
-        self.publish(snapshot(self._machine, self._status(), self._camera))
+        self.publish(snapshot(self._machine, self._status(), self._camera, self._sensors()))
 
     def start(self) -> None:
         self._thread = threading.Thread(target=self._run, name="station-tick", daemon=True)

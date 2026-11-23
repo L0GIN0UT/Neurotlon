@@ -5,7 +5,7 @@
 .DESCRIPTION
   Что делает:
     1. собирает интерфейс окна (web) и кладёт его в установщик;
-    2. упаковывает Python-ядро лаунчера в neurotlon-launcher.exe (PyInstaller);
+    2. упаковывает Python-ядро лаунчера и мост датчиков в .exe (PyInstaller);
     3. берёт собранные игры из games\builds (их делает games\build-games.ps1);
     4. для каждой игры собирает свой установщик Electron (NSIS) с нашей иконкой.
 
@@ -82,7 +82,24 @@ if (-not $SkipCore) {
         Copy-Item "$work\out\neurotlon-launcher" (Join-Path $stage 'core') -Recurse
     }
 }
+if (-not $SkipCore) {
+    Invoke-Step 'Мост датчиков (PyInstaller)' {
+        $work = Join-Path $env:TEMP 'neurotlon-bridge-build'
+        Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
+        Push-Location $repo
+        try {
+            uv run --with pyinstaller pyinstaller --noconfirm --onedir --name neurotlon-bridge `
+                --paths bci-bridge\src --collect-all neurosdk --collect-all em_st_artifacts `
+                --distpath "$work\out" --workpath "$work\work" --specpath "$work\spec" `
+                bci-bridge\station_bridge.py
+        } finally { Pop-Location }
+        if ($LASTEXITCODE -ne 0) { return }
+        Remove-Item (Join-Path $stage 'bridge') -Recurse -Force -ErrorAction SilentlyContinue
+        Copy-Item "$work\out\neurotlon-bridge" (Join-Path $stage 'bridge') -Recurse
+    }
+}
 if (-not (Test-Path (Join-Path $stage 'core\neurotlon-launcher.exe'))) { throw 'Нет ядра лаунчера (stage\core): соберите без -SkipCore' }
+if (-not (Test-Path (Join-Path $stage 'bridge\neurotlon-bridge.exe'))) { throw 'Нет моста датчиков (stage\bridge): соберите без -SkipCore' }
 
 Invoke-Step 'Зависимости оболочки Electron' {
     Push-Location $electron

@@ -58,7 +58,7 @@ def game(tmp_path: Path) -> Path:
 
 
 def form(game: Path, **changes: str) -> SetupForm:
-    values = {
+    values: dict[str, Any] = {
         "server_url": "https://192.168.1.10",
         "token": TOKEN,
         "game_path": str(game),
@@ -193,6 +193,8 @@ def test_defaults_are_empty_without_config(tmp_path: Path) -> None:
         "game_path": "",
         "ca_file": "",
         "camera": "",
+        "sensors": "",
+        "devices": {},
         "has_token": False,
     }
 
