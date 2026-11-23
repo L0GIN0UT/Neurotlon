@@ -46,6 +46,8 @@ Unity-проект каждой игры лежит в `games/unity/<игра>/`
    Если игра может идти дольше таймера (золотой мяч в понге), переопределите `ExtendBeyondTime()` (вернуть `true`, пока игра не закончена) и завершите её сами через `FinishGame()`. Надпись после окончания — `FinishedMessage()`, текст таймера — `TimerText()`.
 
    Для своих надписей поверх картинки используйте `OutlinedLabel(rect, text, style)`: она рисует тёмную обводку, и текст читается на любом фоне (обводка гаснет вместе с надписью). Служебные экраны кита (калибровка, отсчёт, пауза, окончание) идут на затемнении экрана.
+
+   Если бросок или удар идёт в точку прицела, возьмите `AimWobble` (`Runtime/NeurotlonAim.cs`, чистый C# без Unity): прицел гуляет по кругу, размах которого сужается с ростом сосредоточения. `new AimWobble(wobbleMax, wobbleMin, gamma, eegSmoothSeconds, random01)`, затем `Step(dt, eeg)` каждый кадр (`eeg` — `null`, если сигнала нет: размах не меняется) и чтение `X`, `Z`, `Amplitude`, `Concentration`. Её используют дартс и футбол.
 4. **Настройки сборки** (`File → Build Settings`, `Player Settings`):
    - платформа **Windows**, Architecture x86_64, Mono или IL2CPP;
    - `Resolution and Presentation → Fullscreen Mode = Fullscreen Window`, `Run In Background` включён (кит включает его и из кода);

@@ -1,4 +1,5 @@
 using System;
+using Neurotlon;
 
 namespace Neurotlon.Games.Darts
 {
@@ -42,7 +43,7 @@ namespace Neurotlon.Games.Darts
     public sealed class DartsRules
     {
         readonly DartsTuning t;
-        readonly DartsAim aim;
+        readonly AimWobble aim;
         float phaseTimer;
         bool gripArmed;                     // рука отпущена и готова к броску
         int[] results;
@@ -65,7 +66,7 @@ namespace Neurotlon.Games.Darts
         public DartsRules(DartsTuning tuning, Func<float> random01)
         {
             t = tuning;
-            aim = new DartsAim(tuning, random01);
+            aim = new AimWobble(tuning.WobbleMax, tuning.WobbleMin, tuning.WobbleGamma, tuning.EegSmoothSeconds, random01);
             results = new int[tuning.Throws];
             for (int i = 0; i < results.Length; i++) results[i] = -1;
             Phase = DartsPhase.Aiming;
@@ -151,61 +152,6 @@ namespace Neurotlon.Games.Darts
         {
             var handler = Raised;
             if (handler != null) handler(new DartsEvent(kind, points));
-        }
-    }
-
-    // Прицел: плавное «гуляние» вокруг центра с размахом, зависящим от сосредоточения.
-    public sealed class DartsAim
-    {
-        readonly DartsTuning t;
-        readonly float p1, p2, p3, p4;
-        float time;
-
-        public float Concentration { get; private set; }
-        public float Amplitude { get; private set; }
-        public float X { get; private set; }
-        public float Z { get; private set; }
-
-        public DartsAim(DartsTuning tuning, Func<float> random01)
-        {
-            t = tuning;
-            float twoPi = (float)(Math.PI * 2.0);
-            p1 = random01() * twoPi;
-            p2 = random01() * twoPi;
-            p3 = random01() * twoPi;
-            p4 = random01() * twoPi;
-            Amplitude = t.WobbleMax;
-            Place();
-        }
-
-        public void Step(float dt, float? eeg)
-        {
-            if (eeg.HasValue)
-            {
-                float k = 1f - (float)Math.Exp(-dt / t.EegSmoothSeconds);
-                Concentration += (Clamp01(eeg.Value) - Concentration) * k;
-            }
-            float shaped = (float)Math.Pow(Concentration, t.WobbleGamma);
-            Amplitude = t.WobbleMax + (t.WobbleMin - t.WobbleMax) * shaped;
-            time += dt;
-            Place();
-        }
-
-        void Place()
-        {
-            X = Amplitude * (0.6f * (float)Math.Sin(1.7 * time + p1) + 0.4f * (float)Math.Sin(3.3 * time + p2));
-            Z = Amplitude * (0.6f * (float)Math.Sin(1.3 * time + p3) + 0.4f * (float)Math.Sin(2.7 * time + p4));
-            float length = (float)Math.Sqrt(X * X + Z * Z);        // прицел остаётся внутри круга разброса
-            if (length > Amplitude && length > 0f)
-            {
-                X *= Amplitude / length;
-                Z *= Amplitude / length;
-            }
-        }
-
-        static float Clamp01(float v)
-        {
-            return v < 0f ? 0f : (v > 1f ? 1f : v);
         }
     }
 }

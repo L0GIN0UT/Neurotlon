@@ -1,0 +1,17 @@
+{
+    "name": "Neurotlon.Games.Football",
+    "rootNamespace": "Neurotlon.Games.Football",
+    "references": [
+        "Neurotlon.Kit",
+        "UnityEngine.UI"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
