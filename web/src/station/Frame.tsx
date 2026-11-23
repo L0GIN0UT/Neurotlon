@@ -27,12 +27,12 @@ export function Chip({
   children,
 }: {
   tone: 'good' | 'warn' | 'bad' | 'muted'
-  icon?: IconName
+  icon?: IconName | 'dot'
   children: ReactNode
 }) {
   return (
     <span className={`chip chip-${tone}`}>
-      {icon && <Icon name={icon} />}
+      {icon === 'dot' ? <i className="dot" /> : icon && <Icon name={icon} />}
       <span>{children}</span>
     </span>
   )
@@ -41,9 +41,9 @@ export function Chip({
 function LinkChip({ snapshot, connection }: { snapshot: Snapshot | null; connection: Connection }) {
   if (connection === 'lost') return <Chip tone="bad" icon="offline">{t.BRIDGE_LOST}</Chip>
   const online = snapshot?.status.online
-  if (online === true) return <Chip tone="good"><span className="dot" />{t.LINK.live}</Chip>
+  if (online === true) return <Chip tone="good" icon="dot">{t.LINK.live}</Chip>
   if (online === false) return <Chip tone="warn" icon="offline">{t.LINK.lost}</Chip>
-  return <Chip tone="muted"><span className="dot" />{t.LINK.unknown}</Chip>
+  return <Chip tone="muted" icon="dot">{t.LINK.unknown}</Chip>
 }
 
 function Steps({ current }: { current: number }) {
