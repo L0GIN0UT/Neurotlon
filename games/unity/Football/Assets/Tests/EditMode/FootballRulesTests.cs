@@ -294,6 +294,42 @@ namespace Neurotlon.Games.Football.Tests
         // ---------- вся игра ----------
 
         [Test]
+        public void ADemoCheckRunsASnakeToTheFirstConeAndOneKick()
+        {
+            var tuning = new FootballTuning().CopyForCheck();
+            var rules = new FootballRules(tuning, () => 0.3f, new[] { 0, 3 });
+            var demo = new FootballDemo(true, tuning);
+            for (float time = 0f; !rules.Over && time < 120f; time += 0.01f)
+            {
+                float eeg, emg;
+                demo.Step(0.01f);
+                demo.Signals(rules, out eeg, out emg);
+                rules.Step(0.01f, eeg, emg);
+            }
+            Assert.IsTrue(rules.Over, "проверка заканчивается");
+            Assert.AreEqual(2, rules.Count);
+            Assert.GreaterOrEqual(rules.PointsOf(1), 1, "удар по мишени засчитан");
+            Assert.AreEqual(1, tuning.ConeY.Length, "в проверке один конус");
+            Assert.AreEqual(1, tuning.Attempts, "в проверке одна попытка");
+        }
+
+        [Test]
+        public void ACheckKickThatMissesTheBoardDoesNotPass()
+        {
+            var tuning = new FootballTuning().CopyForCheck();
+            var rules = new FootballRules(tuning, () => 0.3f, new[] { 3 });
+            var demo = new FootballDemo(false, tuning);
+            for (float time = 0f; !rules.Over && time < 60f; time += 0.01f)
+            {
+                float eeg, emg;
+                demo.Step(0.01f);
+                demo.Signals(rules, out eeg, out emg);
+                rules.Step(0.01f, eeg, 0.9f);               // нога сжата сразу, без концентрации
+            }
+            Assert.LessOrEqual(rules.PointsOf(0), 2);
+        }
+
+        [Test]
         public void FullRunScoresAtMostTenAndEndsAfterFourElements()
         {
             var t = Tuning(DribbleMode.Level);
