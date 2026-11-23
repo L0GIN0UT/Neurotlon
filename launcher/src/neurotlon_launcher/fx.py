@@ -38,13 +38,18 @@ def glow(radius: int, color: Color, strength: float) -> pygame.Surface:
 
 
 def soft_shadow(size: tuple[int, int], inset: int, radius: int, alpha: int) -> pygame.Surface:
-    """Размытая тень: скруглённый прямоугольник отступает от краёв `size` на `inset` пикселей."""
-    scale = 12
-    small = pygame.Surface((max(2, size[0] // scale), max(2, size[1] // scale)), pygame.SRCALPHA)
-    margin = max(1, inset // scale)
+    """Размытая тень для наложения умножением (`BLEND_RGB_MULT`): белое — без затемнения.
+
+    Рисуем без альфа-канала: `smoothscale` честно размывает только обычные поверхности.
+    """
+    scale = 16
+    small = pygame.Surface((max(2, size[0] // scale), max(2, size[1] // scale)))
+    small.fill((255, 255, 255))
+    margin = max(1, round(inset / scale))
+    level = round(255 * (1 - alpha / 255))
     pygame.draw.rect(
         small,
-        (0, 0, 0, alpha),
+        (level, level, level),
         (margin, margin, small.get_width() - 2 * margin, small.get_height() - 2 * margin),
         border_radius=max(1, radius // scale),
     )

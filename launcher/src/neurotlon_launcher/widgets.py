@@ -25,6 +25,7 @@ class Assets:
 
     fonts: FontCache = field(default_factory=dict)
     surfaces: dict[tuple[object, ...], pygame.Surface] = field(default_factory=dict)
+    cap_centers: dict[int, int] = field(default_factory=dict)  # id шрифта → середина заглавной
 
 
 class Canvas:
@@ -59,10 +60,22 @@ class Canvas:
         **anchor: tuple[int, int],
     ) -> Rect:
         """Нарисовать строку; `anchor` — например `center=(x, y)` или `topleft=(x, y)`."""
-        surface = self.font(size, bold).render(value, True, color)
+        font = self.font(size, bold)
+        surface = font.render(value, True, color)
         rect = surface.get_rect(**anchor)
+        if any(key in anchor for key in ("center", "midleft", "midright")):
+            # Центр по высоте заглавных, а не по строке шрифта: иначе текст «едет» вниз
+            rect.y += rect.h // 2 - self._cap_center(font)
         self.screen.blit(surface, rect)
         return rect.x, rect.y, rect.w, rect.h
+
+    def _cap_center(self, font: pygame.font.Font) -> int:
+        """Расстояние от верха строки до середины заглавной буквы."""
+        key = id(font)
+        if key not in self.assets.cap_centers:
+            bounds = font.render("Н", True, (255, 255, 255)).get_bounding_rect()
+            self.assets.cap_centers[key] = bounds.top + bounds.h // 2
+        return self.assets.cap_centers[key]
 
     def measure(self, value: str, size: float, bold: bool = False) -> int:
         return self.font(size, bold).size(value)[0]
@@ -127,7 +140,11 @@ class Canvas:
         size = (rect[2] + 2 * pad, rect[3] + 2 * pad)
         key = ("shadow", size, self.px(radius), alpha)
         image = self._cached(key, lambda: fx.soft_shadow(size, pad, self.px(radius), alpha))
-        self.screen.blit(image, (rect[0] - pad, rect[1] - pad + self.px(color_offset)))
+        self.screen.blit(
+            image,
+            (rect[0] - pad, rect[1] - pad + self.px(color_offset)),
+            special_flags=pygame.BLEND_RGB_MULT,
+        )
 
     def watermark(
         self, name: str, center: tuple[int, int], size: int, color: Color, alpha: int
@@ -143,7 +160,7 @@ class Canvas:
             ("banner", size, color, self.px(radius)),
             lambda: fx.banner(size, color, self.px(radius)),
         )
-        self.shadow(rect, radius, 150)
+        self.shadow(rect, radius, 110)
         self.screen.blit(image, (rect[0], rect[1]))
 
     def card(
@@ -157,7 +174,7 @@ class Canvas:
         shadow: bool = True,
     ) -> None:
         if shadow:
-            self.shadow(rect, radius, 110)
+            self.shadow(rect, radius, 80)
         pygame.draw.rect(self.screen, fill, rect, border_radius=self.px(radius))
         # светлая кромка сверху: карточка «приподнята» над фоном
         edge = theme.mix(theme.TEXT, fill, 0.10)

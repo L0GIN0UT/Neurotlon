@@ -314,7 +314,7 @@ class Ui:
             x += widths[i] + gap
             if i < len(widths) - 1:
                 pygame.draw.line(
-                    c.screen, theme.BORDER, (x - gap + c.px(6), mid), (x - c.px(6), mid), c.px(2)
+                    c.screen, theme.BORDER, (x - gap + c.px(12), mid), (x - c.px(12), mid), c.px(2)
                 )
 
     def _draw_link_chip(self, right: int, mid: int) -> None:
@@ -390,23 +390,18 @@ class Ui:
         field_h = c.px(104)
         field = (right_x, y, right_w, field_h)
         c.card(field, theme.SURFACE, border=self._accent if state.input else theme.BORDER)
-        cursor = "│" if pygame.time.get_ticks() // 500 % 2 == 0 else " "
+        text_x, text_y = right_x + c.px(28), y + field_h // 2
         if state.input:
-            c.text(
-                state.input + cursor,
-                64,
-                theme.TEXT,
-                bold=True,
-                midleft=(right_x + c.px(28), y + field_h // 2),
-            )
+            rect = c.text(state.input, 64, theme.TEXT, bold=True, midleft=(text_x, text_y))
+            if pygame.time.get_ticks() // 500 % 2 == 0:  # мигающий курсор линией, не символом
+                cap = c.px(52)
+                pygame.draw.rect(
+                    c.screen,
+                    self._accent,
+                    (rect[0] + rect[2] + c.px(6), text_y - cap // 2, c.px(4), cap),
+                )
         else:
-            c.text(
-                texts.ID_PLACEHOLDER,
-                64,
-                theme.BORDER,
-                bold=True,
-                midleft=(right_x + c.px(28), y + field_h // 2),
-            )
+            c.text(texts.ID_PLACEHOLDER, 64, theme.BORDER, bold=True, midleft=(text_x, text_y))
         y += field_h + c.px(12)
 
         notice_h = c.px(44)
@@ -461,7 +456,7 @@ class Ui:
     def _draw_pong_slots(self, state: Idle, x: int, y: int, width: int) -> int:
         c = self._canvas
         gap = c.px(20)
-        slot_w, slot_h = (width - gap) // 2, c.px(84)
+        slot_w, slot_h = (width - gap) // 2, c.px(92)
         for i in range(2):
             rect = (x + i * (slot_w + gap), y, slot_w, slot_h)
             taken = state.taken[i] if i < len(state.taken) else None
@@ -472,26 +467,23 @@ class Ui:
                 theme.SURFACE,
                 border=self._accent if active else (team if taken else theme.BORDER),
             )
-            mid = y + slot_h // 2
             c.text(
                 f"{texts.PLAYER_SLOT[i]} · {texts.side_line(i).lower()}",
                 22,
                 theme.MUTED,
-                midleft=(rect[0] + c.px(24), mid - c.px(20)),
+                midleft=(rect[0] + c.px(24), y + c.px(27)),
             )
             if taken:
-                c.dot((rect[0] + c.px(30), mid + c.px(20)), 8, team)
+                c.dot((rect[0] + c.px(34), y + c.px(64)), 8, team)
                 label = c.fit(taken.display_name or taken.code, 30, slot_w - c.px(80), bold=True)
-                c.text(
-                    label, 30, theme.TEXT, bold=True, midleft=(rect[0] + c.px(52), mid + c.px(20))
-                )
+                c.text(label, 30, theme.TEXT, bold=True, midleft=(rect[0] + c.px(56), y + c.px(64)))
             else:
                 waiting = texts.SLOT_WAITING
                 c.text(
                     waiting,
                     28,
                     self._accent if active else theme.BORDER,
-                    midleft=(rect[0] + c.px(24), mid + c.px(20)),
+                    midleft=(rect[0] + c.px(24), y + c.px(64)),
                 )
         return y + slot_h + c.px(28)
 
@@ -595,7 +587,7 @@ class Ui:
         last = len(state.taken) + 1 >= self._machine.players_needed
         play_color = theme.YELLOW if warned else theme.PLAY_GREEN
         play = (x + c.px(16), sy + c.px(14), c.px(470), strip_h - c.px(28))
-        c.shadow(play, 26, 150)
+        c.shadow(play, 26, 110)
         self._button(
             play,
             texts.PLAY_BUTTON if last else texts.PLAY_NEXT_BUTTON,
