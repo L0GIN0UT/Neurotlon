@@ -144,4 +144,84 @@ describe('StationApp', () => {
     })
     expect(await screen.findByText('Нет связи с лаунчером')).toBeTruthy()
   })
+
+  describe('setup', () => {
+    const setup = (
+      phase: 'form' | 'checking' | 'ok' | 'saved',
+      extra: { error?: string | null; discipline?: string | null } = {},
+    ): Snapshot =>
+      snapshot({
+        kind: 'setup',
+        phase,
+        error: extra.error ?? null,
+        discipline: extra.discipline ?? null,
+        players_needed: extra.discipline === 'pong' ? 2 : extra.discipline ? 1 : null,
+        form: { server_url: 'https://192.168.1.10', game_path: '', ca_file: '' },
+        has_token: false,
+      }, '')
+
+    const sentActions = (fetchMock: ReturnType<typeof vi.fn>) =>
+      fetchMock.mock.calls.map((call) => JSON.parse((call[1] as RequestInit).body as string))
+
+    it('checks the typed fields, then saves only the checked ones', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true })
+      vi.stubGlobal('fetch', fetchMock)
+      render(<StationApp />)
+      act(() => FakeEventSource.last?.emit(setup('form')))
+      const token = await screen.findByLabelText(/Токен станции/)
+      fireEvent.change(token, { target: { value: 'secret-token-0123456789' } })
+      fireEvent.change(screen.getByLabelText(/Игра/), { target: { value: 'C:/g/Darts.exe' } })
+      const save = screen.getByRole('button', { name: /Сохранить и запустить/ })
+      expect((save as HTMLButtonElement).disabled).toBe(true)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Проверить подключение' }))
+      expect(sentActions(fetchMock)).toContainEqual({
+        action: 'setup_check',
+        value: {
+          server_url: 'https://192.168.1.10',
+          token: 'secret-token-0123456789',
+          game_path: 'C:/g/Darts.exe',
+          ca_file: '',
+        },
+      })
+
+      act(() => FakeEventSource.last?.emit(setup('ok', { discipline: 'pong' })))
+      expect(await screen.findByTestId('setup-ok')).toBeTruthy()
+      expect(screen.getByText(/Понг/).textContent).toContain('2 игрока')
+      expect((save as HTMLButtonElement).disabled).toBe(false)
+      fireEvent.click(save)
+      expect(sentActions(fetchMock).at(-1)?.action).toBe('setup_save')
+    })
+
+    it('drops the green light when a field changes after the check', async () => {
+      render(<StationApp />)
+      act(() => FakeEventSource.last?.emit(setup('form')))
+      fireEvent.change(await screen.findByLabelText(/Токен станции/), {
+        target: { value: 'secret-token-0123456789' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: 'Проверить подключение' }))
+      act(() => FakeEventSource.last?.emit(setup('ok', { discipline: 'darts' })))
+      const save = await screen.findByRole('button', { name: /Сохранить и запустить/ })
+      expect((save as HTMLButtonElement).disabled).toBe(false)
+      fireEvent.change(screen.getByLabelText(/Адрес сервера/), { target: { value: 'https://other' } })
+      expect((save as HTMLButtonElement).disabled).toBe(true)
+      expect(screen.queryByTestId('setup-ok')).toBeNull()
+    })
+
+    it('shows why the check failed', async () => {
+      render(<StationApp />)
+      act(() => FakeEventSource.last?.emit(setup('form', { error: 'Токен не подходит' })))
+      expect(await screen.findByText('Токен не подходит')).toBeTruthy()
+    })
+
+    it('never types digits from the keyboard into the badge field', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true })
+      vi.stubGlobal('fetch', fetchMock)
+      render(<StationApp />)
+      act(() => FakeEventSource.last?.emit(setup('form')))
+      await screen.findByLabelText(/Токен станции/)
+      fireEvent.keyDown(window, { key: '7' })
+      expect(sentActions(fetchMock)).toEqual([])
+    })
+  })
 })

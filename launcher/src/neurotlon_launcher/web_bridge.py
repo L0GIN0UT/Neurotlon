@@ -29,7 +29,7 @@ log = logging.getLogger(__name__)
 
 TICK_S = 0.05
 KEEPALIVE_S = 15.0
-MAX_BODY = 1024
+MAX_BODY = 16384
 
 # Команды без аргумента и с одним строковым аргументом `value`.
 PLAIN_ACTIONS = frozenset(
@@ -48,38 +48,61 @@ PLAIN_ACTIONS = frozenset(
 VALUE_ACTIONS = frozenset({"type_char", "enter_code"})
 
 
-class Station:
-    """Машина под замком плюс последний снимок; будит слушателей при изменении."""
+class LiveState:
+    """Последний снимок и рассылка слушателям: общая часть рабочего и настроечного режимов."""
 
-    def __init__(self, machine: StationMachine, status: Callable[[], StationStatus]) -> None:
-        self._machine = machine
-        self._status = status
-        self._lock = threading.Lock()
+    def __init__(self) -> None:
         self._changed = threading.Condition()
         self._stop = threading.Event()
-        self._thread: threading.Thread | None = None
         self.version = 0
         self.body = b""
-        self._refresh()
 
-    def _refresh(self) -> None:
-        body = json.dumps(
-            snapshot(self._machine, self._status()), ensure_ascii=False, separators=(",", ":")
-        ).encode()
+    def publish(self, snapshot_data: dict[str, Any]) -> None:
+        body = json.dumps(snapshot_data, ensure_ascii=False, separators=(",", ":")).encode()
         with self._changed:
             if body != self.body:
                 self.body = body
                 self.version += 1
                 self._changed.notify_all()
 
+    def wait_change(self, seen: int, timeout: float) -> tuple[int, bytes]:
+        """Дождаться версии новее `seen` (или таймаута); вернуть версию и тело."""
+        with self._changed:
+            self._changed.wait_for(lambda: self.version != seen or self._stop.is_set(), timeout)
+            return self.version, self.body
+
     def start(self) -> None:
-        self._thread = threading.Thread(target=self._run, name="station-tick", daemon=True)
-        self._thread.start()
+        """Запустить фоновую работу, если она нужна."""
 
     def stop(self) -> None:
         self._stop.set()
         with self._changed:
             self._changed.notify_all()
+
+    def command(self, action: str, value: Any) -> bool:
+        raise NotImplementedError
+
+
+class Station(LiveState):
+    """Машина под замком плюс последний снимок; будит слушателей при изменении."""
+
+    def __init__(self, machine: StationMachine, status: Callable[[], StationStatus]) -> None:
+        super().__init__()
+        self._machine = machine
+        self._status = status
+        self._lock = threading.Lock()
+        self._thread: threading.Thread | None = None
+        self._refresh()
+
+    def _refresh(self) -> None:
+        self.publish(snapshot(self._machine, self._status()))
+
+    def start(self) -> None:
+        self._thread = threading.Thread(target=self._run, name="station-tick", daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        super().stop()
         if self._thread is not None:
             self._thread.join(timeout=5)
 
@@ -93,7 +116,7 @@ class Station:
                 log.exception("station tick failed")
             self._stop.wait(TICK_S)
 
-    def command(self, action: str, value: str | None) -> bool:
+    def command(self, action: str, value: Any) -> bool:
         """Выполнить команду из белого списка; `False` — команда неизвестна или без аргумента."""
         with self._lock:
             if action in PLAIN_ACTIONS:
@@ -104,12 +127,6 @@ class Station:
                 return False
             self._refresh()
         return True
-
-    def wait_change(self, seen: int, timeout: float) -> tuple[int, bytes]:
-        """Дождаться версии новее `seen` (или таймаута); вернуть версию и тело."""
-        with self._changed:
-            self._changed.wait_for(lambda: self.version != seen or self._stop.is_set(), timeout)
-            return self.version, self.body
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -214,7 +231,7 @@ class _Handler(BaseHTTPRequestHandler):
 class BridgeServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, station: Station, token: str, port: int = 0) -> None:
+    def __init__(self, station: LiveState, token: str, port: int = 0) -> None:
         super().__init__(("127.0.0.1", port), _Handler)
         self.station = station
         self.token = token
