@@ -137,6 +137,11 @@ export function SetupScreen({
   const [checked, setChecked] = useState<SetupFields | null>(null)
   const busy = state.phase === 'checking' || state.phase === 'saved'
   const ready = state.phase === 'ok' && checked !== null && same(checked, fields)
+  const actions = useRef<HTMLDivElement>(null)
+  // Результат проверки появляется под длинной формой: прокручиваем к нему вместе с кнопками.
+  useEffect(() => {
+    if (state.phase === 'ok' || state.error) actions.current?.scrollIntoView?.({ block: 'end', behavior: 'smooth' })
+  }, [state.phase, state.error])
   const set = (key: keyof SetupFields) => (value: string) => setFields((f) => ({ ...f, [key]: value }))
 
   const pick = (kind: 'game' | 'cert', key: 'game_path' | 'ca_file') => {
@@ -224,7 +229,7 @@ export function SetupScreen({
           )}
         </div>
 
-        <div className="setup-actions">
+        <div className="setup-actions" ref={actions}>
           <button type="submit" className="ghost wide setup-check" disabled={busy}>
             {t.SETUP.check}
           </button>
