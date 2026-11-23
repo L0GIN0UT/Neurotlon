@@ -35,8 +35,6 @@ def server_error(detail: str) -> str:
 # Проверка и подтверждение
 CHECKING = "Проверяем участника…"
 OFFLINE_WARNING = "Нет связи с сервером: проверка не выполнена, результат отправится позже"
-CONFIRM_BUTTON = "Это я — начать"
-CONFIRM_NEXT_BUTTON = "Это я — дальше"
 CANCEL_BUTTON = "Это не я"
 TEAM_NONE = "Команда ещё не назначена"
 BUSY = "Участник сейчас играет на другом стенде"
@@ -120,6 +118,17 @@ def exported_to(path: str) -> str:
     return f"Сохранено: {path}"
 
 
-# Подсказки внизу экрана
-HINT_IDLE = "Esc — стереть ввод   ·   F2 — отклонённые результаты   ·   Ctrl+Q — выход"
-HINT_CONFIRM = "Enter — подтвердить   ·   Esc — отмена"
+# Полоса шагов и подсказки клавиш
+STEPS = ("Бейдж", "Проверка", "Игра", "Результат")
+HINTS_IDLE = (("Enter", "Далее"), ("Esc", "Стереть"), ("F2", "Отклонённые"))
+HINTS_CONFIRM = (("Enter", "Играть"), ("Esc", "Это не я"))
+HINTS_PROBLEM = (("Enter", "Повторить"),)
+HINTS_REJECTED = (("E", "Экспорт"), ("Esc", "Назад"))
+HINTS_BLOCKED = (("Ctrl+Q", "Выход"),)
+
+# Страница участника
+PLAY_BUTTON = "Играть"
+PLAY_NEXT_BUTTON = "Дальше"
+INFO_PARTICIPANT = "УЧАСТНИК"
+INFO_TEAM = "КОМАНДА"
+INFO_DISCIPLINE = "ДИСЦИПЛИНА"

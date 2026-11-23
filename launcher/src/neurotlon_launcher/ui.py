@@ -36,12 +36,13 @@ from .machine import (
 )
 from .qr import CodeSource
 from .status import StationStatus
-from .widgets import Canvas, FontCache
+from .widgets import Assets, Canvas
 
 log = logging.getLogger(__name__)
 
 FPS = 30
 WINDOWED_SIZE = (1280, 720)
+FADE_MS = 220
 FLASH_MS = 140  # на сколько подсвечивается нажатая кнопка
 TOP_BAR = 96
 BOTTOM_BAR = 68
@@ -49,6 +50,19 @@ PAD = 56
 KEYPAD = ("1", "2", "3", "4", "5", "6", "7", "8", "9")
 
 StatusSource = Callable[[], StationStatus]
+
+
+def _step_of(state: object) -> int | None:
+    """Номер шага в полосе «Бейдж → Проверка → Игра → Результат»; `None` — полосы нет."""
+    if isinstance(state, Idle | Checking):
+        return 0
+    if isinstance(state, Confirm):
+        return 1
+    if isinstance(state, Starting | Playing | TechnicalProblem):
+        return 2
+    if isinstance(state, Done):
+        return 3
+    return None
 
 
 class Ui:
@@ -71,7 +85,8 @@ class Ui:
         self._status = StationStatus()
         self._status_at = -10_000
         self._flash: tuple[Rect, int] | None = None
-        self._fonts: FontCache = {}
+        self._assets = Assets()
+        self._shown: tuple[type, int] | None = None  # тип состояния и время появления
 
     # --- главный цикл -------------------------------------------------------------------
 
@@ -153,10 +168,10 @@ class Ui:
 
     def draw(self, screen: pygame.Surface) -> None:
         """Нарисовать текущее состояние машины на `screen`."""
-        canvas = Canvas(screen, self._fonts)
+        canvas = Canvas(screen, self._assets)
         self._canvas = canvas
         self._buttons = []
-        screen.fill(theme.BG)
+        canvas.backdrop(self._accent, self._machine.discipline)
         state = self._machine.state
         content = self._content_rect()
         if isinstance(state, Idle):
@@ -178,8 +193,30 @@ class Ui:
         else:
             self._draw_problem(state, content)
         self._refresh_status()
-        self._draw_top_bar()
+        self._draw_top_bar(state)
         self._draw_bottom_bar(state)
+        self._fade_in(type(state))
+
+    @property
+    def _accent(self) -> Color:
+        return theme.accent_for(self._machine.discipline)
+
+    def _fade_in(self, kind: type) -> None:
+        """Плавное появление нового экрана: затемнение поверх быстро сходит на нет."""
+        now = pygame.time.get_ticks()
+        if self._shown is None or self._shown[0] is not kind:
+            self._shown = (kind, now)
+        alpha = round(255 * max(0.0, 1 - (now - self._shown[1]) / FADE_MS))
+        if alpha <= 0:
+            return
+        size = self._canvas.screen.get_size()
+        veil = self._assets.surfaces.get(("veil", size))
+        if veil is None:
+            veil = pygame.Surface(size)
+            veil.fill(theme.BG)
+            self._assets.surfaces[("veil", size)] = veil
+        veil.set_alpha(alpha)
+        self._canvas.screen.blit(veil, (0, 0))
 
     def _content_rect(self) -> Rect:
         c = self._canvas
@@ -198,7 +235,7 @@ class Ui:
         action: Callable[[], None],
         *,
         primary: bool = False,
-        accent: Color = theme.ACCENT,
+        accent: Color | None = None,
         icon: str | None = None,
         size: float = 40,
         dim: bool = False,
@@ -213,7 +250,7 @@ class Ui:
             label,
             action,
             primary=primary,
-            accent=accent,
+            accent=accent or self._accent,
             icon=icon,
             size=size,
             pressed=pressed,
@@ -223,32 +260,62 @@ class Ui:
 
     # --- общая рамка --------------------------------------------------------------------
 
-    def _draw_top_bar(self) -> None:
+    def _draw_top_bar(self, state: object) -> None:
         c = self._canvas
         h = c.px(TOP_BAR)
-        pygame.draw.rect(c.screen, theme.SURFACE, (0, 0, c.width, h))
-        pygame.draw.line(c.screen, theme.BORDER, (0, h), (c.width, h), c.px(2))
+        bar = pygame.Surface((c.width, h), pygame.SRCALPHA)
+        bar.fill((6, 9, 18, 200))
+        c.screen.blit(bar, (0, 0))
         pad, mid = c.px(PAD), h // 2
-        c.disc((pad + c.px(8), mid), 12, theme.ACCENT)
+        c.disc((pad + c.px(8), mid), 12, self._accent)
         c.text(texts.BRAND, 34, theme.TEXT, bold=True, midleft=(pad + c.px(40), mid - c.px(9)))
         c.text(texts.BRAND_SUB, 20, theme.MUTED, midleft=(pad + c.px(40), mid + c.px(21)))
-        glyph = self._machine.discipline
-        name = texts.DISCIPLINE_NAMES.get(glyph, glyph)
-        left = pad + c.px(40) + c.measure(texts.BRAND, 34, bold=True) + c.px(56)
-        chip_h = c.px(26 * 1.9)
-        has_glyph = glyph in theme.DISCIPLINE_GLYPHS
-        chip_w = c.measure(name, 26, bold=True) + c.px(36 + (44 + 14 if has_glyph else 0))
-        pygame.draw.rect(
-            c.screen,
-            theme.SURFACE_HI,
-            (left, mid - chip_h // 2, chip_w, chip_h),
-            border_radius=chip_h // 2,
-        )
-        if has_glyph:
-            c.icon(glyph, (left + c.px(18 + 22), mid), c.px(34), theme.ACCENT)
-        text_x = left + c.px(18 + (44 + 14 if has_glyph else 0))
-        c.text(name, 26, theme.TEXT, bold=True, midleft=(text_x, mid))
+        brand_right = pad + c.px(40) + c.measure(texts.BRAND, 34, bold=True)
         self._draw_link_chip(c.width - pad, mid)
+        step = _step_of(state)
+        if step is not None:
+            self._draw_steps(step, brand_right + c.px(48), c.width - pad - c.px(230), mid)
+
+    def _draw_steps(self, current: int, left: int, right: int, mid: int) -> None:
+        """Полоса шагов: пройденные с галочкой, текущий окрашен цветом дисциплины."""
+        c = self._canvas
+        wide = c.width / c.height >= 1.6
+        r = c.px(20)
+        gap = c.px(26)
+        widths = [
+            2 * r + (c.px(12) + c.measure(label, 24, True) if wide or i == current else 0)
+            for i, label in enumerate(texts.STEPS)
+        ]
+        total = sum(widths) + gap * (len(widths) - 1)
+        if total > right - left:
+            return
+        x = left + (right - left - total) // 2
+        for i, label in enumerate(texts.STEPS):
+            done, active = i < current, i == current
+            color = self._accent if active else theme.GREEN if done else theme.BORDER
+            center = (x + r, mid)
+            if active or done:
+                c.disc(center, 20, color)
+                if done:
+                    c.icon("check", center, c.px(22), theme.BG)
+                else:
+                    c.text(str(i + 1), 24, theme.on_color(color), bold=True, center=center)
+            else:
+                c.ring(center, 20, color, 3)
+                c.text(str(i + 1), 24, theme.MUTED, bold=True, center=center)
+            if wide or active:
+                c.text(
+                    label,
+                    24,
+                    theme.TEXT if active else theme.MUTED,
+                    bold=active,
+                    midleft=(x + 2 * r + c.px(12), mid),
+                )
+            x += widths[i] + gap
+            if i < len(widths) - 1:
+                pygame.draw.line(
+                    c.screen, theme.BORDER, (x - gap + c.px(6), mid), (x - c.px(6), mid), c.px(2)
+                )
 
     def _draw_link_chip(self, right: int, mid: int) -> None:
         c = self._canvas
@@ -264,7 +331,11 @@ class Ui:
     def _draw_bottom_bar(self, state: object) -> None:
         c = self._canvas
         h = c.px(BOTTOM_BAR)
-        pad, mid = c.px(PAD), c.height - h + h // 2
+        y = c.height - h
+        bar = pygame.Surface((c.width, h), pygame.SRCALPHA)
+        bar.fill((6, 9, 18, 215))
+        c.screen.blit(bar, (0, y))
+        pad, mid = c.px(PAD), y + h // 2
         right = c.width - pad
         status = self._status
         if status.rejected and not isinstance(state, RejectedList):
@@ -275,12 +346,7 @@ class Ui:
                 midright=(right, mid),
             )
             if isinstance(state, Idle):  # плашка нажимается: список без клавиатуры
-                tap = (
-                    rect[0],
-                    mid - c.px(50),
-                    rect[2],
-                    c.px(100),
-                )  # область нажатия крупнее плашки
+                tap = (rect[0], mid - c.px(50), rect[2], c.px(100))
                 self._buttons.append(Button("rejected", tap, self._machine.show_rejected))
             right = rect[0] - c.px(16)
         if status.pending:
@@ -288,15 +354,15 @@ class Ui:
                 texts.QUEUE_LINE.format(n=status.pending), theme.YELLOW, midright=(right, mid)
             )
             right = rect[0] - c.px(16)
-        hint = (
-            texts.HINT_IDLE
-            if isinstance(state, Idle)
-            else texts.HINT_CONFIRM
-            if isinstance(state, Confirm)
-            else ""
-        )
-        if hint:
-            c.text(c.fit(hint, 21, right - 2 * pad), 21, theme.MUTED, midleft=(pad, mid))
+        hints = {
+            Idle: texts.HINTS_IDLE,
+            Confirm: texts.HINTS_CONFIRM,
+            TechnicalProblem: texts.HINTS_PROBLEM,
+            RejectedList: texts.HINTS_REJECTED,
+            Blocked: texts.HINTS_BLOCKED,
+        }.get(type(state), ())
+        if hints:
+            c.hints(list(hints), (pad, mid), right - c.px(24))
 
     # --- ввод ID ------------------------------------------------------------------------
 
@@ -323,7 +389,7 @@ class Ui:
 
         field_h = c.px(104)
         field = (right_x, y, right_w, field_h)
-        c.card(field, theme.SURFACE, border=theme.ACCENT if state.input else theme.BORDER)
+        c.card(field, theme.SURFACE, border=self._accent if state.input else theme.BORDER)
         cursor = "│" if pygame.time.get_ticks() // 500 % 2 == 0 else " "
         if state.input:
             c.text(
@@ -372,7 +438,7 @@ class Ui:
         if frame is None:
             cx, cy = box[0] + box[2] // 2, box[1] + box[3] // 2
             if self._scanner.available:
-                c.spinner((cx, cy - c.px(30)), 46, pygame.time.get_ticks(), theme.ACCENT)
+                c.spinner((cx, cy - c.px(30)), 46, pygame.time.get_ticks(), self._accent)
                 c.text(texts.CAMERA_STARTING, 30, theme.MUTED, center=(cx, cy + c.px(60)))
             else:
                 c.icon("warning", (cx, cy - c.px(60)), c.px(110), theme.YELLOW)
@@ -389,7 +455,7 @@ class Ui:
         c.screen.blit(scaled, (x, y))
         margin = c.px(14)
         c.corner_brackets(
-            (x + margin, y + margin, out_w - 2 * margin, out_h - 2 * margin), theme.ACCENT
+            (x + margin, y + margin, out_w - 2 * margin, out_h - 2 * margin), self._accent
         )
 
     def _draw_pong_slots(self, state: Idle, x: int, y: int, width: int) -> int:
@@ -404,7 +470,7 @@ class Ui:
             c.card(
                 rect,
                 theme.SURFACE,
-                border=theme.ACCENT if active else (team if taken else theme.BORDER),
+                border=self._accent if active else (team if taken else theme.BORDER),
             )
             mid = y + slot_h // 2
             c.text(
@@ -424,7 +490,7 @@ class Ui:
                 c.text(
                     waiting,
                     28,
-                    theme.ACCENT if active else theme.BORDER,
+                    self._accent if active else theme.BORDER,
                     midleft=(rect[0] + c.px(24), mid + c.px(20)),
                 )
         return y + slot_h + c.px(28)
@@ -458,99 +524,116 @@ class Ui:
     # --- подтверждение ------------------------------------------------------------------
 
     def _draw_confirm(self, state: Confirm, content: Rect) -> None:
+        """Страница участника, как страница установленной игры в библиотеке Steam:
+        баннер цвета команды, крупная кнопка «Играть» и строка сведений."""
         c = self._canvas
         x0, y0, w, h = content
         candidate = state.candidate
-        accent = theme.YELLOW if candidate.warned else theme.GREEN
+        warned = candidate.warned
         team_color = parse_hex_color(candidate.team.color) if candidate.team else theme.MUTED
         index = len(state.taken)
         two = self._machine.players_needed == 2
-
-        card_w = min(w, c.px(1320))
-        card_x = x0 + (w - card_w) // 2
-        buttons_h = c.px(124)
         warnings = self._warnings(candidate, state.notice)
-        warn_h = c.px(64) * len(warnings) + (c.px(20) if warnings else 0)
-        card_h = c.px(330) + warn_h
-        top = y0 + max(0, (h - buttons_h - c.px(48) - card_h) // 2)
-        card = (card_x, top, card_w, card_h)
-        c.card(card, theme.SURFACE, border=accent, radius=36, border_width=4)
-        pygame.draw.rect(
-            c.screen,
-            team_color,
-            (card_x + c.px(4), top + c.px(4), c.px(18), card_h - c.px(8)),
-            border_top_left_radius=c.px(32),
-            border_bottom_left_radius=c.px(32),
-        )
 
-        center = (card_x + c.px(40 + 130), top + c.px(40 + 130))
-        c.disc(center, 130, theme.mix(team_color, theme.SURFACE, 0.35))
-        c.ring(center, 130, team_color, 6)
+        width = min(w, c.px(1500))
+        x = x0 + (w - width) // 2
+        banner_h = c.px(360)
+        strip_h = c.px(140)
+        warn_h = (c.px(64) * len(warnings) + c.px(12)) if warnings else 0
+        gap = c.px(28)
+        top = y0 + max(0, (h - banner_h - gap - strip_h - warn_h) // 2)
+
+        # баннер
+        banner = (x, top, width, banner_h)
+        c.banner(banner, team_color)
+        glyph = self._machine.discipline
+        if glyph in theme.DISCIPLINE_GLYPHS:
+            c.watermark(
+                glyph,
+                (x + width - c.px(250), top + banner_h // 2),
+                c.px(300),
+                theme.mix(theme.TEXT, team_color, 0.35),
+                46,
+            )
+        center = (x + c.px(60 + 110), top + banner_h // 2)
+        c.disc((center[0], center[1] + c.px(8)), 112, (0, 0, 0))
+        c.disc(center, 110, theme.mix(team_color, theme.BG, 0.55))
+        c.ring(center, 110, theme.TEXT, 5)
         c.text(
             theme.initials(candidate.display_name, candidate.code),
-            120,
+            110,
             theme.TEXT,
             bold=True,
             center=center,
         )
-
-        tx = card_x + c.px(40 + 260 + 48)
-        tw = card_x + card_w - c.px(40) - tx
-        ty = top + c.px(46)
+        tx = x + c.px(60 + 220 + 56)
+        tw = x + width - c.px(60) - tx
+        ty = top + c.px(70)
         if two:
             side = f"{texts.PLAYER_SLOT[index]} · {texts.side_line(index).lower()}"
-            c.text(side, 28, theme.MUTED, bold=True, topleft=(tx, ty))
-            ty += c.px(44)
-        name = c.fit(candidate.display_name or candidate.code, 86, tw, bold=True)
-        c.text(name, 86, theme.TEXT, bold=True, topleft=(tx, ty))
-        ty += c.px(104)
-        if candidate.display_name:
-            c.text(candidate.code, 38, theme.MUTED, topleft=(tx, ty))
-            ty += c.px(56)
-        if candidate.team:
-            label = texts.team_line(candidate.team.number, candidate.team.name)
-            c.dot((tx + c.px(12), ty + c.px(24)), 12, team_color)
-            c.text(
-                c.fit(label, 38, tw - c.px(40), bold=True),
-                38,
-                theme.readable_on_dark(team_color),
-                bold=True,
-                midleft=(tx + c.px(40), ty + c.px(24)),
-            )
-        else:
-            c.text(texts.TEAM_NONE, 34, theme.MUTED, midleft=(tx, ty + c.px(24)))
+            c.chip(side, theme.TEXT, size=24, topleft=(tx, top + c.px(40)))
+            ty = top + c.px(112)
+        name = c.fit(candidate.display_name or candidate.code, 92, tw, bold=True)
+        c.text(name, 92, theme.TEXT, bold=True, topleft=(tx, ty))
+        sub = (
+            texts.team_line(candidate.team.number, candidate.team.name)
+            if candidate.team
+            else texts.TEAM_NONE
+        )
+        c.text(
+            c.fit(sub, 40, tw, bold=True),
+            40,
+            theme.mix(theme.TEXT, team_color, 0.8),
+            bold=True,
+            topleft=(tx, ty + c.px(112)),
+        )
 
-        wy = top + c.px(330)
-        for text, color, icon in warnings:
-            c.chip(
-                text,
-                color,
-                icon=icon,
-                size=26,
-                max_width=card_w - c.px(80),
-                topleft=(card_x + c.px(40), wy),
-            )
-            wy += c.px(64)
-
-        by = top + card_h + c.px(48)
-        bw = (card_w - c.px(32)) // 2
+        # строка с кнопкой «Играть» и сведениями
+        sy = top + banner_h + gap
+        strip = (x, sy, width, strip_h)
+        c.card(strip, theme.mix(theme.SURFACE, theme.BG, 0.8), radius=30)
         last = len(state.taken) + 1 >= self._machine.players_needed
+        play_color = theme.YELLOW if warned else theme.PLAY_GREEN
+        play = (x + c.px(16), sy + c.px(14), c.px(470), strip_h - c.px(28))
+        c.shadow(play, 26, 150)
         self._button(
-            (card_x, by, bw, buttons_h),
-            texts.CONFIRM_BUTTON if last else texts.CONFIRM_NEXT_BUTTON,
+            play,
+            texts.PLAY_BUTTON if last else texts.PLAY_NEXT_BUTTON,
             self._machine.confirm,
             primary=True,
-            accent=accent,
-            icon="check",
-            size=42,
+            accent=play_color,
+            icon="play" if last else "arrow",
+            size=50,
         )
+        columns = (
+            (texts.INFO_PARTICIPANT, candidate.code),
+            (texts.INFO_TEAM, candidate.team.name if candidate.team else "—"),
+            (texts.INFO_DISCIPLINE, texts.DISCIPLINE_NAMES.get(glyph, glyph)),
+        )
+        cancel_w = c.px(250)
+        info_left = play[0] + play[2] + c.px(48)
+        info_w = (x + width - c.px(24) - cancel_w - c.px(24) - info_left) // len(columns)
+        for i, (label, value) in enumerate(columns):
+            cx = info_left + i * info_w
+            c.text(label, 20, theme.MUTED, bold=True, topleft=(cx, sy + c.px(34)))
+            c.text(
+                c.fit(value, 36, info_w - c.px(20), True),
+                36,
+                theme.TEXT,
+                bold=True,
+                topleft=(cx, sy + c.px(66)),
+            )
         self._button(
-            (card_x + bw + c.px(32), by, bw, buttons_h),
+            (x + width - c.px(24) - cancel_w, sy + c.px(20), cancel_w, strip_h - c.px(40)),
             texts.CANCEL_BUTTON,
             self._machine.cancel,
-            icon="cross",
-            size=42,
+            size=30,
         )
+
+        wy = sy + strip_h + c.px(12)
+        for text, color, icon in warnings:
+            c.chip(text, color, icon=icon, size=26, max_width=width, topleft=(x, wy))
+            wy += c.px(64)
 
     @staticmethod
     def _warnings(candidate: Candidate, notice: str | None) -> list[tuple[str, Color, str]]:
@@ -593,7 +676,7 @@ class Ui:
         c = self._canvas
         x0, y0, w, h = content
         cx, cy = x0 + w // 2, y0 + h // 2
-        c.spinner((cx, cy - c.px(120)), 70, pygame.time.get_ticks(), theme.ACCENT)
+        c.spinner((cx, cy - c.px(120)), 70, pygame.time.get_ticks(), self._accent)
         c.text(title, 64, theme.TEXT, bold=True, center=(cx, cy + c.px(10)))
         if hint:
             c.text(hint, 30, theme.MUTED, center=(cx, cy + c.px(76)))

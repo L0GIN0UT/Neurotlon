@@ -23,6 +23,17 @@ RED: Color = (240, 82, 79)
 BASE_HEIGHT = 1080  # высота экрана, для которой заданы размеры
 
 DISCIPLINE_GLYPHS = ("darts", "football", "pong")
+# Каждой дисциплине свой цвет: им окрашены фон, шаги и акценты.
+DISCIPLINE_ACCENTS: dict[str, Color] = {
+    "darts": (255, 112, 67),
+    "football": (46, 204, 113),
+    "pong": (56, 189, 248),
+}
+PLAY_GREEN: Color = (74, 222, 128)  # кнопка «Играть», как в библиотеке Steam
+
+
+def accent_for(discipline: str) -> Color:
+    return DISCIPLINE_ACCENTS.get(discipline, ACCENT)
 
 
 def mix(front: Color, back: Color, amount: float) -> Color:

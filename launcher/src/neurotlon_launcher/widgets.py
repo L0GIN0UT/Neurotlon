@@ -8,22 +8,32 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
+from dataclasses import dataclass, field
 
 import pygame
 
-from . import theme
+from . import fx, theme
 from .layout import Button, Color, Rect, wrap_text
 
 FONT_CANDIDATES = "segoeui,arial,dejavusans,liberationsans,freesans"
 FontCache = dict[tuple[int, bool], pygame.font.Font]
 
 
+@dataclass
+class Assets:
+    """То, что живёт дольше кадра: шрифты и готовые картинки (тени, фоны, баннеры)."""
+
+    fonts: FontCache = field(default_factory=dict)
+    surfaces: dict[tuple[object, ...], pygame.Surface] = field(default_factory=dict)
+
+
 class Canvas:
     """Поверхность с набором примитивов в единой теме."""
 
-    def __init__(self, screen: pygame.Surface, fonts: FontCache | None = None) -> None:
-        """`fonts` — кэш шрифтов, который переживает кадры (Canvas создаётся каждый кадр)."""
-        self._fonts: FontCache = {} if fonts is None else fonts
+    def __init__(self, screen: pygame.Surface, assets: Assets | None = None) -> None:
+        """`assets` — кэш, который переживает кадры (Canvas создаётся каждый кадр)."""
+        self.assets = Assets() if assets is None else assets
+        self._fonts = self.assets.fonts
         self.screen = screen
         self.width, self.height = screen.get_size()
         self._unit = theme.scale(self.height)
@@ -82,6 +92,60 @@ class Canvas:
 
     # --- плашки -------------------------------------------------------------------------
 
+    def _cached(
+        self, key: tuple[object, ...], make: Callable[[], pygame.Surface]
+    ) -> pygame.Surface:
+        surfaces = self.assets.surfaces
+        if key not in surfaces:
+            if len(surfaces) > 200:  # смена размера окна или команды не должна копить память
+                surfaces.clear()
+            surfaces[key] = make()
+        return surfaces[key]
+
+    def backdrop(self, accent: Color, glyph: str) -> None:
+        """Фон экрана: градиент со свечением цвета дисциплины и огромным значком-«постером»."""
+        size = (self.width, self.height)
+
+        def make() -> pygame.Surface:
+            surface = fx.backdrop(size, accent)
+            if glyph in theme.DISCIPLINE_GLYPHS:
+                poster = pygame.Surface(size, pygame.SRCALPHA)
+                tint = (*theme.mix(accent, theme.TEXT, 0.55), 26)
+                Canvas(poster, self.assets).icon(
+                    glyph,
+                    (round(self.width * 0.74), round(self.height * 0.58)),
+                    round(self.height * 0.9),
+                    tint,
+                )
+                surface.blit(poster, (0, 0))
+            return surface
+
+        self.screen.blit(self._cached(("backdrop", size, accent, glyph), make), (0, 0))
+
+    def shadow(self, rect: Rect, radius: float, alpha: int = 130, color_offset: int = 16) -> None:
+        pad = self.px(48)
+        size = (rect[2] + 2 * pad, rect[3] + 2 * pad)
+        key = ("shadow", size, self.px(radius), alpha)
+        image = self._cached(key, lambda: fx.soft_shadow(size, pad, self.px(radius), alpha))
+        self.screen.blit(image, (rect[0] - pad, rect[1] - pad + self.px(color_offset)))
+
+    def watermark(
+        self, name: str, center: tuple[int, int], size: int, color: Color, alpha: int
+    ) -> None:
+        """Крупный полупрозрачный значок: на экран попадает только с заданной прозрачностью."""
+        layer = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
+        Canvas(layer, self.assets).icon(name, center, size, (*color, alpha))
+        self.screen.blit(layer, (0, 0))
+
+    def banner(self, rect: Rect, color: Color, radius: float = 36) -> None:
+        size = (rect[2], rect[3])
+        image = self._cached(
+            ("banner", size, color, self.px(radius)),
+            lambda: fx.banner(size, color, self.px(radius)),
+        )
+        self.shadow(rect, radius, 150)
+        self.screen.blit(image, (rect[0], rect[1]))
+
     def card(
         self,
         rect: Rect,
@@ -90,8 +154,16 @@ class Canvas:
         border: Color | None = None,
         radius: float = 28,
         border_width: float = 3,
+        shadow: bool = True,
     ) -> None:
+        if shadow:
+            self.shadow(rect, radius, 110)
         pygame.draw.rect(self.screen, fill, rect, border_radius=self.px(radius))
+        # светлая кромка сверху: карточка «приподнята» над фоном
+        edge = theme.mix(theme.TEXT, fill, 0.10)
+        pygame.draw.rect(
+            self.screen, edge, rect, width=max(1, self.px(2)), border_radius=self.px(radius)
+        )
         if border is not None:
             pygame.draw.rect(
                 self.screen,
@@ -100,6 +172,31 @@ class Canvas:
                 width=self.px(border_width),
                 border_radius=self.px(radius),
             )
+
+    def keycap(self, label: str, midleft: tuple[int, int]) -> int:
+        """Значок клавиши (как кнопка-подсказка в Steam); возвращает правый край."""
+        size = 21
+        w = self.measure(label, size, True) + self.px(26)
+        h = self.px(38)
+        rect = pygame.Rect(0, 0, w, h)
+        rect.midleft = midleft
+        pygame.draw.rect(self.screen, theme.SURFACE_HI, rect, border_radius=self.px(10))
+        pygame.draw.rect(
+            self.screen, theme.BORDER, rect, width=self.px(2), border_radius=self.px(10)
+        )
+        self.text(label, size, theme.TEXT, bold=True, center=rect.center)
+        return rect.right
+
+    def hints(self, items: list[tuple[str, str]], midleft: tuple[int, int], max_right: int) -> None:
+        """Ряд подсказок «клавиша — действие»; что не влезло, не рисуется."""
+        x, y = midleft
+        for key, label in items:
+            need = self.measure(key, 21, True) + self.px(26) + self.px(12) + self.measure(label, 23)
+            if x + need > max_right:
+                break
+            x = self.keycap(key, (x, y)) + self.px(12)
+            rect = self.text(label, 23, theme.MUTED, midleft=(x, y))
+            x = rect[0] + rect[2] + self.px(34)
 
     def chip(
         self,
@@ -234,7 +331,13 @@ class Canvas:
 
     # --- значки -------------------------------------------------------------------------
 
-    def icon(self, name: str, center: tuple[int, int], size: int, color: Color) -> None:
+    def icon(
+        self,
+        name: str,
+        center: tuple[int, int],
+        size: int,
+        color: Color | tuple[int, int, int, int],
+    ) -> None:
         """Значок в квадрате `size` пикселей вокруг `center`."""
         cx, cy = center
         s = size / 2
@@ -265,6 +368,8 @@ class Canvas:
                 draw.arc(surf, color, rect, math.radians(40), math.radians(140), w)
             draw.circle(surf, color, p(0, 0.45), max(2, w // 2 + 1))
             draw.line(surf, color, p(-0.8, -0.8), p(0.8, 0.9), w)
+        elif name == "play":
+            draw.polygon(surf, color, [p(-0.55, -0.8), p(0.85, 0), p(-0.55, 0.8)])
         elif name == "dot":
             draw.circle(surf, color, center, round(s * 0.5))
         elif name == "backspace":
