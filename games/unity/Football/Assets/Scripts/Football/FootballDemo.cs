@@ -7,6 +7,8 @@ namespace Neurotlon.Games.Football
     //   wrong — всё сделано неправильно: змейка прямо через конусы, концентрации нет, мяч не тормозят.
     public sealed class FootballDemo
     {
+        const float ThrottleSteadyEmg = 0.30f;             // ровная скорость около 1,4 м/с: на поворотах змейки мяч не уходит к конусу
+        const float RhythmTapPhase = 0.08f;                // напряжение только в начале такта метронома
         const float RelaxedSeconds = 1.7f;                 // нога расслаблена перед ударом: за это время концентрация успевает набраться
 
         readonly bool right;
@@ -34,9 +36,23 @@ namespace Neurotlon.Games.Football
             var snake = rules.Current as SnakeElement;
             if (snake != null)
             {
-                // «Уровень напряжения» задаёт положение мяча по X; правильный игрок ведёт его по пути между конусами
-                emg = right ? SnakePath.DesiredX(tuning, snake.Y) / (2f * tuning.LateralMax) + 0.5f : 0.5f;
                 eeg = 0.5f;
+                switch (tuning.Dribble)
+                {
+                    case DribbleMode.Throttle:
+                        // газ и тормоз: правильный игрок держит скорость, на которой мяч успевает за поворотами; неправильный жмёт на газ до упора
+                        emg = right ? ThrottleSteadyEmg : 1f;
+                        break;
+                    case DribbleMode.Rhythm:
+                        // ритм: правильный игрок напрягает ногу ровно в такт метроному, неправильный не напрягает вовсе
+                        var rhythm = snake.Dribble as RhythmDribble;
+                        emg = right && rhythm != null && rhythm.BeatPhase < RhythmTapPhase ? 0.9f : 0.1f;
+                        break;
+                    default:
+                        // «уровень»: напряжение задаёт положение мяча по X; правильный игрок ведёт его по пути между конусами
+                        emg = right ? SnakePath.DesiredX(tuning, snake.Y) / (2f * tuning.LateralMax) + 0.5f : 0.5f;
+                        break;
+                }
                 return;
             }
             if (rules.Current is StopElement)

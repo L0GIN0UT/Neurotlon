@@ -6,9 +6,9 @@ namespace Neurotlon.Games.Football.Tests
     {
         const float Dt = 0.01f;
 
-        static int Play(bool right)
+        static int Play(bool right, DribbleMode mode = DribbleMode.Throttle)
         {
-            var tuning = new FootballTuning();
+            var tuning = new FootballTuning { Dribble = mode };
             var rules = new FootballRules(tuning, () => 0.3f);
             var demo = new FootballDemo(right, tuning);
             float time = 0f;
@@ -28,6 +28,28 @@ namespace Neurotlon.Games.Football.Tests
         public void TheRightDemoScoresAlmostEverything()
         {
             Assert.GreaterOrEqual(Play(true), 9);
+        }
+
+        [TestCase(DribbleMode.Level)]
+        [TestCase(DribbleMode.Throttle)]
+        [TestCase(DribbleMode.Rhythm)]
+        public void TheRightDemoWorksWithEveryDribbleMode(DribbleMode mode)
+        {
+            Assert.GreaterOrEqual(Play(true, mode), 9);
+        }
+
+        [TestCase(DribbleMode.Level)]
+        [TestCase(DribbleMode.Throttle)]
+        [TestCase(DribbleMode.Rhythm)]
+        public void TheWrongDemoLosesWithEveryDribbleMode(DribbleMode mode)
+        {
+            Assert.LessOrEqual(Play(false, mode), 4);
+        }
+
+        [Test]
+        public void ThrottleIsTheDefaultDribble()
+        {
+            Assert.AreEqual(DribbleMode.Throttle, new FootballTuning().Dribble);
         }
 
         [Test]

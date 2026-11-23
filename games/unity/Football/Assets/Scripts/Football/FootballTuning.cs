@@ -12,7 +12,7 @@ namespace Neurotlon.Games.Football
     // Длины — метры в мире поля (ось Y — вдоль поля вперёд, X — вправо, Z — вверх).
     public sealed class FootballTuning
     {
-        public DribbleMode Dribble = DribbleMode.Level;
+        public DribbleMode Dribble = DribbleMode.Throttle;     // по умолчанию «газ и тормоз»; окончательный выбор способа за владельцем (открытый вопрос)
         public float ElementSeconds = 60f;                 // время на один элемент
         public float GripOn = 0.6f;                        // порог сжатия ноги (удар/передача)
         public float GripOff = 0.35f;                      // порог отпускания; после удара надо расслабить ногу
