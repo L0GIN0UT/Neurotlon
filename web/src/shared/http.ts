@@ -1,4 +1,4 @@
-// Общий HTTP-клиент для планшета, админки и судьи: cookie сессии, application/problem+json.
+// Общий HTTP-клиент для планшета, админки и страницы результатов: cookie сессии, application/problem+json.
 
 /** Ответ сервера с ошибкой (application/problem+json). */
 export class ApiError extends Error {

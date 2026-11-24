@@ -38,7 +38,7 @@ const TABS: { id: Tab; label: string; title: string; hint: string }[] = [
     id: 'users',
     label: 'Пользователи',
     title: 'Пользователи',
-    hint: 'Судьи, волонтёры и администраторы.',
+    hint: 'Волонтёры и администраторы.',
   },
   {
     id: 'export',

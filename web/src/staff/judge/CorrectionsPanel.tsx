@@ -8,12 +8,11 @@ import { ResultEditor } from './ResultEditor.tsx'
 
 interface Props {
   api: StaffApi
-  canEditLocked: boolean
   /** Лимит очков за секцию по дисциплинам. */
   limits?: Partial<Record<Discipline, number>>
 }
 
-export function CorrectionsPanel({ api, canEditLocked, limits = {} }: Props) {
+export function CorrectionsPanel({ api, limits = {} }: Props) {
   const list = useLoader(() => api.corrections('open'))
   const corrections = list.data ?? []
   return (
@@ -25,7 +24,6 @@ export function CorrectionsPanel({ api, canEditLocked, limits = {} }: Props) {
           key={correction.id}
           api={api}
           correction={correction}
-          canEditLocked={canEditLocked}
           limits={limits}
           onDone={list.reload}
         />
@@ -39,7 +37,7 @@ interface CardProps extends Props {
   onDone: () => void
 }
 
-function CorrectionCard({ api, correction, canEditLocked, limits = {}, onDone }: CardProps) {
+function CorrectionCard({ api, correction, limits = {}, onDone }: CardProps) {
   const action = useAction()
   const [rows, setRows] = useState<StoredResult[] | null>(null)
   const label = `Запрос ${correction.id}`
@@ -76,7 +74,6 @@ function CorrectionCard({ api, correction, canEditLocked, limits = {}, onDone }:
           key={row.id}
           api={api}
           row={row}
-          canEditLocked={canEditLocked}
           maxPoints={limits[row.discipline] ?? null}
           onSaved={(saved) =>
             setRows((current) => current?.map((r) => (r.id === saved.id ? saved : r)) ?? null)

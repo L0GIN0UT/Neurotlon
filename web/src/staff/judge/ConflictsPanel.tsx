@@ -11,7 +11,7 @@ export function ConflictsPanel({ api }: { api: StaffApi }) {
   return (
     <section className="stack">
       <p>
-        Два результата на одну секцию: пока судья не оставит один, секция не даёт очков и на табло
+        Два результата на одну секцию: пока админ не оставит один, секция не даёт очков и на табло
         помечена «нужно решение».
       </p>
       <ErrorText error={list.error} />

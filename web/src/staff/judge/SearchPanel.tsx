@@ -10,12 +10,11 @@ import { ResultEditor } from './ResultEditor.tsx'
 
 interface Props {
   api: StaffApi
-  canEditLocked: boolean
   /** Лимит очков за секцию по дисциплинам. */
   limits?: Partial<Record<Discipline, number>>
 }
 
-export function SearchPanel({ api, canEditLocked, limits = {} }: Props) {
+export function SearchPanel({ api, limits = {} }: Props) {
   const action = useAction()
   const [participant, setParticipant] = useState('')
   const [discipline, setDiscipline] = useState<Discipline | ''>('')
@@ -83,7 +82,6 @@ export function SearchPanel({ api, canEditLocked, limits = {} }: Props) {
           key={row.id}
           api={api}
           row={row}
-          canEditLocked={canEditLocked}
           maxPoints={limits[row.discipline] ?? null}
           onSaved={(saved) =>
             setRows((current) => current?.map((r) => (r.id === saved.id ? saved : r)) ?? null)

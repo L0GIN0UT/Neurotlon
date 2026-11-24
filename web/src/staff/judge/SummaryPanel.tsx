@@ -9,7 +9,6 @@ export type SummaryTarget = 'conflicts' | 'corrections'
 
 interface Props {
   api: StaffApi
-  canForce: boolean
   onNavigate: (tab: SummaryTarget) => void
 }
 
@@ -116,7 +115,7 @@ function Tile({ label, value, tone }: TileProps) {
   )
 }
 
-export function SummaryPanel({ api, canForce, onNavigate }: Props) {
+export function SummaryPanel({ api, onNavigate }: Props) {
   const loader = useLoader(() => loadTotals(api))
   const totals = loader.data
 
@@ -171,7 +170,7 @@ export function SummaryPanel({ api, canForce, onNavigate }: Props) {
           <p className="hint">{loader.error ? 'Не удалось проверить готовность.' : 'Проверяем…'}</p>
         )}
         <p className="hint">
-          Зафиксировать можно и при невыполненных пунктах: решение за судьёй, перед фиксацией
+          Зафиксировать можно и при невыполненных пунктах: решение за админом, перед фиксацией
           будет предупреждение.
         </p>
       </section>
@@ -179,7 +178,6 @@ export function SummaryPanel({ api, canForce, onNavigate }: Props) {
       <div className="summary-actions">
         <LockPanel
           api={api}
-          canForce={canForce}
           warnings={
             totals && loader.error === null ? unreadyItems(totals) : ['Не удалось проверить готовность']
           }

@@ -11,7 +11,7 @@ import { Dialog, ErrorText } from '../ui.tsx'
 
 const MAX_NAME = 24
 
-/** Подписи форм в столбцах: BCI и «реальная» оценка судьи. */
+/** Подписи форм в столбцах: BCI и «реальная» оценка. */
 const SECTION_HEAD = { bci: 'BCI', physical: 'Реальная' } as const
 
 type Editing =
