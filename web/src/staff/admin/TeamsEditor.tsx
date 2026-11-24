@@ -24,14 +24,14 @@ function TeamRow({
           onChange={(e) => draft.setName(e.target.value)}
         />
       </label>
-      <div className="field">
+      <label className="field">
         <span>{`Цвет команды ${team.number}`}</span>
         <ColorPicker
           label={`Цвет команды ${team.number}`}
           value={draft.color}
           onChange={draft.setColor}
         />
-      </div>
+      </label>
       <button
         type="button"
         className="primary"

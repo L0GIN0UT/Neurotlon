@@ -17,10 +17,10 @@ export const TEAM_PALETTE: readonly string[] = [
 ]
 
 const HEX = /^#[0-9a-fA-F]{6}$/
+
 /** Нормализует ввод («ff8800» или «#FF8800») в «#ff8800»; null, если формат неверный. */
 export function parseHex(raw: string): string | null {
   const text = raw.trim()
   const hex = text.startsWith('#') ? text : `#${text}`
   return HEX.test(hex) ? hex.toLowerCase() : null
 }
-

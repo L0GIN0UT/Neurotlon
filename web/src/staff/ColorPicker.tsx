@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { CSSProperties, KeyboardEvent } from 'react'
 import { TEAM_PALETTE, parseHex } from './colors.ts'
 import './ColorPicker.css'
@@ -6,22 +6,28 @@ import './ColorPicker.css'
 /** Минимальный отступ окошка от края экрана и число колонок палитры (как в CSS). */
 const GAP = 8
 const COLUMNS = 7
+/** До расчёта позиции окошко прозрачно, но не `visibility: hidden`: такой элемент не берёт фокус. */
+const HIDDEN: CSSProperties = { left: 0, top: 0, opacity: 0, pointerEvents: 'none' }
 
 /** Кружок с цветом и всплывающее окошко: палитра и поле «свой цвет». Без системного окна выбора. */
 export function ColorPicker({
   value,
   label,
   onChange,
+  disabled = false,
   palette = TEAM_PALETTE,
 }: {
   value: string
   label: string
   onChange: (hex: string) => void
+  /** Идёт сохранение: выбор временно не принимается. */
+  disabled?: boolean
   palette?: readonly string[]
 }) {
   const [open, setOpen] = useState(false)
   const [custom, setCustom] = useState('')
-  const [pos, setPos] = useState<CSSProperties>({ visibility: 'hidden' })
+  const [pos, setPos] = useState<CSSProperties>(HIDDEN)
+  const [placed, setPlaced] = useState(false)
   const root = useRef<HTMLSpanElement>(null)
   const button = useRef<HTMLButtonElement>(null)
   const pop = useRef<HTMLDivElement>(null)
@@ -37,51 +43,66 @@ export function ColorPicker({
   }
 
   function pick(hex: string) {
+    // Пока предыдущий выбор сохраняется, новый не принимается: иначе он бы потерялся.
+    if (disabled) return
     onChange(hex.toLowerCase())
     close(true)
   }
 
   // Окошко fixed: его не обрезают карточки; на узком экране прижимается к границам.
-  useLayoutEffect(() => {
-    if (!open || !button.current || !pop.current) return
+  const place = useCallback(() => {
+    if (!button.current || !pop.current) return
     const anchor = button.current.getBoundingClientRect()
     const width = pop.current.offsetWidth
     const height = pop.current.offsetHeight
     const left = Math.max(GAP, Math.min(anchor.left, window.innerWidth - width - GAP))
     const below = anchor.bottom + 6
     const top =
-      below + height + GAP <= window.innerHeight
-        ? below
-        : Math.max(GAP, anchor.top - 6 - height)
+      below + height + GAP <= window.innerHeight ? below : Math.max(GAP, anchor.top - 6 - height)
     setPos({ left, top })
-  }, [open])
+    setPlaced(true)
+  }, [])
+
+  useLayoutEffect(() => {
+    if (open) place()
+  }, [open, place])
+
+  // Фокус на палитру только когда окошко стоит на месте и видимо: скрытый элемент фокус не берёт.
+  useEffect(() => {
+    if (!open || !placed) return
+    // Фокус — на отмеченный цвет; смена цвета при открытом окошке фокус не двигает.
+    const selected = swatches.current.findIndex((s) => s?.getAttribute('aria-pressed') === 'true')
+    swatches.current[Math.max(0, selected)]?.focus()
+  }, [open, placed])
 
   useEffect(() => {
     if (!open) return
-    const start = Math.max(0, palette.findIndex((c) => c.toLowerCase() === current))
-    swatches.current[start]?.focus()
+    let width = window.innerWidth
     const onDown = (e: MouseEvent) => {
-      if (!root.current?.contains(e.target as Node) && !pop.current?.contains(e.target as Node)) {
-        setOpen(false)
-      }
+      if (!root.current?.contains(e.target as Node)) setOpen(false)
     }
-    const dismiss = () => setOpen(false)
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === 'Escape') close(true)
+    }
+    // Ширина не менялась (экранная клавиатура планшета): окошко остаётся, позиция пересчитывается.
+    const onResize = () => {
+      if (window.innerWidth !== width) setOpen(false)
+      else place()
+      width = window.innerWidth
+    }
     document.addEventListener('mousedown', onDown)
-    window.addEventListener('resize', dismiss)
-    window.addEventListener('scroll', dismiss, true)
+    document.addEventListener('keydown', onKey)
+    window.addEventListener('resize', onResize)
+    window.addEventListener('scroll', place, true)
     return () => {
       document.removeEventListener('mousedown', onDown)
-      window.removeEventListener('resize', dismiss)
-      window.removeEventListener('scroll', dismiss, true)
+      document.removeEventListener('keydown', onKey)
+      window.removeEventListener('resize', onResize)
+      window.removeEventListener('scroll', place, true)
     }
-  }, [open, palette, current])
+  }, [open, place])
 
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
-    if (e.key === 'Escape') {
-      e.stopPropagation()
-      close(true)
-      return
-    }
     const index = swatches.current.findIndex((s) => s === document.activeElement)
     if (index < 0) return
     const moves: Record<string, number> = {
@@ -106,9 +127,12 @@ export function ColorPicker({
         aria-label={label}
         aria-haspopup="dialog"
         aria-expanded={open}
+        aria-disabled={disabled}
         style={{ background: current }}
         onClick={() => {
-          setPos({ visibility: 'hidden' })
+          if (disabled && !open) return
+          setPos(HIDDEN)
+          setPlaced(false)
           setCustom('')
           setOpen((o) => !o)
         }}
@@ -121,6 +145,10 @@ export function ColorPicker({
           aria-labelledby={titleId}
           style={pos}
           onKeyDown={onKeyDown}
+          onBlur={(e) => {
+            const next = e.relatedTarget
+            if (next instanceof Node && !root.current?.contains(next)) setOpen(false)
+          }}
         >
           <span id={titleId} className="cp-title">
             Выберите цвет
@@ -138,6 +166,7 @@ export function ColorPicker({
                   className="cp-swatch"
                   aria-label={hex}
                   aria-pressed={selected}
+                  aria-disabled={disabled}
                   style={{ background: hex }}
                   onClick={() => pick(hex)}
                 >

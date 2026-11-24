@@ -993,6 +993,89 @@ describe('названия и цвета команд', () => {
     expect(server.count('PATCH /teams/*')).toBe(0)
   })
 
+  test('Escape слушается на документе, а не только внутри окошка', async () => {
+    renderAdmin(setup())
+    await openTab('Команды')
+    const { button } = await openPicker(1)
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.activeElement).toBe(button)
+  })
+
+  test('фокус на палитру ставится, когда окошко уже на месте и не скрыто через visibility', async () => {
+    renderAdmin(setup())
+    await openTab('Команды')
+    const seen: { visibility: string; left: string }[] = []
+    const focus = vi.spyOn(HTMLElement.prototype, 'focus').mockImplementation(function (this: HTMLElement) {
+      const pop = this.closest<HTMLElement>('[role="dialog"]')
+      if (pop) seen.push({ visibility: pop.style.visibility, left: pop.style.left })
+    })
+    try {
+      await openPicker(1)
+      await waitFor(() => expect(seen.length).toBeGreaterThan(0))
+      expect(seen[0]?.visibility).not.toBe('hidden')
+      expect(seen[0]?.left).not.toBe('')
+      expect(seen[0]?.left).not.toBe('0px')
+    } finally {
+      focus.mockRestore()
+    }
+  })
+
+  test('уход фокуса за пределы окошка закрывает его без возврата фокуса', async () => {
+    renderAdmin(setup())
+    await openTab('Команды')
+    const { button, dialog } = await openPicker(1)
+    const other = await screen.findByLabelText('Название команды 2')
+    fireEvent.blur(within(dialog).getByLabelText('#E6194B'), { relatedTarget: button })
+    expect(screen.getByRole('dialog')).toBeDefined()
+    fireEvent.blur(within(dialog).getByLabelText('#E6194B'), { relatedTarget: other })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.activeElement).not.toBe(button)
+  })
+
+  test('изменение высоты окна и прокрутка не закрывают окошко, смена ширины закрывает', async () => {
+    renderAdmin(setup())
+    await openTab('Команды')
+    await openPicker(1)
+    const height = window.innerHeight
+    window.innerHeight = 300
+    fireEvent(window, new Event('resize'))
+    window.innerHeight = height
+    fireEvent.scroll(window)
+    expect(screen.getByRole('dialog')).toBeDefined()
+    const width = window.innerWidth
+    window.innerWidth = width - 100
+    try {
+      fireEvent(window, new Event('resize'))
+      expect(screen.queryByRole('dialog')).toBeNull()
+    } finally {
+      window.innerWidth = width
+    }
+  })
+
+  test('пока идёт сохранение, выбор цвета не принимается', async () => {
+    const server = setup()
+    let release: () => void = () => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    server.routes.set('PATCH /teams/*', async (body) => {
+      await gate
+      return json({ id: 11, number: 1, name: 'Красные', color: (body as { color: string }).color })
+    })
+    renderAdmin(server)
+    await openTab('Команды')
+    const { dialog } = await openPicker(1)
+    fireEvent.click(within(dialog).getByLabelText('#3CB44B'))
+    const button = screen.getByLabelText('Цвет команды 1')
+    await waitFor(() => expect(button.getAttribute('aria-disabled')).toBe('true'))
+    fireEvent.click(button)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    release()
+    await waitFor(() => expect(button.getAttribute('aria-disabled')).toBe('false'))
+    expect(server.count('PATCH /teams/*')).toBe(1)
+  })
+
   test('клик вне окошка закрывает его без запроса', async () => {
     const server = setup()
     renderAdmin(server)

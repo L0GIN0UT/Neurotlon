@@ -20,6 +20,7 @@ export function TeamTitle({
         <ColorPicker
           label={`Цвет команды ${team.number}`}
           value={draft.color}
+          disabled={draft.action.busy}
           onChange={(hex) => void draft.pickColor(hex)}
         />
         <input
