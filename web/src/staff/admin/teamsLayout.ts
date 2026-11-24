@@ -90,8 +90,8 @@ export function moveTo(
     team2: lineup.team2.filter((c) => c !== code),
   }
   const shown = next[target]
-  let at = position === undefined ? shown.length : Math.min(position, shown.length + 1)
-  if (from.area === target && from.index < at) at -= 1
+  // Игрок занимает место цели: вниз внутри команды — после неё, вверх и из другой области — перед ней.
+  const at = Math.min(position ?? shown.length, shown.length)
   const freeBefore = shown.slice(0, at).filter((c) => !locks.has(c)).length
   const free = shown.filter((c) => !locks.has(c))
   free.splice(freeBefore, 0, code)

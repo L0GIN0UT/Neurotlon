@@ -1,10 +1,13 @@
-﻿import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { createFakeServer, json, problem } from '../test/fakeServer.ts'
 import type { FakeServer } from '../test/fakeServer.ts'
 import { AdminApp } from './AdminApp.tsx'
 import { BADGES_URL } from './api.ts'
 import type { Participant, StationInfo, UserInfo } from './api.ts'
+
+// Второе значение категории нужно только для проверки подсказки «разные категории» у пары.
+const OTHER_CATEGORY = 'ovz' as const
 
 function person(code: string, extra: Partial<Participant> = {}): Participant {
   return {
@@ -148,7 +151,7 @@ describe('участники', () => {
   })
 
   test('в списке участников категории нет', async () => {
-    people[1] = person('NT02', { checked_in: true, category: 'ovz' })
+    people[1] = person('NT02', { checked_in: true, category: OTHER_CATEGORY })
     renderAdmin(server)
     await screen.findByText('NT02')
     const text = document.body.textContent?.toLowerCase() ?? ''
@@ -307,7 +310,7 @@ describe('команды', () => {
       json([
         person('NT01', { checked_in: true, category: 'general' }),
         person('NT02', { checked_in: true, category: 'general' }),
-        person('NT03', { checked_in: true, category: 'ovz' }),
+        person('NT03', { checked_in: true, category: OTHER_CATEGORY }),
         person('NT04', { checked_in: true, category: 'general', display_name: 'Дима' }),
         person('NT05'),
       ]),
@@ -448,6 +451,114 @@ describe('команды', () => {
     expect(within(second as HTMLElement).queryByRole('img', { name: 'разные категории' })).toBeNull()
     expect(document.body.textContent?.toLowerCase()).not.toContain('овз')
   })
+
+  test('бросок на карточку занимает место цели: вниз и вверх внутри команды', async () => {
+    members = [[member('NT01', 1), member('NT02', 2), member('NT04', 3)], [member('NT03', 1)]]
+    renderAdmin(server)
+    await openTab('Команды')
+    await column('Команда 1')
+    fireEvent.dragStart(cardOf('Команда 1', 'NT01'), dataTransfer())
+    fireEvent.drop(cardOf('Команда 1', 'NT04'))
+    await waitFor(() => expect(server.count('PUT /teams/assignment')).toBe(1))
+    expect(server.bodies('PUT /teams/assignment')[0]).toEqual({
+      teams: [{ number: 1, members: ['NT02', 'NT04', 'NT01'] }, { number: 2, members: ['NT03'] }],
+    })
+
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('NT01'))
+    fireEvent.dragStart(cardOf('Команда 1', 'NT01'), dataTransfer())
+    fireEvent.drop(cardOf('Команда 1', 'NT02'))
+    await waitFor(() => expect(server.count('PUT /teams/assignment')).toBe(2))
+    expect(server.bodies('PUT /teams/assignment')[1]).toEqual({
+      teams: [{ number: 1, members: ['NT01', 'NT02', 'NT04'] }, { number: 2, members: ['NT03'] }],
+    })
+  })
+
+  test('после хода фокус остаётся в карточке игрока, ход объявляется', async () => {
+    renderAdmin(server)
+    await openTab('Команды')
+    await column('Команда 1')
+    const down = screen.getByRole('button', { name: 'Вниз: NT01' })
+    down.focus()
+    fireEvent.click(down)
+    await waitFor(() => expect(screen.getByRole('status').textContent).toBe('NT01: команда 1, место 2'))
+    const active = document.activeElement as HTMLElement
+    expect(active.closest('[data-card]')?.getAttribute('data-card')).toBe('NT01')
+    expect(active.tagName).toBe('BUTTON')
+  })
+
+  test('пока идёт запрос, клики и перетаскивание игнорируются', async () => {
+    const gate: { release?: () => void } = {}
+    server.routes.set('PUT /teams/assignment', (body) => {
+      const lineup = (body as { teams: { members: string[] }[] }).teams
+      return new Promise<Response>((resolve) => {
+        gate.release = () => {
+          members = lineup.map((t) => t.members.map((code, i) => member(code, i + 1)))
+          resolve(json(payload()))
+        }
+      })
+    })
+    renderAdmin(server)
+    await openTab('Команды')
+    await column('Команда 1')
+    fireEvent.click(screen.getByRole('button', { name: 'Вниз: NT01' }))
+    const other = await screen.findByRole('button', { name: 'В другую команду: NT02' })
+    expect(other.getAttribute('aria-disabled')).toBe('true')
+    expect((other as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.click(other)
+    fireEvent.dragStart(cardOf('Команда 1', 'NT02'), dataTransfer())
+    fireEvent.drop(cardOf('Команда 2', 'NT03'))
+    expect(server.count('PUT /teams/assignment')).toBe(1)
+
+    await act(async () => {
+      gate.release?.()
+    })
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'В другую команду: NT02' }).getAttribute('aria-disabled')).toBeNull(),
+    )
+    expect(server.count('PUT /teams/assignment')).toBe(1)
+  })
+
+  test('после 409 данные перечитываются: доска и замки обновляются', async () => {
+    server.routes.set('PUT /teams/assignment', () => {
+      results = [{ ...played, id: 1, participant_code: 'NT01' }]
+      return problem(409, 'conflict')
+    })
+    renderAdmin(server)
+    await openTab('Команды')
+    await column('Команда 1')
+    expect(within(cardOf('Команда 1', 'NT01')).queryByRole('img', { name: /закреплено/ })).toBeNull()
+    const before: Record<string, number> = {}
+    for (const key of ['GET /results', 'GET /participants', 'GET /teams']) before[key] = server.count(key)
+    fireEvent.click(within(cardOf('Не распределены', 'NT04')).getByRole('button', { name: 'В команду 1: NT04' }))
+
+    expect(await screen.findByText('Действие уже недоступно')).toBeDefined()
+    await waitFor(() =>
+      expect(within(cardOf('Команда 1', 'NT01')).getByRole('img', { name: /закреплено/ })).toBeDefined(),
+    )
+    for (const key of ['GET /results', 'GET /participants', 'GET /teams']) {
+      expect(server.count(key)).toBe((before[key] ?? 0) + 1)
+    }
+    expect((await column('Не распределены')).getByText('NT04')).toBeDefined()
+  })
+
+  test('раз в 15 секунд вкладка сама подтягивает чужие изменения', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      renderAdmin(server)
+      await openTab('Команды')
+      await column('Команда 1')
+      expect((await column('Не распределены')).queryByText('NT09')).toBeNull()
+      server.routes.set('GET /participants', () =>
+        json([person('NT01', { checked_in: true }), person('NT02', { checked_in: true }), person('NT03', { checked_in: true }), person('NT09', { checked_in: true })]),
+      )
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000)
+      })
+      expect((await column('Не распределены')).getByText('NT09')).toBeDefined()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
 
 describe('названия и цвета команд', () => {
@@ -502,6 +613,31 @@ describe('названия и цвета команд', () => {
     await waitFor(() =>
       expect(server.bodies('PATCH /teams/*')).toEqual([{ name: 'Волны', color: '#4363d8' }]),
     )
+  })
+
+  test('Enter и следующий blur шлют один запрос', async () => {
+    const server = setup()
+    renderAdmin(server)
+    await openTab('Команды')
+    const name = await screen.findByLabelText('Название команды 1')
+    fireEvent.change(name, { target: { value: 'Огонь' } })
+    fireEvent.keyDown(name, { key: 'Enter' })
+    fireEvent.blur(name)
+    await waitFor(() => expect(server.count('PATCH /teams/*')).toBe(1))
+    await waitFor(() => expect((screen.getByLabelText('Название команды 1') as HTMLInputElement).value).toBe('Огонь'))
+    fireEvent.blur(screen.getByLabelText('Название команды 1'))
+    expect(server.count('PATCH /teams/*')).toBe(1)
+  })
+
+  test('пустое название по Enter показывает сообщение, запрос не уходит', async () => {
+    const server = setup()
+    renderAdmin(server)
+    await openTab('Команды')
+    const name = await screen.findByLabelText('Название команды 1')
+    fireEvent.change(name, { target: { value: '   ' } })
+    fireEvent.keyDown(name, { key: 'Enter' })
+    expect(await screen.findByText(/от 1 до 24 символов/)).toBeDefined()
+    expect(server.count('PATCH /teams/*')).toBe(0)
   })
 
   test('цвет выбирается нативным полем color', async () => {

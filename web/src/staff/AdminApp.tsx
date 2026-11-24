@@ -1,4 +1,4 @@
-﻿import { useState } from 'react'
+import { useState } from 'react'
 import { DisciplinesTab } from './admin/DisciplinesTab.tsx'
 import { ParticipantsTab } from './admin/ParticipantsTab.tsx'
 import { StationsTab } from './admin/StationsTab.tsx'

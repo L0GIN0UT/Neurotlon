@@ -1,13 +1,16 @@
-import { useMemo, useState } from 'react'
-import type { DragEvent, ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { DragEvent, ReactNode, RefObject } from 'react'
 import { errorText } from '../../shared/messages.ts'
 import type { Category, Participant, StaffApi, TeamInfo, TeamsPayload } from '../api.ts'
 import { useAction, useLoader } from '../hooks.ts'
 import { ErrorText } from '../ui.tsx'
-import { TeamTitle } from './TeamsEditor.tsx'
+import { TeamTitle } from './TeamTitle.tsx'
 import { assignmentBody, locate, moveTo, pairsOf, step } from './teamsLayout.ts'
 import type { Area, Lineup, Lock, Locks } from './teamsLayout.ts'
 import './TeamsTab.css'
+
+/** Как часто вкладка перечитывает данные, если сейчас нет запроса и перетаскивания. */
+const REFRESH_MS = 15_000
 
 interface Person {
   name: string | null
@@ -19,6 +22,13 @@ interface Board {
   lineup: Lineup
   locks: Locks
   people: ReadonlyMap<string, Person>
+}
+
+/** Что сделал человек: по нему возвращается фокус и объявляется результат. */
+interface Moved {
+  code: string
+  /** Подпись кнопки, на которую вернуть фокус; у перетаскивания её нет. */
+  label: string | null
 }
 
 function lineupOf(teams: TeamsPayload, participants: Participant[]): Lineup {
@@ -43,6 +53,12 @@ function locksOf(lineup: Lineup, played: ReadonlySet<string>): Locks {
     if (at !== null) locks.set(code, at)
   }
   return locks
+}
+
+function announcement(lineup: Lineup, code: string): string {
+  const at = locate(lineup, code)
+  if (at === null || at.area === 'pool') return `${code}: не распределён`
+  return `${code}: команда ${at.area === 'team1' ? 1 : 2}, место ${at.index + 1}`
 }
 
 function Icon({ children, label }: { children: ReactNode; label?: string }) {
@@ -73,24 +89,27 @@ const ICONS = {
 }
 
 interface Handlers {
-  onMove: (code: string, target: Area) => void
-  onStep: (code: string, direction: -1 | 1) => void
+  onMove: (code: string, target: Area, label: string) => void
+  onStep: (code: string, direction: -1 | 1, label: string) => void
   onDragStart: (code: string) => void
   onDragEnd: () => void
   onDropAt: (area: Area, position?: number) => void
 }
 
-function Button({
+/** Во время запроса кнопка не отключается (иначе пропадёт фокус), а только помечается и не реагирует. */
+function CardButton({
   label,
   code,
-  enabled,
+  possible,
+  busy,
   onClick,
   className,
   children,
 }: {
   label: string
   code: string
-  enabled: boolean
+  possible: boolean
+  busy: boolean
   onClick: () => void
   className: string
   children: ReactNode
@@ -99,10 +118,13 @@ function Button({
     <button
       type="button"
       className={className}
-      disabled={!enabled}
+      disabled={!possible}
+      aria-disabled={busy || undefined}
       title={label}
       aria-label={`${label}: ${code}`}
-      onClick={onClick}
+      onClick={() => {
+        if (!busy) onClick()
+      }}
     >
       {children}
     </button>
@@ -127,15 +149,20 @@ function PlayerCard({
   const { lineup, locks } = board
   const locked = locks.has(code)
   const name = board.people.get(code)?.name
-  const free = (next: Lineup | null) => !busy && next !== null
   const other: Area = area === 'team1' ? 'team2' : 'team1'
+  const to = (target: Area) => moveTo(lineup, locks, code, target) !== null
 
   return (
     <div
       className={`tm-card${locked ? ' locked' : ''}`}
       data-card={code}
-      draggable={!locked && !busy}
+      tabIndex={-1}
+      draggable={!locked}
       onDragStart={(e: DragEvent) => {
+        if (busy) {
+          e.preventDefault()
+          return
+        }
         e.dataTransfer.setData('text/plain', code)
         e.dataTransfer.effectAllowed = 'move'
         handlers.onDragStart(code)
@@ -160,64 +187,70 @@ function PlayerCard({
       </div>
       {!locked && area === 'pool' && (
         <div className="tm-actions always">
-          <Button
+          <CardButton
             className="tm-mini"
             label="В команду 1"
             code={code}
-            enabled={free(moveTo(lineup, locks, code, 'team1'))}
-            onClick={() => handlers.onMove(code, 'team1')}
+            busy={busy}
+            possible={to('team1')}
+            onClick={() => handlers.onMove(code, 'team1', 'В команду 1')}
           >
             →1
-          </Button>
-          <Button
+          </CardButton>
+          <CardButton
             className="tm-mini"
             label="В команду 2"
             code={code}
-            enabled={free(moveTo(lineup, locks, code, 'team2'))}
-            onClick={() => handlers.onMove(code, 'team2')}
+            busy={busy}
+            possible={to('team2')}
+            onClick={() => handlers.onMove(code, 'team2', 'В команду 2')}
           >
             →2
-          </Button>
+          </CardButton>
         </div>
       )}
       {!locked && area !== 'pool' && (
         <div className="tm-actions">
-          <Button
+          <CardButton
             className="tm-icon"
             label="Вверх"
             code={code}
-            enabled={free(step(lineup, locks, code, -1))}
-            onClick={() => handlers.onStep(code, -1)}
+            busy={busy}
+            possible={step(lineup, locks, code, -1) !== null}
+            onClick={() => handlers.onStep(code, -1, 'Вверх')}
           >
             <Icon>{ICONS.up}</Icon>
-          </Button>
-          <Button
+          </CardButton>
+          <CardButton
             className="tm-icon"
             label="Вниз"
             code={code}
-            enabled={free(step(lineup, locks, code, 1))}
-            onClick={() => handlers.onStep(code, 1)}
+            busy={busy}
+            possible={step(lineup, locks, code, 1) !== null}
+            onClick={() => handlers.onStep(code, 1, 'Вниз')}
           >
             <Icon>{ICONS.down}</Icon>
-          </Button>
-          <Button
+          </CardButton>
+          <CardButton
             className="tm-icon"
             label="В другую команду"
             code={code}
-            enabled={free(moveTo(lineup, locks, code, other))}
-            onClick={() => handlers.onMove(code, other)}
+            busy={busy}
+            possible={to(other)}
+            onClick={() => handlers.onMove(code, other, 'В другую команду')}
           >
             <Icon>{ICONS.swap}</Icon>
-          </Button>
-          <Button
+          </CardButton>
+          <CardButton
             className="tm-icon"
             label="Убрать из команды"
             code={code}
-            enabled={free(moveTo(lineup, locks, code, 'pool'))}
-            onClick={() => handlers.onMove(code, 'pool')}
+            busy={busy}
+            possible={to('pool')}
+            onClick={() => handlers.onMove(code, 'pool', 'Убрать из команды')}
           >
             <Icon>{ICONS.remove}</Icon>
-          </Button>
+          </CardButton>
         </div>
       )}
     </div>
@@ -240,8 +273,17 @@ function Cell({
   handlers: Handlers
 }) {
   if (code !== null) {
+    // key по коду: карточка другого игрока в той же строке не наследует чужой фокус.
     return (
-      <PlayerCard code={code} area={area} index={index} board={board} busy={busy} handlers={handlers} />
+      <PlayerCard
+        key={code}
+        code={code}
+        area={area}
+        index={index}
+        board={board}
+        busy={busy}
+        handlers={handlers}
+      />
     )
   }
   return (
@@ -273,7 +315,7 @@ function TeamHead({
   team: TeamInfo | undefined
   count: number
   api: StaffApi
-  onSaved: () => void
+  onSaved: (team: TeamInfo) => void
   handlers: Handlers
   over: Area | null
   setOver: (area: Area | null) => void
@@ -292,11 +334,7 @@ function TeamHead({
         handlers.onDropAt(area)
       }}
     >
-      {team ? (
-        <TeamTitle key={`${team.id}:${team.name}:${team.color}`} team={team} api={api} onSaved={onSaved} />
-      ) : (
-        <h3>Команда {number}</h3>
-      )}
+      {team ? <TeamTitle team={team} api={api} onSaved={onSaved} /> : <h3>Команда {number}</h3>}
       <span className="tm-count" title="Игроков в команде">
         {count}
       </span>
@@ -307,56 +345,95 @@ function TeamHead({
 function TeamsBoard({
   api,
   teams,
-  start,
-  people,
-  locks,
-  onSaved,
+  board: server,
+  idleRef,
+  onAssigned,
+  onFailed,
+  onTeamSaved,
 }: {
   api: StaffApi
   teams: TeamsPayload['teams']
-  start: Lineup
-  people: ReadonlyMap<string, Person>
-  locks: Locks
-  onSaved: () => void
+  board: Board
+  /** Ложь, пока идёт запрос или перетаскивание: тогда фоновое обновление пропускается. */
+  idleRef: RefObject<boolean>
+  onAssigned: (saved: TeamsPayload) => void
+  onFailed: () => void
+  onTeamSaved: (team: TeamInfo) => void
 }) {
-  // committed — то, что сервер принял; pending — раскладка на время запроса.
-  const [committed, setCommitted] = useState(start)
   const [pending, setPending] = useState<Lineup | null>(null)
   const [dragging, setDragging] = useState<string | null>(null)
   const [over, setOver] = useState<Area | null>(null)
+  const [announce, setAnnounce] = useState('')
   const [poolOpen, setPoolOpen] = useState(
     () => typeof window.matchMedia !== 'function' || window.matchMedia('(min-width: 900px)').matches,
   )
   const action = useAction()
+  const inflight = useRef(false)
+  const focus = useRef<Moved | null>(null)
+  const root = useRef<HTMLDivElement>(null)
   const busy = action.busy
-  const board: Board = { lineup: pending ?? committed, locks, people }
+  const board: Board = { ...server, lineup: pending ?? server.lineup }
+  const { locks } = board
 
-  async function apply(next: Lineup | null) {
-    if (next === null || busy) return
+  // После хода возвращаем фокус на ту же кнопку на новом месте карточки (или на ближайшую рабочую).
+  useEffect(() => {
+    const moved = focus.current
+    if (moved === null || root.current === null) return
+    const card = root.current.querySelector<HTMLElement>(`[data-card="${moved.code}"]`)
+    if (card === null) return
+    focus.current = null
+    if (moved.label === null) return
+    const buttons = [...card.querySelectorAll<HTMLButtonElement>('button')]
+    const same = buttons.find((b) => b.getAttribute('aria-label') === `${moved.label}: ${moved.code}`)
+    const target = same && !same.disabled ? same : buttons.find((b) => !b.disabled)
+    ;(target ?? card).focus()
+  }, [pending, server.lineup])
+
+  async function apply(next: Lineup | null, moved: Moved) {
+    if (next === null || inflight.current) return
+    inflight.current = true
+    idleRef.current = false
+    focus.current = moved
     setPending(next)
     const saved = await action.run(() => api.assignTeams(assignmentBody(next)))
-    if (saved !== undefined) {
-      setCommitted(next)
-      onSaved()
+    inflight.current = false
+    idleRef.current = dragging === null
+    if (saved === undefined) {
+      // Данные могли устареть (чужие правки, новый результат): перечитываем всё.
+      focus.current = moved
+      onFailed()
+    } else {
+      setAnnounce(announcement(next, moved.code))
+      onAssigned(saved)
     }
     setPending(null)
   }
 
-  function dropAt(area: Area, position?: number) {
-    const code = dragging
+  function endDrag() {
     setDragging(null)
     setOver(null)
-    if (code !== null) void apply(moveTo(board.lineup, locks, code, area, position))
+    idleRef.current = !inflight.current
+  }
+
+  function dropAt(area: Area, position?: number) {
+    const code = dragging
+    endDrag()
+    if (code !== null) {
+      void apply(moveTo(board.lineup, locks, code, area, position), { code, label: null })
+    }
   }
 
   const handlers: Handlers = {
-    onMove: (code, target) => void apply(moveTo(board.lineup, locks, code, target)),
-    onStep: (code, direction) => void apply(step(board.lineup, locks, code, direction)),
-    onDragStart: setDragging,
-    onDragEnd: () => {
-      setDragging(null)
-      setOver(null)
+    onMove: (code, target, label) =>
+      void apply(moveTo(board.lineup, locks, code, target), { code, label }),
+    onStep: (code, direction, label) =>
+      void apply(step(board.lineup, locks, code, direction), { code, label }),
+    onDragStart: (code) => {
+      if (inflight.current) return
+      setDragging(code)
+      idleRef.current = false
     },
+    onDragEnd: endDrag,
     onDropAt: dropAt,
   }
 
@@ -367,7 +444,10 @@ function TeamsBoard({
   return (
     <>
       <ErrorText error={action.error === null ? null : errorText(action.error)} />
-      <div className="tm-layout" aria-busy={busy}>
+      <p className="tm-sr" role="status" aria-live="polite">
+        {announce}
+      </p>
+      <div className="tm-layout" aria-busy={busy} ref={root}>
         <section
           className={`tm-pool card${over === 'pool' ? ' over' : ''}`}
           aria-label="Не распределены"
@@ -409,7 +489,7 @@ function TeamsBoard({
               team={teamOf(1)}
               count={board.lineup.team1.length}
               api={api}
-              onSaved={onSaved}
+              onSaved={onTeamSaved}
               handlers={handlers}
               over={over}
               setOver={setOver}
@@ -420,7 +500,7 @@ function TeamsBoard({
               team={teamOf(2)}
               count={board.lineup.team2.length}
               api={api}
-              onSaved={onSaved}
+              onSaved={onTeamSaved}
               handlers={handlers}
               over={over}
               setOver={setOver}
@@ -462,28 +542,55 @@ export function TeamsTab({ api }: { api: StaffApi }) {
   const teams = useLoader(() => api.teams())
   const participants = useLoader(() => api.participants())
   const results = useLoader(() => api.allResults())
+  // Ответ сервера на сохранение действует, пока вкладка не получила свежий список команд.
+  const [override, setOverride] = useState<{ base: TeamsPayload | undefined; teams: TeamsPayload } | null>(null)
+  const idleRef = useRef(true)
 
-  const initial = useMemo(() => {
-    if (!teams.data || !participants.data || !results.data) return null
-    const lineup = lineupOf(teams.data, participants.data)
+  const reloadTeams = teams.reload
+  const reloadParticipants = participants.reload
+  const reloadResults = results.reload
+  const reloadAll = useCallback(() => {
+    reloadTeams()
+    reloadParticipants()
+    reloadResults()
+  }, [reloadTeams, reloadParticipants, reloadResults])
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (idleRef.current) reloadAll()
+    }, REFRESH_MS)
+    return () => clearInterval(timer)
+  }, [reloadAll])
+
+  const current = override !== null && override.base === teams.data ? override.teams : teams.data
+
+  const board = useMemo(() => {
+    if (!current || !participants.data || !results.data) return null
+    const lineup = lineupOf(current, participants.data)
     const played = new Set(results.data.filter((r) => !r.voided).map((r) => r.participant_code))
     const people = new Map<string, Person>(
       participants.data.map((p) => [p.code, { name: p.display_name, category: p.category ?? null }]),
     )
     return { lineup, locks: locksOf(lineup, played), people }
-  }, [teams.data, participants.data, results.data])
+  }, [current, participants.data, results.data])
 
   return (
     <section className="stack">
       <ErrorText error={teams.error ?? participants.error ?? results.error} />
-      {initial && teams.data && (
+      {board && current && (
         <TeamsBoard
           api={api}
-          teams={teams.data.teams}
-          start={initial.lineup}
-          people={initial.people}
-          locks={initial.locks}
-          onSaved={teams.reload}
+          teams={current.teams}
+          board={board}
+          idleRef={idleRef}
+          onAssigned={(saved) => setOverride({ base: teams.data, teams: saved })}
+          onFailed={reloadAll}
+          onTeamSaved={(saved) =>
+            setOverride({
+              base: teams.data,
+              teams: { teams: current.teams.map((t) => (t.id === saved.id ? { ...t, ...saved } : t)) },
+            })
+          }
         />
       )}
     </section>

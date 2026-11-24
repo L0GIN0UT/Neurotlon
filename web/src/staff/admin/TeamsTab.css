@@ -1,4 +1,4 @@
-﻿.tm-layout {
+.tm-layout {
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);
   gap: 12px;
@@ -255,4 +255,19 @@
     width: 28px;
     height: 28px;
   }
+}
+
+.tm-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.staff .tm-actions button[aria-disabled='true'] {
+  opacity: 0.6;
+  cursor: progress;
 }
