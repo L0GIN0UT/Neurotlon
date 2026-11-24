@@ -390,6 +390,34 @@ paths:
         "403":
           $ref: "#/components/responses/Problem"
 
+  /stations/{id}:
+    delete:
+      operationId: archiveStation
+      summary: Убрать станцию (архивация, админка)
+      description: |
+        Админ и суперпользователь. Строка остаётся в базе (на неё ссылается журнал аудита):
+        станция пропадает из списка, её токен перестаёт работать (401), имя освобождается.
+        Нельзя, пока у станции есть незавершённая сессия (409).
+      security:
+        - volunteerSession: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Станция архивирована
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "409":
+          $ref: "#/components/responses/Problem"
+
   /disciplines:
     get:
       operationId: listDisciplines
