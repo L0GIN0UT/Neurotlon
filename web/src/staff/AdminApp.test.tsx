@@ -491,7 +491,7 @@ describe('дисциплины', () => {
     const save = within(group).getByRole('button', { name: 'Сохранить Дартс' }) as HTMLButtonElement
     expect(save.disabled).toBe(true)
 
-    fireEvent.change(within(group).getByLabelText('Время игры, с (Дартс)'), { target: { value: '150' } })
+    fireEvent.change(within(group).getByLabelText('Игра, с (Дартс)'), { target: { value: '150' } })
     expect(save.disabled).toBe(false)
     fireEvent.click(save)
     await within(group).findByText('Сохранено')
@@ -512,7 +512,7 @@ describe('дисциплины', () => {
     renderAdmin(server)
     await openTab('Дисциплины')
     const group = await screen.findByRole('group', { name: 'Дартс' })
-    const limit = within(group).getByLabelText('Лимит очков за секцию (Дартс)') as HTMLInputElement
+    const limit = within(group).getByLabelText('Лимит секции, очк. (Дартс)') as HTMLInputElement
     const save = within(group).getByRole('button', { name: 'Сохранить Дартс' }) as HTMLButtonElement
     expect(limit.value).toBe('10')
 
@@ -535,7 +535,7 @@ describe('дисциплины', () => {
     renderAdmin(server)
     await openTab('Дисциплины')
     const group = await screen.findByRole('group', { name: 'Дартс' })
-    fireEvent.change(within(group).getByLabelText('Время игры, с (Дартс)'), { target: { value: '5' } })
+    fireEvent.change(within(group).getByLabelText('Игра, с (Дартс)'), { target: { value: '5' } })
     expect((within(group).getByRole('button', { name: 'Сохранить Дартс' }) as HTMLButtonElement).disabled).toBe(true)
     expect(within(group).getByText(/Проверьте значения/)).toBeDefined()
   })
