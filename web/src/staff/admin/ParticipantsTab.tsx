@@ -8,6 +8,8 @@ import { formatTime } from '../format.ts'
 import { useAction, useLoader } from '../hooks.ts'
 import { indexResults, scoreCell, SECTIONS } from '../scores.ts'
 import { Dialog, ErrorText } from '../ui.tsx'
+import { PhotoDialog } from './PhotoDialog.tsx'
+import { PhotoThumb } from './PhotoThumb.tsx'
 
 const MAX_NAME = 24
 
@@ -37,6 +39,7 @@ export function ParticipantsTab({ api }: { api: StaffApi }) {
   const action = useAction()
   const [count, setCount] = useState('20')
   const [editing, setEditing] = useState<Editing | null>(null)
+  const [photoCode, setPhotoCode] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
@@ -63,6 +66,7 @@ export function ParticipantsTab({ api }: { api: StaffApi }) {
   const limits = Object.fromEntries(
     (settings.data ?? NO_SETTINGS).map((d) => [d.code, d.max_section_points]),
   )
+  const photoPerson = everyone.find((person) => person.code === photoCode) ?? null
   const needle = search.trim().toLowerCase()
   const people = everyone.filter(
     (person) =>
@@ -133,6 +137,7 @@ export function ParticipantsTab({ api }: { api: StaffApi }) {
         <table>
           <thead>
             <tr>
+              <th rowSpan={2}>Фото</th>
               <th rowSpan={2}>ID</th>
               <th rowSpan={2}>Имя на табло</th>
               <th rowSpan={2}>Регистрация</th>
@@ -157,6 +162,16 @@ export function ParticipantsTab({ api }: { api: StaffApi }) {
           <tbody>
             {people.map((person) => (
               <tr key={person.code}>
+                <td>
+                  <button
+                    type="button"
+                    className="photo-btn"
+                    aria-label={`Фото ${person.code}`}
+                    onClick={() => setPhotoCode(person.code)}
+                  >
+                    <PhotoThumb person={person} />
+                  </button>
+                </td>
                 <td>
                   <strong>{person.code}</strong>
                 </td>
@@ -235,6 +250,17 @@ export function ParticipantsTab({ api }: { api: StaffApi }) {
         )}
       </div>
 
+      {photoPerson && (
+        <PhotoDialog
+          api={api}
+          person={photoPerson}
+          onClose={() => setPhotoCode(null)}
+          onSaved={() => {
+            setPhotoCode(null)
+            list.reload()
+          }}
+        />
+      )}
       {editing && (
         <PersonDialog
           api={api}

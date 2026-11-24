@@ -17,6 +17,8 @@ function person(code: string, extra: Partial<Participant> = {}): Participant {
     checked_in_at: null,
     team: null,
     category: null,
+    has_photo: false,
+    photo_version: null,
     ...extra,
   }
 }
@@ -165,6 +167,24 @@ describe('участники', () => {
     const text = document.body.textContent?.toLowerCase() ?? ''
     expect(text).not.toContain('овз')
     expect(text).not.toContain('ovz')
+  })
+
+  test('колонка «Фото»: миниатюра с версией при has_photo, иначе заглушка', async () => {
+    people[0] = person('NT01', { has_photo: true, photo_version: 1700000000 })
+    renderAdmin(server)
+    const withPhoto = await screen.findByRole('button', { name: 'Фото NT01' })
+    const img = withPhoto.querySelector('img')
+    expect(img?.getAttribute('src')).toBe('/api/v1/participants/NT01/photo?v=1700000000')
+    expect(img?.getAttribute('loading')).toBe('lazy')
+    const without = screen.getByRole('button', { name: 'Фото NT02' })
+    expect(without.querySelector('img')).toBeNull()
+    expect(without.querySelector('svg')).not.toBeNull()
+  })
+
+  test('кнопка «Фото» открывает окно фото участника', async () => {
+    renderAdmin(server)
+    fireEvent.click(await screen.findByRole('button', { name: 'Фото NT02' }))
+    expect(await screen.findByRole('dialog', { name: 'Фото NT02' })).toBeDefined()
   })
 
   test('отмена отметки и смена имени', async () => {
