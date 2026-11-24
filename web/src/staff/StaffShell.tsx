@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import logo from '../station/assets/logo.png'
@@ -18,7 +18,10 @@ type Auth =
   | { status: 'ready'; me: Me }
 
 /** Место в боковой панели, куда `Tabs` выводит меню разделов. */
-const MenuContext = createContext<HTMLElement | null>(null)
+const MenuContext = createContext<{ node: HTMLElement | null; onPick: () => void }>({
+  node: null,
+  onPick: () => undefined,
+})
 
 interface Props {
   title: string
@@ -36,6 +39,45 @@ export function StaffShell({ title, allow, fetchFn, children }: Props) {
   )
 
   const [menuNode, setMenuNode] = useState<HTMLElement | null>(null)
+  // На узких экранах панель — верхняя полоса, разделы раскрываются кнопкой «Меню».
+  const [menuOpen, setMenuOpen] = useState(false)
+  const toggleRef = useRef<HTMLButtonElement>(null)
+  const sideRef = useRef<HTMLElement>(null)
+
+  /** Закрывает меню и отдаёт фокус кнопке «Меню», чтобы он не пропал вместе со скрытым списком. */
+  const closeMenu = useCallback(() => {
+    setMenuOpen(false)
+    toggleRef.current?.focus()
+  }, [])
+
+  // Клик вне панели и Escape закрывают меню. Escape слушаем на документе: список разделов
+  // выводится порталом, и React-событие с него не доходит до <aside>.
+  useEffect(() => {
+    if (!menuOpen) return
+    function onOutside(e: MouseEvent) {
+      if (sideRef.current && !sideRef.current.contains(e.target as Node)) setMenuOpen(false)
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') closeMenu()
+    }
+    document.addEventListener('mousedown', onOutside)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onOutside)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [menuOpen, closeMenu])
+
+  // На широком экране панель боковая: раскрытое состояние мобильного меню сбрасывается.
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return
+    const wide = window.matchMedia('(min-width: 901px)')
+    function onChange(e: { matches: boolean }) {
+      if (e.matches) setMenuOpen(false)
+    }
+    wide.addEventListener('change', onChange)
+    return () => wide.removeEventListener('change', onChange)
+  }, [])
   const allowed = allow.join(',')
   const resolve = useCallback(
     (me: Me) => {
@@ -108,34 +150,55 @@ export function StaffShell({ title, allow, fetchFn, children }: Props) {
       )}
       {ready && (
         <>
-          <aside className="staff-side no-print">
+          <aside
+            ref={sideRef}
+            className={`staff-side no-print${menuOpen ? ' open' : ''}`}
+          >
             <div className="staff-brand">
               <img src={logo} alt="" />
               <strong>{title}</strong>
             </div>
-            <nav className="staff-menu" ref={setMenuNode} aria-label="Разделы" />
-            <nav className="staff-pages" aria-label="Страницы">
-              {pages.map((page) => (
-                <a
-                  key={page.href}
-                  href={page.href}
-                  aria-current={here.startsWith(page.href) ? 'page' : undefined}
-                  // Табло показывают на отдельном экране: всегда в новой вкладке, рабочая страница остаётся.
-                  {...(page.href === '/board' ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
-                >
-                  {page.label}
-                </a>
-              ))}
-            </nav>
+            <button
+              ref={toggleRef}
+              type="button"
+              className="staff-toggle"
+              aria-expanded={menuOpen}
+              aria-controls="staff-nav"
+              onClick={() => setMenuOpen(!menuOpen)}
+            >
+              Меню
+            </button>
+            <div id="staff-nav" className="staff-nav">
+              <nav className="staff-menu" ref={setMenuNode} aria-label="Разделы" />
+              <nav className="staff-pages" aria-label="Страницы">
+                {pages.map((page) => (
+                  <a
+                    key={page.href}
+                    href={page.href}
+                    aria-current={here.startsWith(page.href) ? 'page' : undefined}
+                    // Табло показывают на отдельном экране: всегда в новой вкладке, рабочая страница остаётся.
+                    {...(page.href === '/board' ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+                  >
+                    {page.label}
+                  </a>
+                ))}
+              </nav>
+            </div>
             <div className="staff-user">
               <span>{ready.me.login}</span>
-              <button type="button" className="small" onClick={() => void logout()}>
+              <button
+                type="button"
+                className="small"
+                title={`Выйти (${ready.me.login})`}
+                aria-label={`Выйти (${ready.me.login})`}
+                onClick={() => void logout()}
+              >
                 Выйти
               </button>
             </div>
           </aside>
           <div className="staff-main">
-            <MenuContext.Provider value={menuNode}>
+            <MenuContext.Provider value={{ node: menuNode, onPick: closeMenu }}>
               {children({ api, me: ready.me })}
             </MenuContext.Provider>
           </div>
@@ -152,7 +215,7 @@ interface TabsProps<T extends string> {
 }
 
 export function Tabs<T extends string>({ tabs, active, onChange }: TabsProps<T>) {
-  const menu = useContext(MenuContext)
+  const { node: menu, onPick } = useContext(MenuContext)
   const list = (
     <div role="tablist" aria-orientation="vertical" className="tabs no-print">
       {tabs.map((tab) => (
@@ -162,7 +225,10 @@ export function Tabs<T extends string>({ tabs, active, onChange }: TabsProps<T>)
           role="tab"
           aria-selected={tab.id === active}
           className={tab.id === active ? 'on' : ''}
-          onClick={() => onChange(tab.id)}
+          onClick={() => {
+            onChange(tab.id)
+            onPick()
+          }}
         >
           {tab.label}
         </button>

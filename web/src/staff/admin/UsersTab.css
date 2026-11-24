@@ -1,0 +1,158 @@
+.staff .users-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.staff .users-count {
+  margin: 0;
+  color: var(--muted);
+}
+
+.staff .users-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.staff .users-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.staff .users-avatar {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 24%, var(--surface));
+  color: var(--text);
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+.staff .users-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.staff .users-login {
+  overflow-wrap: anywhere;
+}
+
+.staff .users-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.staff .users-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgb(255 255 255 / 5%);
+  color: var(--muted);
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.staff .users-chip svg {
+  width: 14px;
+  height: 14px;
+}
+
+.staff .users-chip.on {
+  color: var(--good);
+  border-color: color-mix(in srgb, var(--good) 40%, transparent);
+  background: color-mix(in srgb, var(--good) 12%, transparent);
+}
+
+.staff .users-chip.off {
+  color: var(--muted);
+  opacity: 0.8;
+}
+
+.staff .users-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.staff .users-menu {
+  position: relative;
+}
+
+.staff .users-more {
+  min-width: 36px;
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.staff .users-popup {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 190px;
+  padding: 6px;
+  background: var(--surface-hi);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgb(0 0 0 / 45%);
+}
+
+.staff .users-popup button {
+  justify-content: flex-start;
+  width: 100%;
+  background: transparent;
+  border-color: transparent;
+  text-align: left;
+}
+
+.staff .users-pw {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.staff .users-pw .field {
+  flex: 1 1 auto;
+}
+
+@media (max-width: 480px) {
+  .staff .users-card {
+    flex-wrap: wrap;
+  }
+
+  .staff .users-main {
+    flex-basis: calc(100% - 60px);
+  }
+
+  .staff .users-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}

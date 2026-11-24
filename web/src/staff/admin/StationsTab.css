@@ -1,0 +1,133 @@
+.staff .stations-form {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.staff .stations-form .field,
+.staff .stations-form input,
+.staff .stations-form select {
+  min-width: 0;
+}
+
+.staff .stations-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.staff .stations-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.staff .station-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.staff .station-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.staff .station-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--accent);
+}
+
+.staff .station-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.staff .station-title {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.staff .station-title strong {
+  overflow-wrap: anywhere;
+}
+
+.staff .station-discipline,
+.staff .station-note {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.staff .station-status {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.staff .station-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.staff .station-status.online {
+  color: var(--good);
+}
+
+.staff .station-status.online .station-dot {
+  background: var(--good);
+}
+
+.staff .station-status.offline {
+  color: var(--muted);
+}
+
+.staff .station-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 3.2em;
+}
+
+.staff .station-queue {
+  align-self: flex-start;
+  padding: 2px 8px;
+  color: var(--warn);
+  font-size: 0.85rem;
+  border: 1px solid var(--warn);
+  border-radius: 999px;
+  cursor: help;
+}
+
+.staff .station-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (max-width: 640px) {
+  .staff .stations-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .staff .stations-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
