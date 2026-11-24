@@ -295,8 +295,11 @@ def test_back_from_the_problem_screen_returns_to_confirm_without_a_result() -> N
     assert isinstance(rig.state, TechnicalProblem)
 
     rig.machine.back()
+    assert isinstance(rig.state, Checking)  # данные игрока (команда) берём заново
+    rig.machine.tick()
     assert isinstance(rig.state, Confirm)
     assert rig.state.candidate.code == "NT07"
+    assert rig.state.candidate.team is not None
     assert rig.queue.items == []  # результат не отправлен
 
 
@@ -309,7 +312,7 @@ def test_back_while_playing_stops_the_game() -> None:
     assert isinstance(rig.state, Playing)
 
     rig.machine.back()
-    assert isinstance(rig.state, Confirm)
+    assert isinstance(rig.state, Checking)
     assert rig.runner.stopped
     assert rig.queue.items == []
 

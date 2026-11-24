@@ -60,6 +60,7 @@ class BridgeServer:
 
     async def start(self) -> None:
         self._server = await asyncio.start_server(self._handle, self._host, self._port)
+        log.info("bridge listening on %s:%s", self._host, self.port)
 
     async def stop(self) -> None:
         if self._current is not None:
