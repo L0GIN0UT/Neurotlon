@@ -134,6 +134,28 @@ describe('StationApp', () => {
     expect(screen.getByText('Анна')).toBeTruthy()
   })
 
+  it.each([
+    ['checking', { kind: 'checking', code: 'NT03', taken: [] }],
+    ['starting', { kind: 'starting', players: [anna] }],
+    ['playing', { kind: 'playing', players: [anna], offline: false, default_limit: false }],
+    ['problem', { kind: 'problem', reason: 'нет связи', players: [anna] }],
+  ] as const)('has a Back button on the %s screen', async (_name, state) => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<StationApp />)
+    act(() => FakeEventSource.last?.emit(snapshot(state as never)))
+    fireEvent.click(await screen.findByRole('button', { name: 'Назад' }))
+    const sent = fetchMock.mock.calls.map((call) => JSON.parse((call[1] as RequestInit).body as string))
+    expect(sent).toContainEqual({ action: 'back' })
+  })
+
+  it('does not offer "not completed" on the problem screen', async () => {
+    render(<StationApp />)
+    act(() => FakeEventSource.last?.emit(snapshot({ kind: 'problem', reason: 'нет связи', players: [anna] })))
+    await screen.findByRole('button', { name: 'Повторить' })
+    expect(screen.queryByRole('button', { name: 'Не пройдено' })).toBeNull()
+  })
+
   it('lets the volunteer go back from the problem screen', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true })
     vi.stubGlobal('fetch', fetchMock)

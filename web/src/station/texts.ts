@@ -52,9 +52,8 @@ export const DONE = 'Готово!'
 export const POINTS_UNIT = 'очк.'
 
 export const PROBLEM = 'Техническая проблема'
-export const PROBLEM_HINT = 'Позовите волонтёра. Можно повторить игру или отметить «не пройдено».'
+export const PROBLEM_HINT = 'Позовите волонтёра. Можно повторить игру или вернуться назад.'
 export const RETRY = 'Повторить'
-export const GIVE_UP = 'Не пройдено'
 
 export const BLOCKED = 'Стенд остановлен'
 export const BLOCKED_CALL = 'Позовите организатора'

@@ -104,7 +104,6 @@ export type Command =
         | 'cancel'
         | 'retry'
         | 'back'
-        | 'give_up'
         | 'show_rejected'
         | 'close_rejected'
         | 'export_rejected'

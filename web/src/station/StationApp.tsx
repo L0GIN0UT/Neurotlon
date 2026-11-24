@@ -38,7 +38,7 @@ function Body({ snapshot, send }: { snapshot: Snapshot; send: (command: Command)
         />
       )
     case 'checking':
-      return <BusyScreen title={t.CHECKING} players={state.taken} />
+      return <BusyScreen title={t.CHECKING} players={state.taken} send={send} />
     case 'confirm':
       return (
         <ConfirmScreen
@@ -52,7 +52,7 @@ function Body({ snapshot, send }: { snapshot: Snapshot; send: (command: Command)
         />
       )
     case 'starting':
-      return <BusyScreen title={t.STARTING} hint={t.STARTING_HINT} players={state.players} />
+      return <BusyScreen title={t.STARTING} hint={t.STARTING_HINT} players={state.players} send={send} />
     case 'playing':
       return (
         <PlayingScreen
@@ -60,6 +60,7 @@ function Body({ snapshot, send }: { snapshot: Snapshot; send: (command: Command)
           discipline={discipline}
           offline={state.offline}
           defaultLimit={state.default_limit}
+          send={send}
         />
       )
     case 'done':

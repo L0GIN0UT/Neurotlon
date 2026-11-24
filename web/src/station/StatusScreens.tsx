@@ -19,15 +19,26 @@ function Players({ players }: { players: CandidateView[] }) {
   )
 }
 
+/** Шаг назад: проверка, запуск, игра и проблема. Игру, если она идёт, останавливает. */
+function BackButton({ send }: { send: (command: Command) => void }) {
+  return (
+    <button type="button" className="ghost wide back-button" onClick={() => send({ action: 'back' })}>
+      {t.BACK}
+    </button>
+  )
+}
+
 /** «Проверяем участника» и «Запускаем игру»: вращающееся кольцо и подпись. */
 export function BusyScreen({
   title,
   hint,
   players,
+  send,
 }: {
   title: string
   hint?: string
   players: CandidateView[]
+  send: (command: Command) => void
 }) {
   return (
     <div className="center">
@@ -35,6 +46,7 @@ export function BusyScreen({
       <h1 className="big">{title}</h1>
       {hint && <p className="lead">{hint}</p>}
       {players.length > 0 && <Players players={players} />}
+      <BackButton send={send} />
     </div>
   )
 }
@@ -44,11 +56,13 @@ export function PlayingScreen({
   discipline,
   offline,
   defaultLimit,
+  send,
 }: {
   players: CandidateView[]
   discipline: string
   offline: boolean
   defaultLimit: boolean
+  send: (command: Command) => void
 }) {
   return (
     <div className="center">
@@ -70,6 +84,7 @@ export function PlayingScreen({
           </Chip>
         )}
       </div>
+      <BackButton send={send} />
     </div>
   )
 }
@@ -156,9 +171,6 @@ export function ProblemScreen({
       <div className="actions">
         <button type="button" className="play play-warn" onClick={() => send({ action: 'retry' })}>
           {t.RETRY}
-        </button>
-        <button type="button" className="ghost wide" onClick={() => send({ action: 'give_up' })}>
-          {t.GIVE_UP}
         </button>
         <button type="button" className="ghost wide" onClick={() => send({ action: 'back' })}>
           {t.BACK}
