@@ -9,15 +9,26 @@ import segno
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from reportlab.lib.units import mm
+from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfgen.canvas import Canvas
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from neurotlon_server.audit import write_audit
 from neurotlon_server.badges import (
+    BADGE_H,
+    BADGE_W,
     BADGES_PER_PAGE,
+    CODE_BASELINE,
+    LOGO,
+    PARTNERS_STRIP,
+    PHOTO,
     QR_SIDE,
+    QR_X,
+    QR_Y,
+    TABLE,
     TEXT_SIZE,
+    Box,
     build_badges_pdf,
     draw_badge,
     draw_qr,
@@ -160,7 +171,8 @@ def test_badges_pdf_all(admin: TestClient) -> None:
     assert response.headers["content-type"] == "application/pdf"
     assert response.headers["content-disposition"] == 'attachment; filename="badges.pdf"'
     assert response.content.startswith(b"%PDF")
-    assert _pages(response.content) == 4  # 20 badges, 6 per page
+    assert _pages(response.content) == 5  # 20 badges, 4 per page
+    assert b"DejaVuSans" in response.content  # Cyrillic needs an embedded font
 
 
 def test_badges_pdf_selected_codes(admin: TestClient) -> None:
@@ -185,11 +197,57 @@ def test_badges_pdf_forbidden_for_judge(app: FastAPI, db: Session) -> None:
     assert login_as(app, "jd").get(f"{API}/badges.pdf").status_code == 403
 
 
-@pytest.mark.parametrize(("count", "pages"), [(1, 1), (6, 1), (7, 2), (12, 2), (13, 3)])
+def test_badges_pdf_single_layout(admin: TestClient) -> None:
+    _generate(admin, 3)
+    response = admin.get(f"{API}/badges.pdf", params={"layout": "single"})
+    assert response.status_code == 200
+    assert response.headers["content-disposition"] == 'attachment; filename="badges-print.pdf"'
+    assert _pages(response.content) == 3
+    boxes = re.findall(rb"/MediaBox\s*\[\s*([\d. -]+?)\s*\]", response.content)
+    assert boxes
+    for box in boxes:
+        x0, y0, x1, y1 = (float(v) for v in box.split())
+        assert (x0, y0) == (0, 0)
+        assert x1 == pytest.approx(95 * mm, abs=0.01)
+        assert y1 == pytest.approx(135 * mm, abs=0.01)
+
+
+def test_badges_pdf_sheet_layout_is_default(admin: TestClient) -> None:
+    _generate(admin, 5)
+    explicit = admin.get(f"{API}/badges.pdf", params={"layout": "sheet"})
+    assert explicit.headers["content-disposition"] == 'attachment; filename="badges.pdf"'
+    assert _pages(explicit.content) == 2
+
+
+def test_badges_pdf_unknown_layout(admin: TestClient) -> None:
+    _generate(admin, 3)
+    assert admin.get(f"{API}/badges.pdf", params={"layout": "poster"}).status_code == 422
+
+
+@pytest.mark.parametrize(("count", "pages"), [(1, 1), (4, 1), (5, 2), (8, 2), (9, 3)])
 def test_pdf_page_count(count: int, pages: int) -> None:
     codes = [f"NT{n:02d}" for n in range(1, count + 1)]
     assert _pages(build_badges_pdf(codes)) == pages
-    assert BADGES_PER_PAGE == 6
+    assert BADGES_PER_PAGE == 4
+
+
+@pytest.mark.parametrize("count", [1, 3])
+def test_single_layout_one_page_per_badge(count: int) -> None:
+    codes = [f"NT{n:02d}" for n in range(1, count + 1)]
+    assert _pages(build_badges_pdf(codes, "single")) == count
+
+
+def test_guides_can_be_turned_off() -> None:
+    with_guides = build_badges_pdf(["NT01"], "single")
+    without = build_badges_pdf(["NT01"], "single", guides=False)
+    assert len(without) < len(with_guides)
+
+
+def test_pdf_embeds_dejavu_fonts_and_logo() -> None:
+    pdf = build_badges_pdf(["NT01"], "single")
+    assert b"/FontFile2" in pdf
+    assert b"DejaVuSans-Bold" in pdf
+    assert b"/SMask" in pdf  # the RGBA logo
 
 
 class RecordingCanvas(Canvas):  # type: ignore[misc]
@@ -208,7 +266,10 @@ class RecordingCanvas(Canvas):  # type: ignore[misc]
     def rect(
         self, x: float, y: float, width: float, height: float, stroke: int = 1, fill: int = 0
     ) -> None:
-        (self.white if self.fill == (1, 1, 1) else self.dark).append((x, y, width, height))
+        if self.fill == (1, 1, 1):
+            self.white.append((x, y, width, height))
+        elif self.fill == (0, 0, 0):
+            self.dark.append((x, y, width, height))
 
     def drawCentredString(self, x: float, y: float, text: str, **kwargs: Any) -> None:
         self.texts.append((x, y, text))
@@ -261,18 +322,48 @@ def test_qr_extent_and_quiet_zone() -> None:
         assert ry + h <= wy + wh - 4 * module + 1e-6
 
 
-def test_badge_text_is_clear_of_quiet_zone_and_inside_cell() -> None:
+def _overlap(a: Box, b: Box) -> bool:
+    return a.x < b.right and b.x < a.right and a.y < b.top and b.y < a.top
+
+
+def test_badge_blocks_fit_and_do_not_overlap() -> None:
     canvas = RecordingCanvas()
     draw_badge(canvas, "NT07", 0.0, 0.0)
-    _, text_y, text = canvas.texts[0]
-    assert text == "NT07"
-    text_top = text_y + TEXT_SIZE * 0.75  # Helvetica-Bold cap height is under 0.75 em
+    (code,) = (t for t in canvas.texts if t[2] == "NT07")
     wx, wy, ww, wh = canvas.white[0]
-    assert text_top <= wy
-    assert wy + wh <= 85 * mm
-    assert wx >= 0
-    assert wx + ww <= 90 * mm
-    assert text_y >= 0
+    quiet = Box(wx, wy, ww, wh)
+    code_w = pdfmetrics.stringWidth("NT07", "DejaVuSans-Bold", TEXT_SIZE)
+    code_box = Box(code[0] - code_w / 2, code[1], code_w, TEXT_SIZE * 0.76)
+    blocks = {
+        "photo": PHOTO,
+        "code": code_box,
+        "logo": LOGO,
+        "qr": quiet,
+        "table": TABLE,
+        "partners": PARTNERS_STRIP,
+    }
+    for name, box in blocks.items():
+        assert box.x >= 0, name
+        assert box.y >= 0, name
+        assert box.right <= BADGE_W + 1e-6, name
+        assert box.top <= BADGE_H + 1e-6, name
+    names = list(blocks)
+    for i, first in enumerate(names):
+        for second in names[i + 1 :]:
+            assert not _overlap(blocks[first], blocks[second]), (first, second)
+    assert code_box.cx == pytest.approx(PHOTO.cx)
+    assert PHOTO.y > CODE_BASELINE
+    assert 30 * mm <= QR_SIDE
+    assert quiet.x == pytest.approx(QR_X - 4 * qr_module_size("NT07"))
+    assert quiet.y == pytest.approx(QR_Y - 4 * qr_module_size("NT07"))
+    assert LOGO.w == pytest.approx(40 * mm)
+
+
+def test_badge_has_no_team_or_category_text() -> None:
+    canvas = RecordingCanvas()
+    draw_badge(canvas, "NT07", 0.0, 0.0)
+    texts = {t[2] for t in canvas.texts}
+    assert texts == {"NT07", "BCI", "Реальная"}
 
 
 def test_pdf_builder_encodes_each_code(monkeypatch: pytest.MonkeyPatch) -> None:

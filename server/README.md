@@ -37,8 +37,9 @@ uv run neurotlon-server create-superuser --login root
 (все пути под `/api/v1/participants`, роли `admin` и `superuser`):
 
 1. `POST /generate {"count": 20}` — создаёт недостающие `NT01…NT20`, повтор безопасен.
-2. `GET /badges.pdf?codes=NT01,NT02` — PDF для печати (A4, 6 бейджей на лист, линии реза;
-   QR только с ID, коррекция `M`, сторона 40 мм). Без `codes` — все участники.
+2. `GET /badges.pdf?codes=NT01,NT02` — PDF для печати: бейдж 95×135 мм (фото-заглушка, логотип, QR только с ID,
+   коррекция `M`, сторона 31 мм, таблица результатов, места под спонсоров). `layout=sheet` (по умолчанию) —
+   A4, 4 бейджа на лист, метки реза; `layout=single` — страница 95×135 мм на бейдж, файл `badges-print.pdf`. Без `codes` — все участники.
 3. `POST /{code}/check-in {"category": "general"|"ovz", "display_name": "..."}` — отметка о приходе;
    `{code}` нормализуется (`7` = `NT07`). `DELETE /{code}/check-in` отменяет отметку,
    `PATCH /{code}` меняет имя для табло.

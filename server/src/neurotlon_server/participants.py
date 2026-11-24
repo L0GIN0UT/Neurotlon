@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from neurotlon_server.audit import write_audit
 from neurotlon_server.auth import Db, Now, require_role
-from neurotlon_server.badges import build_badges_pdf
+from neurotlon_server.badges import Layout, build_badges_pdf
 from neurotlon_server.codes import normalize_code
 from neurotlon_server.errors import ProblemError
 from neurotlon_server.models import Participant, Team, User
@@ -120,7 +120,12 @@ def list_participants(db: Db, user: Viewer) -> list[dict[str, Any]]:
 
 
 @router.get("/badges.pdf")
-def badges_pdf(db: Db, actor: Manager, codes: Annotated[str | None, Query()] = None) -> Response:
+def badges_pdf(
+    db: Db,
+    actor: Manager,
+    codes: Annotated[str | None, Query()] = None,
+    layout: Annotated[Layout, Query()] = "sheet",
+) -> Response:
     query = select(Participant.code).order_by(Participant.code)
     wanted: list[str] = []
     if codes is not None:
@@ -134,10 +139,11 @@ def badges_pdf(db: Db, actor: Manager, codes: Annotated[str | None, Query()] = N
     found = list(db.scalars(query))
     if not found or (codes is not None and len(found) != len(wanted)):
         raise unknown_participant()
+    filename = "badges-print.pdf" if layout == "single" else "badges.pdf"
     return Response(
-        build_badges_pdf(found),
+        build_badges_pdf(found, layout),
         media_type="application/pdf",
-        headers={"Content-Disposition": 'attachment; filename="badges.pdf"'},
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
