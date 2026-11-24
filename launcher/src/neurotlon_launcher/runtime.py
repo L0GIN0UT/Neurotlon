@@ -11,7 +11,7 @@ from types import TracebackType
 from . import texts
 from .api import HttpStationApi, StationApiError, Unauthorized
 from .config import ConfigError, LauncherConfig
-from .game import SubprocessGameRunner
+from .game import SubprocessGameRunner, bridge_answers
 from .heartbeat import HeartbeatLoop
 from .machine import StationMachine
 from .outbox import Outbox
@@ -44,6 +44,7 @@ class StationRuntime:
             config.bridge_host,
             config.bridge_port,
             fullscreen=fullscreen,
+            bridge_ready=lambda: bridge_answers(config.bridge_host, config.bridge_port),
         )
         discipline = config.discipline or self._discover_discipline()
         self.machine = StationMachine(

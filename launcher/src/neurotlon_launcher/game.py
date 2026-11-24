@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import socket
 import time
 import uuid
 from collections.abc import Callable
@@ -154,6 +155,18 @@ def parse_result(path: Path, request: GameRequest) -> GameOutcome:
     return Finished(tuple(entries))
 
 
+BRIDGE_WAIT_S = 45.0
+
+
+def bridge_answers(host: str, port: int) -> bool:
+    """Мост принимает соединения: игра сможет подключиться сразу."""
+    try:
+        with socket.create_connection((host, port), timeout=1.0):
+            return True
+    except OSError:
+        return False
+
+
 class SubprocessGameRunner:
     def __init__(
         self,
@@ -166,6 +179,8 @@ class SubprocessGameRunner:
         fullscreen: bool = True,
         grace_s: float = GRACE_S,
         monotonic: Callable[[], float] = time.monotonic,
+        bridge_ready: Callable[[], bool] | None = None,
+        bridge_wait_s: float = BRIDGE_WAIT_S,
     ) -> None:
         self._command = command
         self._workdir = workdir
@@ -180,6 +195,10 @@ class SubprocessGameRunner:
         self._result_path: Path | None = None
         self._deadline = 0.0
         self._early: GameOutcome | None = None
+        self._bridge_ready = bridge_ready
+        self._bridge_wait_s = bridge_wait_s
+        self._spawn_after: Callable[[], None] | None = None
+        self._wait_started = 0.0
 
     def start(self, request: GameRequest) -> None:
         self._request = request
@@ -199,6 +218,20 @@ class SubprocessGameRunner:
             self._early = Crashed(f"launch.json не проходит схему: {exc.message}")
             return
         launch_path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+        self._spawn_after = lambda: self._spawn(folder, launch_path, request)
+        self._wait_started = self._monotonic()
+        if self._bridge_ready is None or self._bridge_ready():
+            self._spawn_pending()
+
+    def _spawn_pending(self) -> None:
+        spawn, self._spawn_after = self._spawn_after, None
+        if spawn is not None:
+            spawn()
+
+    def _spawn(self, folder: Path, launch_path: Path, request: GameRequest) -> None:
+        waited = self._monotonic() - self._wait_started
+        if waited > 0.5:
+            log.info("bridge answered after %.1f s", waited)
         self._log = (folder / "game.log").open("wb")
         try:
             self._proc = ManagedProcess(
@@ -209,8 +242,22 @@ class SubprocessGameRunner:
             self._early = Crashed(f"{DETAIL_START_FAILED}: {exc}")
             return
         self._deadline = self._monotonic() + request.duration_s + self._grace_s
+        log.info("game started: %s, session %s", self._command, request.session_id)
 
     def poll(self) -> GameOutcome | None:
+        if self._spawn_after is not None:
+            # Мост (PyInstaller, первый запуск после установки) может подниматься десятки секунд:
+            # игра ждёт связи с ним всего 15 с, поэтому стартуем её, когда мост ответил.
+            waited = self._monotonic() - self._wait_started
+            if (
+                self._bridge_ready is not None
+                and not self._bridge_ready()
+                and waited < self._bridge_wait_s
+            ):
+                return None
+            if waited >= self._bridge_wait_s:
+                log.warning("bridge did not answer in %.0f s, starting the game anyway", waited)
+            self._spawn_pending()
         if self._early is not None:
             outcome, self._early = self._early, None
             return outcome
@@ -225,6 +272,7 @@ class SubprocessGameRunner:
             self.stop()
             return Crashed(DETAIL_TIMEOUT)
         self._finish_process()
+        log.info("game exited with code %s, result %s", code, result_path)
         if code != 0:
             return Crashed(f"{DETAIL_EXIT_CODE} {code}")
         return parse_result(result_path, request)

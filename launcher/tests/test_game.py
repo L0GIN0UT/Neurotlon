@@ -360,3 +360,60 @@ def test_whole_float_points_are_stored_as_int(tmp_path: Path) -> None:
     assert isinstance(outcome, Finished)
     assert outcome.entries[0].points == 7
     assert isinstance(outcome.entries[0].points, int)
+
+
+def test_game_waits_for_the_bridge_and_starts_when_it_answers(tmp_path: Path) -> None:
+    now = [0.0]
+    ready = [False]
+    game = SubprocessGameRunner(
+        tuple(STUB),
+        None,
+        tmp_path,
+        "127.0.0.1",
+        8765,
+        monotonic=lambda: now[0],
+        bridge_ready=lambda: ready[0],
+        bridge_wait_s=45.0,
+    )
+    req = request()
+    game.start(req)
+    assert game._proc is None  # моста нет: игру не запускаем
+    now[0] = 20.0
+    assert game.poll() is None
+    assert game._proc is None
+    ready[0] = True
+    game.poll()
+    assert game._proc is not None  # мост ответил: игра пошла
+    game.stop()
+
+
+def test_game_starts_anyway_when_the_bridge_never_answers(tmp_path: Path) -> None:
+    now = [0.0]
+    game = SubprocessGameRunner(
+        tuple(STUB),
+        None,
+        tmp_path,
+        "127.0.0.1",
+        8765,
+        monotonic=lambda: now[0],
+        bridge_ready=lambda: False,
+        bridge_wait_s=45.0,
+    )
+    game.start(request())
+    now[0] = 46.0
+    game.poll()
+    assert game._proc is not None  # игра сама сообщит, что связи нет
+    game.stop()
+
+
+def test_bridge_answers_probe(tmp_path: Path) -> None:
+    import socket
+
+    from neurotlon_launcher.game import bridge_answers
+
+    with socket.socket() as server:
+        server.bind(("127.0.0.1", 0))
+        server.listen()
+        port = server.getsockname()[1]
+        assert bridge_answers("127.0.0.1", port)
+    assert not bridge_answers("127.0.0.1", port)

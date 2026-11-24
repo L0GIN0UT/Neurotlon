@@ -1095,6 +1095,10 @@ body:has(.station) {
   gap: 1.2rem;
 }
 
+.setup-card > * {
+  flex-shrink: 0; /* иначе в колонке с прокруткой блоки сжимаются и содержимое налезает на соседей */
+}
+
 .setup-title {
   margin: 0;
   font-size: 3.4rem;
@@ -1165,7 +1169,7 @@ body:has(.station) {
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
-  align-items: flex-start;
+  align-items: stretch;
 }
 
 .setup-camera {
