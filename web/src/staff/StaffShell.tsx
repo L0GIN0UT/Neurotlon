@@ -120,6 +120,8 @@ export function StaffShell({ title, allow, fetchFn, children }: Props) {
                   key={page.href}
                   href={page.href}
                   aria-current={here.startsWith(page.href) ? 'page' : undefined}
+                  // Табло показывают на отдельном экране: всегда в новой вкладке, рабочая страница остаётся.
+                  {...(page.href === '/board' ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
                 >
                   {page.label}
                 </a>
