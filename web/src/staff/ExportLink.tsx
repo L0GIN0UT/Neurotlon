@@ -1,9 +1,13 @@
 import { EXPORT_URL } from './api.ts'
 import './judge/Summary.css'
 
-export function ExportLink() {
+/**
+ * `standalone` — отдельная вкладка: компактная карточка по высоте содержимого.
+ * По умолчанию карточка стоит рядом с другими действиями и тянется до их высоты.
+ */
+export function ExportLink({ variant = 'paired' }: { variant?: 'paired' | 'standalone' }) {
   return (
-    <section className="card summary-action">
+    <section className={`card summary-action${variant === 'standalone' ? ' standalone' : ''}`}>
       <div className="head">
         <svg
           className="icon"

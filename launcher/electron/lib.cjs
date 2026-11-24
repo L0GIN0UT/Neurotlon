@@ -1,12 +1,17 @@
 'use strict'
 // Чистые функции оболочки: без Electron, проверяются `node --test`.
 
+const fs = require('node:fs')
 const path = require('node:path')
 
 const EXIT_RESTART = 75 // лаунчер сохранил настройки и просит запустить его заново
 const RESTART_DELAY_MS = 2000
 const CRASH_WINDOW_MS = 60_000
 const MAX_CRASHES = 5
+const READY_TIMEOUT_MS = 60_000 // холодный запуск PyInstaller с антивирусом бывает долгим
+const STOP_TIMEOUT_MS = 3000
+const AUTO_RETRIES = 2 // сколько раз повторить запуск ядра само, прежде чем показать ошибку
+const LOG_MAX_BYTES = 1024 * 1024
 
 /** Разбор аргументов: `--config путь`, `--windowed`, `--dev`. */
 function parseArgs(argv) {
@@ -102,30 +107,167 @@ function originOf(value) {
   }
 }
 
+/** Повторять ли запуск ядра сам: `attempt` — номер только что неудавшейся попытки (с 1). */
+function shouldAutoRetry(attempt) {
+  return attempt <= AUTO_RETRIES
+}
+
+/** Текст под заставкой во время запуска. */
+function startingDetail(attempt, seconds) {
+  const retry = attempt > 1 ? ` (попытка ${attempt})` : ''
+  return `Подождите, идёт запуск${retry}… ${seconds} с`
+}
+
+/** JS для страницы-заставки: переключает состояние и подставляет тексты (через textContent). */
+function splashScript(state) {
+  const kind = state.kind === 'error' ? 'error' : 'starting'
+  return (
+    `document.body.dataset.state = ${JSON.stringify(kind)};` +
+    `document.getElementById('title').textContent = ${JSON.stringify(String(state.title ?? ''))};` +
+    `document.getElementById('detail').textContent = ${JSON.stringify(String(state.detail ?? ''))};`
+  )
+}
+
+const WIN = path.win32
+const trimSep = (value) => {
+  let end = value.length
+  while (end > 0 && value[end - 1] === WIN.sep) end -= 1
+  return value.slice(0, end)
+}
+const winKey = (value) => WIN.normalize(String(value)).toLowerCase()
+
+/** Лежит ли файл внутри одной из папок `roots` (без учёта регистра, как в Windows). */
+function isInside(file, roots) {
+  const key = winKey(file)
+  return roots.some((root) => key.startsWith(trimSep(winKey(root)) + WIN.sep))
+}
+
 /**
- * Источник страницы: схема и хост. `new URL('app://x').origin` для своей схемы даёт «null»,
- * поэтому по нему разрешение на камеру не сравнить.
+ * Процессы из вывода `ConvertTo-Json` (один объект или массив) → [{pid, path, created}].
+ * `created` — время создания строкой (FileTime): по нему перед убийством убеждаемся, что
+ * под этим pid всё ещё тот же процесс, а не новый с переиспользованным номером.
  */
-function originOf(value) {
+function parseProcessList(text) {
   try {
-    const url = new URL(value)
-    return url.host ? `${url.protocol}//${url.host}` : ''
+    const data = JSON.parse(String(text).trim() || '[]')
+    return (Array.isArray(data) ? data : [data])
+      .map((item) => ({ pid: item?.ProcessId, path: item?.ExecutablePath, created: String(item?.Created ?? '') }))
+      .filter((item) => Number.isInteger(item.pid) && typeof item.path === 'string' && item.path)
   } catch {
-    return ''
+    return []
   }
 }
 
-/** Первая `.exe` в папке (игра, вложенная в установщик); `''`, если папки или файла нет. */
-function firstExe(dir) {
+/** Процессы нашей установки: путь к .exe внутри `roots`, кроме `exclude` (свой pid). */
+function selectOrphans(processes, roots, exclude = []) {
+  return processes.filter((p) => !exclude.includes(p.pid) && isInside(p.path, roots))
+}
+
+/** PowerShell: процессы с путём к .exe из СВОЕГО сеанса Windows (чужих пользователей не трогаем). */
+const LIST_PROCESSES_SCRIPT =
+  '[Console]::OutputEncoding = [Text.Encoding]::UTF8; ' +
+  '$s = (Get-Process -Id $PID).SessionId; ' +
+  'Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and $_.SessionId -eq $s } | ' +
+  'Select-Object ProcessId, ExecutablePath, @{ n = "Created"; e = { [string]$_.CreationDate.ToFileTimeUtc() } } | ' +
+  'ConvertTo-Json -Compress'
+
+/** PowerShell: завершает процесс (без потомков), только если pid и время создания совпали; оба из окружения. */
+const KILL_VERIFIED_SCRIPT =
+  '$p = Get-CimInstance Win32_Process -Filter ("ProcessId = " + [int]$env:NT_PID); ' +
+  'if ($p -and [string]$p.CreationDate.ToFileTimeUtc() -eq $env:NT_CREATED) { ' +
+  'Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }'
+
+/**
+ * Убивает осиротевшие процессы своей установки. `listProcesses` и `killVerified(pid, created)`
+ * подставляются снаружи (в Windows — PowerShell), поэтому логика проверяется без системы.
+ * Потомков не трогаем (`/T` тут нельзя: список мог устареть, а pid — достаться чужому процессу).
+ */
+async function killOrphans({ listProcesses, killVerified, roots, exclude = [], log = () => {} }) {
+  let orphans
   try {
-    const name = fs
-      .readdirSync(dir)
-      .sort()
-      .find((entry) => entry.toLowerCase().endsWith('.exe') && fs.statSync(path.join(dir, entry)).isFile())
-    return name ? path.join(dir, name) : ''
+    orphans = selectOrphans(await listProcesses(), roots, exclude)
+  } catch (error) {
+    log(`не удалось получить список процессов: ${error.message}`)
+    return []
+  }
+  for (const { pid, created } of orphans) {
+    log(`снос сироты ${pid}`)
+    try {
+      await killVerified(pid, created)
+    } catch (error) {
+      log(`не удалось завершить ${pid}: ${error.message}`)
+    }
+  }
+  return orphans.map((p) => p.pid)
+}
+
+/** Абсолютный путь к системной программе: PATH не используем (в нём может оказаться подмена). */
+function systemExe(systemRoot, ...parts) {
+  return WIN.join(systemRoot || 'C:\\Windows', 'System32', ...parts)
+}
+
+/** Хвост журнала не больше `maxBytes`: старое обрезается по границе строки. */
+function trimLog(text, maxBytes) {
+  const buffer = Buffer.from(text, 'utf8')
+  if (buffer.length <= maxBytes) return text
+  const tail = buffer.subarray(buffer.length - Math.floor(maxBytes / 2)).toString('utf8')
+  const newline = tail.indexOf('\n')
+  return newline >= 0 ? tail.slice(newline + 1) : tail
+}
+
+/** Журнал в файл: дописывает строки с временем, при превышении размера оставляет хвост. */
+function createLog(file, { maxBytes = LOG_MAX_BYTES, now = () => new Date() } = {}) {
+  let size = 0
+  try {
+    size = fs.statSync(file).size
   } catch {
-    return ''
+    size = 0
+  }
+  const shrink = () => {
+    try {
+      fs.writeFileSync(file, trimLog(fs.readFileSync(file, 'utf8'), maxBytes))
+      size = fs.statSync(file).size
+    } catch {
+      size = 0
+    }
+  }
+  if (size > maxBytes) shrink()
+  return (message) => {
+    const line = `${now().toISOString()} ${message}\n`
+    try {
+      fs.appendFileSync(file, line)
+      size += Buffer.byteLength(line)
+      if (size > maxBytes) shrink()
+    } catch {
+      // журнал не должен ронять приложение
+    }
   }
 }
 
-module.exports = { originOf, EXIT_RESTART, nextAction, parseArgs, splitCommand, parseReadyLine, resolveInside, contentSecurityPolicy, mimeFor }
+module.exports = {
+  AUTO_RETRIES,
+  EXIT_RESTART,
+  LOG_MAX_BYTES,
+  READY_TIMEOUT_MS,
+  STOP_TIMEOUT_MS,
+  contentSecurityPolicy,
+  createLog,
+  isInside,
+  KILL_VERIFIED_SCRIPT,
+  LIST_PROCESSES_SCRIPT,
+  killOrphans,
+  mimeFor,
+  nextAction,
+  originOf,
+  parseArgs,
+  parseProcessList,
+  parseReadyLine,
+  resolveInside,
+  selectOrphans,
+  shouldAutoRetry,
+  splashScript,
+  splitCommand,
+  startingDetail,
+  systemExe,
+  trimLog,
+}

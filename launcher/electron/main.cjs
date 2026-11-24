@@ -1,8 +1,9 @@
 'use strict'
 // Окно стенда: запускает Python-лаунчер, открывает интерфейс из web/dist на весь экран.
 // Лаунчер сам понимает, когда нужна первая настройка. Ctrl+Alt+S открывает настройку повторно.
+// Пока ядро запускается, виден splash.html; при сбое на нём «Повторить» и «Закрыть».
 
-const { spawn } = require('node:child_process')
+const { execFile, spawn } = require('node:child_process')
 const crypto = require('node:crypto')
 const fs = require('node:fs')
 const path = require('node:path')
@@ -11,8 +12,6 @@ const { pathToFileURL } = require('node:url')
 const { app, BrowserWindow, dialog, ipcMain, net, protocol, session } = require('electron')
 const lib = require('./lib.cjs')
 
-const READY_TIMEOUT_MS = 30_000
-const STOP_TIMEOUT_MS = 5_000
 const SCHEME = 'app'
 
 protocol.registerSchemesAsPrivileged([
@@ -36,12 +35,19 @@ const devUrl = process.env.NEUROTLON_DEV_URL ?? ''
 let configPath = ''
 let child = null
 let mainWindow = null
+let splashWindow = null
+let launchId = 0
+let launching = false // идёт запуск: «Повторить» и Ctrl+Alt+S на заставке не действуют
+let lastSetup = false // с каким `--setup` шёл последний запуск: «Повторить» его сохраняет
+let splashKind = 'starting'
 let bundleServed = false
 let quitting = false
 let restarting = false
+let log = () => {}
 const crashes = []
 
 function fail(message) {
+  log(`ошибка запуска: ${message}`)
   console.error(`Ошибка запуска: ${message}`)
   app.exit(2)
 }
@@ -54,17 +60,85 @@ function launcherCommand() {
   return lib.splitCommand(process.env.NEUROTLON_LAUNCHER_CMD)
 }
 
-/** Запускает лаунчер и ждёт строку готовности с портом моста. */
+/** Завершает процесс вместе с потомками: в Windows `proc.kill()` убил бы только само ядро. */
+function killTree(pid) {
+  return new Promise((resolve) => {
+    if (process.platform === 'win32') {
+      execFile(
+        lib.systemExe(process.env.SystemRoot, 'taskkill.exe'),
+        ['/PID', String(pid), '/T', '/F'],
+        { windowsHide: true, timeout: 10_000 },
+        () => resolve(),
+      )
+      return
+    }
+    try {
+      process.kill(pid, 'SIGKILL')
+    } catch {
+      // уже завершён
+    }
+    resolve()
+  })
+}
+
+const powershell = () =>
+  lib.systemExe(process.env.SystemRoot, 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+
+/** Процессы своего сеанса с известным путём к .exe (Windows); на других системах пусто. */
+function listProcesses() {
+  if (process.platform !== 'win32') return Promise.resolve([])
+  return new Promise((resolve, reject) => {
+    execFile(
+      powershell(),
+      ['-NoProfile', '-NonInteractive', '-Command', lib.LIST_PROCESSES_SCRIPT],
+      { windowsHide: true, timeout: 20_000, maxBuffer: 32 * 1024 * 1024, encoding: 'utf8' },
+      (error, stdout) => (error ? reject(error) : resolve(lib.parseProcessList(stdout))),
+    )
+  })
+}
+
+/** Завершает один процесс, если под этим pid всё ещё тот же процесс (сверка времени создания). */
+function killVerified(pid, created) {
+  if (process.platform !== 'win32') return Promise.resolve()
+  return new Promise((resolve) => {
+    execFile(
+      powershell(),
+      ['-NoProfile', '-NonInteractive', '-Command', lib.KILL_VERIFIED_SCRIPT],
+      {
+        windowsHide: true,
+        timeout: 15_000,
+        env: { ...process.env, NT_PID: String(pid), NT_CREATED: created },
+      },
+      () => resolve(),
+    )
+  })
+}
+
+/** Сироты прошлого запуска: ядро, мост и игры именно из папок этой установки. */
+function killStaleProcesses() {
+  if (!app.isPackaged) return Promise.resolve([])
+  const roots = ['core', 'bridge', 'games'].map((name) => path.join(process.resourcesPath, name))
+  return lib.killOrphans({ listProcesses, killVerified, roots, exclude: [process.pid], log })
+}
+
+/** Запускает лаунчер: `{ proc, port }`, где `port` — обещание порта из строки готовности. */
 function startLauncher(token, { setup }) {
   const { file, args } = launcherCommand()
   const full = [...args, '--config', configPath, '--ui-token', token]
   if (bundledGames && fs.existsSync(bundledGames)) full.push('--games-dir', bundledGames)
   if (bundledBridge && fs.existsSync(bundledBridge)) full.push('--bridge-exe', bundledBridge)
   if (setup) full.push('--setup')
+  log(`запуск ядра: ${file} ${full.join(' ').replace(token, '***')}`)
   const proc = spawn(file, full, { stdio: ['pipe', 'pipe', 'inherit'], windowsHide: true })
   child = proc
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('лаунчер не ответил за 30 с')), READY_TIMEOUT_MS)
+  // Закрытый чужой стороной канал (EPIPE) не должен ронять приложение необработанной ошибкой.
+  proc.stdin.on('error', (error) => log(`stdin ядра: ${error.message}`))
+  let ready = false
+  const portPromise = new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`ядро не ответило за ${lib.READY_TIMEOUT_MS / 1000} с`)),
+      lib.READY_TIMEOUT_MS,
+    )
     proc.once('error', (error) => {
       clearTimeout(timer)
       reject(new Error(`не удалось запустить «${file}»: ${error.message}`))
@@ -72,25 +146,32 @@ function startLauncher(token, { setup }) {
     proc.once('exit', (code) => {
       clearTimeout(timer)
       if (child === proc) child = null
-      if (!quitting && !restarting) onLauncherExit(code)
-      reject(new Error(`лаунчер завершился с кодом ${code}`))
+      log(`ядро завершилось с кодом ${code}`)
+      // До готовности сбой разбирает launch() (повтор или ошибка в окне), после — onLauncherExit.
+      if (ready && !quitting && !restarting) onLauncherExit(code)
+      reject(new Error(`ядро завершилось с кодом ${code}`))
     })
     readline.createInterface({ input: proc.stdout }).on('line', (line) => {
       const port = lib.parseReadyLine(line)
       if (port !== null) {
         clearTimeout(timer)
+        ready = true
+        log(`ядро готово, порт ${port}`)
         resolve(port)
       } else {
+        log(`ядро: ${line}`)
         console.log(line)
       }
     })
   })
+  return { proc, port: portPromise }
 }
 
 /** Лаунчер вышел сам: после сохранения настройки (код 75) стартуем заново, при аварии — с паузой. */
 function onLauncherExit(code) {
   const next = lib.nextAction(code, crashes, Date.now())
   if (next.action === 'quit') {
+    log(`ядро завершается снова и снова (код ${code}), останавливаюсь`)
     console.error(`Лаунчер завершается снова и снова (код ${code}), останавливаюсь.`)
     app.exit(next.code)
     return
@@ -98,15 +179,15 @@ function onLauncherExit(code) {
   setTimeout(() => void launch({ setup: false }), next.delayMs)
 }
 
-/** Останавливает лаунчер: закрытый stdin — сигнал завершиться штатно, иначе через 5 с убиваем. */
+/** Останавливает лаунчер: закрытый stdin — сигнал завершиться штатно, через 3 с сносим дерево. */
 function stopLauncher() {
   const proc = child
   if (!proc || proc.exitCode !== null) return Promise.resolve()
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
-      proc.kill()
-      resolve()
-    }, STOP_TIMEOUT_MS)
+      log(`ядро не закрылось за ${lib.STOP_TIMEOUT_MS / 1000} с, снос дерева процессов`)
+      void killTree(proc.pid).then(resolve)
+    }, lib.STOP_TIMEOUT_MS)
     proc.once('exit', () => {
       clearTimeout(timer)
       resolve()
@@ -150,8 +231,9 @@ function lockPermissions(origins) {
   )
 }
 
-function createWindow(port, token) {
-  const window = new BrowserWindow({
+/** Общие настройки окна: во весь экран, в киоске — кроме режимов `--windowed` и `--dev`. */
+function baseWindowOptions() {
+  return {
     backgroundColor: '#0b0f1a',
     icon: ICON,
     title: 'Нейротлон',
@@ -161,6 +243,63 @@ function createWindow(port, token) {
     height: 720,
     autoHideMenuBar: true,
     show: false,
+  }
+}
+
+/** Ctrl+Q — выход; Ctrl+Alt+S (если задан обработчик) — перезапуск с настройкой. */
+function handleShortcuts(window, onSetup) {
+  window.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown' || !input.control) return
+    const key = input.key.toLowerCase()
+    if (key === 'q') {
+      event.preventDefault()
+      log('выход: Ctrl+Q')
+      app.quit()
+    } else if (key === 's' && input.alt && onSetup) {
+      event.preventDefault()
+      onSetup()
+    }
+  })
+}
+
+/** «Повторить» и Ctrl+Alt+S на заставке: действуют только на экране ошибки и не во время запуска. */
+function retryLaunch(setup) {
+  if (launching || splashKind !== 'error') return
+  void launch({ setup })
+}
+
+/** Заставка: локальная страница сразу, пока ядро запускается; при сбое — «Повторить» и «Закрыть». */
+function showSplash(state) {
+  splashKind = state.kind
+  if (!splashWindow || splashWindow.isDestroyed()) {
+    const window = new BrowserWindow({
+      ...baseWindowOptions(),
+      webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, devTools: false },
+    })
+    splashWindow = window
+    window.once('ready-to-show', () => window.show())
+    window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    window.webContents.on('will-navigate', (event, url) => {
+      event.preventDefault()
+      if (url === `${SCHEME}://action/retry`) retryLaunch(lastSetup)
+      else if (url === `${SCHEME}://action/close`) app.quit()
+    })
+    // В состоянии ошибки Ctrl+Alt+S открывает настройку: так можно поправить то, из-за чего ядро не стартует.
+    handleShortcuts(window, () => retryLaunch(true))
+    window.on('closed', () => {
+      if (splashWindow === window) splashWindow = null
+    })
+    void window.loadFile(path.join(__dirname, 'splash.html'))
+  }
+  const contents = splashWindow.webContents
+  const apply = () => void contents.executeJavaScript(lib.splashScript(state)).catch(() => {})
+  if (contents.isLoading()) contents.once('did-finish-load', apply)
+  else apply()
+}
+
+function createWindow(port, token) {
+  const window = new BrowserWindow({
+    ...baseWindowOptions(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       additionalArguments: [`--bridge-port=${port}`, `--bridge-token=${token}`],
@@ -170,7 +309,14 @@ function createWindow(port, token) {
       devTools: options.dev,
     },
   })
-  window.once('ready-to-show', () => window.show())
+  window.once('ready-to-show', () => {
+    window.show()
+    // Заставка и прежнее окно (с прежним токеном) больше не нужны.
+    for (const old of [splashWindow, mainWindow]) {
+      if (old && old !== window && !old.isDestroyed()) old.destroy()
+    }
+    mainWindow = window
+  })
   if (options.dev) {
     // Консоль страницы — в stdout: ошибки CSP и сети видно без открытия инструментов
     window.webContents.on('console-message', (event, ...rest) =>
@@ -179,46 +325,79 @@ function createWindow(port, token) {
   }
   window.webContents.on('will-navigate', (event) => event.preventDefault())
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-  window.webContents.on('before-input-event', (event, input) => {
-    if (input.type !== 'keyDown' || !input.control) return
-    const key = input.key.toLowerCase()
-    if (key === 'q') {
-      event.preventDefault()
-      app.quit()
-    } else if (key === 's' && input.alt) {
-      event.preventDefault()
-      void reconfigure()
-    }
-  })
+  handleShortcuts(window, () => void reconfigure())
   void window.loadURL(devUrl || `${SCHEME}://station/station.html`)
   return window
 }
 
-/** Запускает лаунчер и открывает для него окно; прежнее окно (с прежним токеном) закрывается. */
+/**
+ * Запускает лаунчер и открывает для него окно. Заставка видна сразу; при сбое ядро стартует
+ * ещё раз-другой само, потом заставка показывает ошибку с кнопками. Невидимым приложение не бывает.
+ */
 async function launch({ setup }) {
-  const token = crypto.randomBytes(24).toString('hex')
-  let port
+  const id = (launchId += 1)
+  launching = true
+  lastSetup = setup
   try {
-    port = await startLauncher(token, { setup })
-  } catch (error) {
-    if (!quitting && !restarting) console.error(error.message)
-    return
+    await runLaunch(id, setup)
+  } finally {
+    if (id === launchId) launching = false
+  }
+}
+
+async function runLaunch(id, setup) {
+  const token = crypto.randomBytes(24).toString('hex')
+  let port = null
+  for (let attempt = 1; port === null; attempt += 1) {
+    const started = Date.now()
+    const tick = () => {
+      const seconds = Math.round((Date.now() - started) / 1000)
+      showSplash({ kind: 'starting', title: 'Запуск стенда…', detail: lib.startingDetail(attempt, seconds) })
+    }
+    tick()
+    const timer = setInterval(tick, 1000)
+    let lastError = ''
+    let proc = null
+    try {
+      await killStaleProcesses()
+      if (id !== launchId || quitting) return
+      const started = startLauncher(token, { setup })
+      proc = started.proc
+      port = await started.port
+    } catch (error) {
+      lastError = error.message
+      log(`попытка ${attempt} не удалась: ${lastError}`)
+      // Убиваем только свой процесс этой попытки, не общий `child` (он мог стать уже чужим запуском).
+      if (proc && proc.exitCode === null) await killTree(proc.pid)
+      if (proc && child === proc) child = null
+    } finally {
+      clearInterval(timer)
+    }
+    if (id !== launchId || quitting) return
+    if (port === null && !lib.shouldAutoRetry(attempt)) {
+      const logFile = path.join(app.getPath('userData'), 'electron.log')
+      showSplash({
+        kind: 'error',
+        title: 'Не удалось запустить стенд',
+        detail: `${lastError}. Подробности в журнале: ${logFile}`,
+      })
+      return
+    }
   }
   if (!devUrl) serveBundle(port)
-  const previous = mainWindow
-  mainWindow = createWindow(port, token)
-  if (previous && !previous.isDestroyed()) previous.destroy()
+  createWindow(port, token)
 }
 
 /** Ctrl+Alt+S: остановить лаунчер и запустить его с экраном настройки. */
 async function reconfigure() {
   restarting = true
+  log('перезапуск с настройкой (Ctrl+Alt+S)')
   try {
     await stopLauncher()
-    await launch({ setup: true })
   } finally {
     restarting = false
   }
+  await launch({ setup: true })
 }
 
 ipcMain.handle('pick-file', async (event, kind) => {
@@ -233,9 +412,31 @@ ipcMain.handle('pick-file', async (event, kind) => {
   return result.canceled ? null : (result.filePaths[0] ?? null)
 })
 
+/** Необработанная ошибка: в журнал и на заставку (окно создаётся, если его нет), не молча. */
+function reportFatal(error) {
+  log(`необработанная ошибка: ${error?.stack ?? error}`)
+  if (quitting) return
+  try {
+    launchId += 1 // идущий запуск прекращаем: его результат уже не нужен
+    launching = false
+    showSplash({
+      kind: 'error',
+      title: 'Непредвиденная ошибка',
+      detail: `${error?.message ?? error}. Журнал: ${path.join(app.getPath('userData'), 'electron.log')}`,
+    })
+  } catch (inner) {
+    log(`не удалось показать ошибку: ${inner.message}`)
+    app.exit(1)
+  }
+}
+
 async function main() {
   configPath = options.config ?? path.join(app.getPath('userData'), 'launcher.toml')
   fs.mkdirSync(path.dirname(configPath), { recursive: true })
+  log = lib.createLog(path.join(app.getPath('userData'), 'electron.log'))
+  log(`старт ${app.getVersion()}, упаковано: ${app.isPackaged}, ядро: ${launcherCommand().file}`)
+  process.on('uncaughtException', reportFatal)
+  process.on('unhandledRejection', reportFatal)
   if (!devUrl && !fs.existsSync(path.join(webDir, 'station.html'))) {
     return fail(`нет собранного интерфейса: ${webDir} (соберите web: npm run build)`)
   }
@@ -250,6 +451,13 @@ if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.whenReady().then(main)
+  // Повторный запуск ярлыка выводит на передний план уже открытое окно.
+  app.on('second-instance', () => {
+    const window = [mainWindow, splashWindow].find((item) => item && !item.isDestroyed())
+    if (!window) return
+    if (window.isMinimized()) window.restore()
+    window.focus()
+  })
   app.on('window-all-closed', () => {
     if (!restarting) app.quit()
   })
@@ -257,6 +465,11 @@ if (!app.requestSingleInstanceLock()) {
     if (quitting) return
     quitting = true
     event.preventDefault()
-    void stopLauncher().then(() => app.quit())
+    const started = Date.now()
+    log('закрытие: остановка ядра')
+    void stopLauncher().then(() => {
+      log(`закрытие: готово за ${Date.now() - started} мс`)
+      app.exit(0)
+    })
   })
 }

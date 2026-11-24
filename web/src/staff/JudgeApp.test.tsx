@@ -306,9 +306,9 @@ describe('фиксация итогов', () => {
   test('на странице результатов есть экспорт', async () => {
     renderJudge(setup())
     await openTab('Итоги')
-    expect((await screen.findByRole('link', { name: 'Скачать XLSX' })).getAttribute('href')).toBe(
-      '/api/v1/export.xlsx',
-    )
+    const link = await screen.findByRole('link', { name: 'Скачать XLSX' })
+    expect(link.getAttribute('href')).toBe('/api/v1/export.xlsx')
+    expect(link.closest('section')?.classList.contains('standalone')).toBe(false)
   })
 })
 

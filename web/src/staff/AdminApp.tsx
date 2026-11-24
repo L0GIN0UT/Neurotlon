@@ -69,7 +69,7 @@ export function AdminApp({ fetchFn }: { fetchFn?: typeof fetch }) {
           {tab === 'stations' && <StationsTab api={api} />}
           {tab === 'disciplines' && <DisciplinesTab api={api} />}
           {tab === 'users' && me.role === 'superuser' && <UsersTab api={api} meLogin={me.login} />}
-          {tab === 'export' && <ExportLink />}
+          {tab === 'export' && <ExportLink variant="standalone" />}
         </>
       )}
     </StaffShell>
