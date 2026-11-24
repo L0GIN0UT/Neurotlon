@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import { DisciplinesTab } from './admin/DisciplinesTab.tsx'
-import { DrawTab } from './admin/DrawTab.tsx'
 import { ParticipantsTab } from './admin/ParticipantsTab.tsx'
 import { StationsTab } from './admin/StationsTab.tsx'
+import { TeamsTab } from './admin/TeamsTab.tsx'
 import { UsersTab } from './admin/UsersTab.tsx'
 import { ExportLink } from './ExportLink.tsx'
 import { PageHead, StaffShell, Tabs } from './StaffShell.tsx'
 
-type Tab = 'participants' | 'draw' | 'stations' | 'disciplines' | 'users' | 'export'
+type Tab = 'participants' | 'teams' | 'stations' | 'disciplines' | 'users' | 'export'
 
 const TABS: { id: Tab; label: string; title: string; hint: string }[] = [
   {
@@ -17,10 +17,10 @@ const TABS: { id: Tab; label: string; title: string; hint: string }[] = [
     hint: 'ID, отметка о приходе, команды и баллы по дисциплинам.',
   },
   {
-    id: 'draw',
-    label: 'Жеребьёвка',
-    title: 'Жеребьёвка и команды',
-    hint: 'Разбивка пришедших на команды и пары; названия и цвета команд для табло.',
+    id: 'teams',
+    label: 'Команды',
+    title: 'Команды',
+    hint: 'Раскладка пришедших по двум командам: порядок в команде задаёт пары. Названия и цвета для табло.',
   },
   {
     id: 'stations',
@@ -65,10 +65,10 @@ export function AdminApp({ fetchFn }: { fetchFn?: typeof fetch }) {
             hint={TABS.find((t) => t.id === tab)?.hint}
           />
           {tab === 'participants' && <ParticipantsTab api={api} />}
-          {tab === 'draw' && <DrawTab api={api} />}
+          {tab === 'teams' && <TeamsTab api={api} />}
           {tab === 'stations' && <StationsTab api={api} />}
           {tab === 'disciplines' && <DisciplinesTab api={api} />}
-          {tab === 'users' && me.role === 'superuser' && <UsersTab api={api} />}
+          {tab === 'users' && me.role === 'superuser' && <UsersTab api={api} meLogin={me.login} />}
           {tab === 'export' && <ExportLink />}
         </>
       )}

@@ -49,6 +49,16 @@ export interface TeamInfo {
   color: string
 }
 
+export interface TeamMember {
+  code: string
+  display_name: string | null
+  number_in_team: number
+}
+
+export interface TeamsPayload {
+  teams: (TeamInfo & { members: TeamMember[] })[]
+}
+
 export interface StationInfo {
   id: number
   name: string
@@ -179,7 +189,9 @@ export function createStaffApi(options: ApiOptions = {}) {
         seed === undefined ? { m } : { m, seed },
       ),
     draw: () => request<DrawProtocol>('GET', '/draw'),
-    teams: () => request<{ teams: TeamInfo[] }>('GET', '/teams'),
+    teams: () => request<TeamsPayload>('GET', '/teams'),
+    assignTeams: (body: { teams: { number: number; members: string[] }[] }) =>
+      request<TeamsPayload>('PUT', '/teams/assignment', body),
     patchTeam: (id: number, name: string, color: string) =>
       request<TeamInfo>('PATCH', `/teams/${id}`, { name, color }),
 
