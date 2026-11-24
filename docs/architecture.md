@@ -149,6 +149,7 @@ erDiagram
     TEAM ||--|{ PARTICIPANT : "1:N"
     PAIR }|--|{ PARTICIPANT : "2 участника"
     PARTICIPANT ||--o{ SECTION_RESULT : "1:N"
+    PARTICIPANT ||--o| PARTICIPANT_PHOTO : "0..1"
     STATION ||--o{ SECTION_RESULT : "источник"
     DISCIPLINE ||--o{ STATION : "1:N"
     DISCIPLINE ||--o{ SECTION_RESULT : "1:N"
@@ -176,6 +177,11 @@ erDiagram
         bool checked_in
         int team_id
         int number_in_team
+    }
+    PARTICIPANT_PHOTO {
+        int participant_id
+        blob content "JPEG до 400 КБ, только админ"
+        datetime updated_at
     }
     PAIR {
         int id
