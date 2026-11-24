@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
+import { createPortal } from 'react-dom'
+import logo from '../station/assets/logo.png'
 import { ApiError } from '../shared/http.ts'
 import { Login } from '../shared/Login.tsx'
 import { errorText } from '../shared/messages.ts'
@@ -14,6 +16,9 @@ type Auth =
   | { status: 'forbidden'; me: Me }
   | { status: 'error'; message: string }
   | { status: 'ready'; me: Me }
+
+/** Место в боковой панели, куда `Tabs` выводит меню разделов. */
+const MenuContext = createContext<HTMLElement | null>(null)
 
 interface Props {
   title: string
@@ -30,6 +35,7 @@ export function StaffShell({ title, allow, fetchFn, children }: Props) {
     createStaffApi({ fetchFn, onUnauthorized: () => setAuth({ status: 'anon' }) }),
   )
 
+  const [menuNode, setMenuNode] = useState<HTMLElement | null>(null)
   const allowed = allow.join(',')
   const resolve = useCallback(
     (me: Me) => {
@@ -64,44 +70,73 @@ export function StaffShell({ title, allow, fetchFn, children }: Props) {
     setAuth({ status: 'anon' })
   }
 
+  const ready = auth.status === 'ready' ? auth : null
+  const here = window.location.pathname
+  const pages = [
+    ...(ready && ready.me.role !== 'judge' ? [{ href: '/admin', label: 'Админка' }] : []),
+    { href: '/judge', label: 'Судья' },
+    { href: '/board', label: 'Табло' },
+  ]
   return (
     <main className="staff">
-      {auth.status === 'loading' && <p className="card">Загрузка…</p>}
-      {auth.status === 'anon' && <Login api={api} onLoggedIn={resolve} title={`Вход: ${title}`} />}
-      {auth.status === 'error' && (
-        <section className="card stack">
-          <p role="alert" className="error">
-            {auth.message}
-          </p>
-          <button type="button" className="primary" onClick={() => window.location.reload()}>
-            Повторить
-          </button>
-        </section>
+      {!ready && (
+        <div className="staff-center">
+          {auth.status === 'loading' && <p className="card">Загрузка…</p>}
+          {auth.status === 'anon' && (
+            <Login api={api} onLoggedIn={resolve} title={`Вход: ${title}`} />
+          )}
+          {auth.status === 'error' && (
+            <section className="card stack">
+              <p role="alert" className="error">
+                {auth.message}
+              </p>
+              <button type="button" className="primary" onClick={() => window.location.reload()}>
+                Повторить
+              </button>
+            </section>
+          )}
+          {auth.status === 'forbidden' && (
+            <section className="card stack">
+              <h1>Нет доступа</h1>
+              <p>Учётная запись «{auth.me.login}» не подходит для этой страницы.</p>
+              <button type="button" className="primary" onClick={() => void logout()}>
+                Выйти
+              </button>
+            </section>
+          )}
+        </div>
       )}
-      {auth.status === 'forbidden' && (
-        <section className="card stack">
-          <h1>Нет доступа</h1>
-          <p>Учётная запись «{auth.me.login}» не подходит для этой страницы.</p>
-          <button type="button" className="primary" onClick={() => void logout()}>
-            Выйти
-          </button>
-        </section>
-      )}
-      {auth.status === 'ready' && (
+      {ready && (
         <>
-          <header className="topbar no-print">
-            <strong>{title}</strong>
-            <nav className="grow">
-              {auth.me.role !== 'judge' && <a href="/admin">Админка</a>}
-              <a href="/judge">Судья</a>
-              <a href="/board">Табло</a>
+          <aside className="staff-side no-print">
+            <div className="staff-brand">
+              <img src={logo} alt="" />
+              <strong>{title}</strong>
+            </div>
+            <nav className="staff-menu" ref={setMenuNode} aria-label="Разделы" />
+            <nav className="staff-pages" aria-label="Страницы">
+              {pages.map((page) => (
+                <a
+                  key={page.href}
+                  href={page.href}
+                  aria-current={here.startsWith(page.href) ? 'page' : undefined}
+                >
+                  {page.label}
+                </a>
+              ))}
             </nav>
-            <span>{auth.me.login}</span>
-            <button type="button" onClick={() => void logout()}>
-              Выйти
-            </button>
-          </header>
-          {children({ api, me: auth.me })}
+            <div className="staff-user">
+              <span>{ready.me.login}</span>
+              <button type="button" className="small" onClick={() => void logout()}>
+                Выйти
+              </button>
+            </div>
+          </aside>
+          <div className="staff-main">
+            <MenuContext.Provider value={menuNode}>
+              {children({ api, me: ready.me })}
+            </MenuContext.Provider>
+          </div>
         </>
       )}
     </main>
@@ -115,8 +150,9 @@ interface TabsProps<T extends string> {
 }
 
 export function Tabs<T extends string>({ tabs, active, onChange }: TabsProps<T>) {
-  return (
-    <div role="tablist" className="tabs no-print">
+  const menu = useContext(MenuContext)
+  const list = (
+    <div role="tablist" aria-orientation="vertical" className="tabs no-print">
       {tabs.map((tab) => (
         <button
           key={tab.id}
@@ -130,5 +166,28 @@ export function Tabs<T extends string>({ tabs, active, onChange }: TabsProps<T>)
         </button>
       ))}
     </div>
+  )
+  // В боковой панели; пока панель не готова (первый кадр), меню не рисуем.
+  return menu ? createPortal(list, menu) : null
+}
+
+/** Заголовок раздела: что это и зачем. */
+export function PageHead({
+  title,
+  hint,
+  children,
+}: {
+  title: string
+  hint?: string
+  children?: ReactNode
+}) {
+  return (
+    <header className="page-head">
+      <div>
+        <h1>{title}</h1>
+        {hint && <p>{hint}</p>}
+      </div>
+      {children && <div className="row no-print">{children}</div>}
+    </header>
   )
 }
