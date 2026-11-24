@@ -33,16 +33,23 @@ export function useTeamDraft(team: TeamInfo, api: StaffApi, onSaved: (team: Team
     sent.current = null
   }
 
-  async function save() {
-    if (!changed || action.busy) return
+  /** Выбор цвета сохраняется сразу, вместе с введённым названием. */
+  function pickColor(value: string) {
+    setColor(value)
+    return save(value)
+  }
+
+  async function save(chosen: string = color) {
+    if (action.busy) return
+    if (trimmed === team.name && chosen.toLowerCase() === team.color.toLowerCase()) return
     if (invalid) {
       setNotice(`Название команды: от 1 до ${MAX_NAME} символов`)
       return
     }
-    const pair = `${trimmed}\n${color.toLowerCase()}`
+    const pair = `${trimmed}\n${chosen.toLowerCase()}`
     if (sent.current === pair) return
     sent.current = pair
-    const saved = await action.run(() => api.patchTeam(team.id, trimmed, color))
+    const saved = await action.run(() => api.patchTeam(team.id, trimmed, chosen))
     if (saved) {
       setNameDraft(null)
       setColorDraft(null)
@@ -52,5 +59,5 @@ export function useTeamDraft(team: TeamInfo, api: StaffApi, onSaved: (team: Team
     }
   }
 
-  return { name, setName, color, setColor, invalid, changed, save, action, notice }
+  return { name, setName, color, setColor, pickColor, invalid, changed, save, action, notice }
 }

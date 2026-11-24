@@ -1,4 +1,5 @@
 import type { StaffApi, TeamInfo } from '../api.ts'
+import { ColorPicker } from '../ColorPicker.tsx'
 import { ErrorText } from '../ui.tsx'
 import { MAX_NAME, useTeamDraft } from './useTeamDraft.ts'
 
@@ -16,13 +17,10 @@ export function TeamTitle({
   return (
     <div className="tm-title">
       <div className="row">
-        <input
-          type="color"
-          className="tm-color"
-          aria-label={`Цвет команды ${team.number}`}
-          value={draft.color.toLowerCase()}
-          onChange={(e) => draft.setColor(e.target.value)}
-          onBlur={() => void draft.save()}
+        <ColorPicker
+          label={`Цвет команды ${team.number}`}
+          value={draft.color}
+          onChange={(hex) => void draft.pickColor(hex)}
         />
         <input
           className="tm-name-input grow"

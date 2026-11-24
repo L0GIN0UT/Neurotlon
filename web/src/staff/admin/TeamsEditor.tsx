@@ -1,4 +1,5 @@
 import type { StaffApi, TeamInfo } from '../api.ts'
+import { ColorPicker } from '../ColorPicker.tsx'
 import { useLoader } from '../hooks.ts'
 import { ErrorText } from '../ui.tsx'
 import { MAX_NAME, useTeamDraft } from './useTeamDraft.ts'
@@ -23,14 +24,14 @@ function TeamRow({
           onChange={(e) => draft.setName(e.target.value)}
         />
       </label>
-      <label className="field">
-        {`Цвет команды ${team.number}`}
-        <input
-          type="color"
-          value={draft.color.toLowerCase()}
-          onChange={(e) => draft.setColor(e.target.value)}
+      <div className="field">
+        <span>{`Цвет команды ${team.number}`}</span>
+        <ColorPicker
+          label={`Цвет команды ${team.number}`}
+          value={draft.color}
+          onChange={draft.setColor}
         />
-      </label>
+      </div>
       <button
         type="button"
         className="primary"

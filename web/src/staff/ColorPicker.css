@@ -1,0 +1,121 @@
+.staff .cp {
+  display: inline-flex;
+  flex: none;
+}
+
+/* Цвет команды заполняет круг целиком: без рамки-квадрата и внутренних отступов. */
+.staff .cp-button {
+  box-sizing: border-box;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  min-height: 0;
+  padding: 0;
+  border: 2px solid var(--border);
+  border-radius: 50%;
+  background-clip: border-box;
+}
+
+.staff .cp-button:hover:not(:disabled),
+.staff .cp-button[aria-expanded='true'] {
+  border-color: var(--text);
+}
+
+.staff .cp-pop {
+  position: fixed;
+  z-index: 50;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  width: 268px;
+  max-width: calc(100vw - 16px);
+  box-sizing: border-box;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 55%);
+}
+
+.staff .cp-title {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.staff .cp-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+  justify-items: center;
+}
+
+.staff .cp-swatch {
+  width: 28px;
+  height: 28px;
+  min-height: 0;
+  padding: 0;
+  border: 2px solid rgb(255 255 255 / 22%);
+  border-radius: 50%;
+}
+
+.staff .cp-swatch:hover:not(:disabled),
+.staff .cp-swatch[aria-pressed='true'] {
+  border-color: var(--text);
+}
+
+.staff .cp-swatch svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: #fff;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 2px rgb(0 0 0 / 80%));
+}
+
+.staff .cp-custom {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.staff .cp-preview {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  box-sizing: border-box;
+  border: 2px dashed var(--border);
+  border-radius: 50%;
+}
+
+.staff .cp-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  padding: 5px 8px;
+  font-family: ui-monospace, monospace;
+}
+
+.staff .cp-input[aria-invalid='true'] {
+  border-color: var(--bad);
+}
+
+.staff .cp-apply {
+  flex: none;
+  min-height: 0;
+  padding: 5px 10px;
+  font-size: 0.9rem;
+}
+
+.staff .cp-error {
+  color: var(--bad);
+  font-size: 0.85rem;
+}
+
+@media (max-width: 640px) {
+  .staff .cp-button {
+    width: 28px;
+    height: 28px;
+  }
+}
