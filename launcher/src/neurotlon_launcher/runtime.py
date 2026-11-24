@@ -67,12 +67,14 @@ class StationRuntime:
     def _make_bridge(config: LauncherConfig, discipline: str, exe: str) -> BridgeProcess | None:
         """Мост датчиков: запускается самим лаунчером, если в настройках не «external»."""
         if config.bridge_mode == "external" or not exe:
+            log.info("bridge: not launched (mode=%s, exe=%r)", config.bridge_mode, exe)
             return None
         args = [exe, "--profile", discipline, "--port", str(config.bridge_port)]
         if config.bridge_mode == "emulate":
             args += ["--emulate", "--auto", "--headless"]  # сигналы идут по сценарию, без окна
         else:
             args += ["--headless", "--config", str(config.token_file.parent / "bridge.toml")]
+        log.info("bridge: mode=%s, command=%s", config.bridge_mode, args)
         return BridgeProcess(args, config.bridge_mode)
 
     def bridge_status(self) -> BridgeStatus | None:
