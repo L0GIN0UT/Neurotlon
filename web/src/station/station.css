@@ -848,20 +848,20 @@ body:has(.station) {
   align-items: center;
   justify-content: center;
   gap: 0.9rem;
-  height: 6rem;
+  height: 6.4rem;
   min-width: 15.5rem;
-  padding: 0 2.6rem 0 2.2rem;
-  border: 1px solid rgb(255 255 255 / 14%);
-  border-radius: 5rem;
-  background: rgb(255 255 255 / 7%);
+  padding: 0 2.4rem;
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: 1.6rem; /* как у «Играть» и клавиш: одна форма на весь экран */
+  background: var(--surface-hi);
   font-size: 1.9rem;
   font-weight: 700;
   transition: background 0.15s, border-color 0.15s;
 }
 
 .ghost:hover:not(:disabled) {
-  background: rgb(255 255 255 / 11%);
-  border-color: rgb(255 255 255 / 22%);
+  background: color-mix(in srgb, var(--surface-hi) 80%, white 8%);
+  border-color: rgb(255 255 255 / 20%);
 }
 
 .ghost svg {
@@ -1171,18 +1171,18 @@ body:has(.station) {
 }
 
 .setup-action {
-  padding: 0 1.8rem;
-  border: 1px solid rgb(255 255 255 / 14%);
-  border-radius: 5rem;
-  background: rgb(255 255 255 / 7%);
+  padding: 0 1.4rem;
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: 1rem; /* как у полей ввода рядом */
+  background: var(--surface-hi);
   font-size: 1.4rem;
   font-weight: 700;
   transition: background 0.15s, border-color 0.15s;
 }
 
 .setup-action:hover:not(:disabled) {
-  background: rgb(255 255 255 / 11%);
-  border-color: rgb(255 255 255 / 22%);
+  background: color-mix(in srgb, var(--surface-hi) 80%, white 8%);
+  border-color: rgb(255 255 255 / 20%);
 }
 
 .setup-result {
@@ -1528,10 +1528,10 @@ body:has(.station) {
 }
 
 .ghost.back-button {
-  height: 5.4rem;
+  height: 6rem;
   min-width: 0;
   margin-top: 3.2rem;
-  padding: 0 3rem 0 2.2rem;
+  padding: 0 2.8rem 0 2.2rem;
   font-size: 2rem;
 }
 
