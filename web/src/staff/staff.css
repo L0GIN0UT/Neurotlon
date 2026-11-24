@@ -275,8 +275,31 @@ body:has(.staff) {
 }
 
 .staff input[type='color'] {
-  padding: 2px;
-  width: 52px;
+  appearance: none;
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0;
+  border: 2px solid rgb(255 255 255 / 28%);
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+/* без промежуточного квадрата: сам цвет заполняет круг */
+.staff input[type='color']::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.staff input[type='color']::-webkit-color-swatch {
+  border: 0;
+  border-radius: 50%;
+}
+
+.staff input[type='color']::-moz-color-swatch {
+  border: 0;
+  border-radius: 50%;
 }
 
 .staff select option {
