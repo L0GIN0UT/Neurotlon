@@ -191,6 +191,11 @@ def get_draw(db: Db, actor: Manager) -> dict[str, Any]:
 
 @router.get("/teams")
 def get_teams(db: Db, user: Viewer) -> dict[str, Any]:
+    return teams_payload(db)
+
+
+def teams_payload(db: Db) -> dict[str, Any]:
+    """Teams with their members in playing order and the duels with their pairs."""
     teams = list(db.scalars(select(Team).order_by(Team.order)))
     members: dict[int, list[Participant]] = {t.id: [] for t in teams}
     by_id: dict[int, Participant] = {}

@@ -25,6 +25,7 @@ from neurotlon_server.scoreboard_api import PUSH_INTERVAL_S, ScoreboardCache
 from neurotlon_server.scoreboard_api import router as scoreboard_router
 from neurotlon_server.scoring import PlaceholderScoring
 from neurotlon_server.station_api import router as station_router
+from neurotlon_server.teams_api import router as teams_router
 
 _UNSAFE_METHODS = frozenset({"POST", "PATCH", "PUT", "DELETE"})
 
@@ -80,6 +81,7 @@ def create_app(
     app.include_router(admin_router)
     app.include_router(participants_router)
     app.include_router(draw_router)
+    app.include_router(teams_router)
     app.include_router(station_router)
     app.include_router(scoreboard_router)
     app.include_router(conflicts_router)
