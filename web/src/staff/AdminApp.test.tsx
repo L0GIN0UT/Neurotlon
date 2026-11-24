@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { createFakeServer, json, problem } from '../test/fakeServer.ts'
 import type { FakeServer } from '../test/fakeServer.ts'
 import { AdminApp } from './AdminApp.tsx'
-import { BADGES_URL } from './api.ts'
+import { BADGES_URL, EXPORT_URL } from './api.ts'
 import type { Participant, StationInfo, UserInfo } from './api.ts'
 
 // Второе значение категории нужно только для проверки подсказки «разные категории» у пары.
@@ -842,12 +842,14 @@ describe('названия и цвета команд', () => {
     expect(server.count('PATCH /teams/*')).toBe(0)
 
     fireEvent.change(name, { target: { value: '  Огонь  ' } })
-    fireEvent.change(screen.getByLabelText('Цвет команды 1'), { target: { value: '#ff8800' } })
+    fireEvent.click(screen.getByLabelText('Цвет команды 1'))
+    fireEvent.click(within(screen.getByRole('dialog')).getByLabelText('#F58231'))
     fireEvent.blur(name)
 
     await waitFor(() =>
-      expect(server.bodies('PATCH /teams/*')).toEqual([{ name: 'Огонь', color: '#ff8800' }]),
+      expect(server.bodies('PATCH /teams/*')).toEqual([{ name: 'Огонь', color: '#f58231' }]),
     )
+    expect(server.count('PATCH /teams/*')).toBe(1)
     expect(server.calls.find((c) => c.key === 'PATCH /teams/*')?.url.pathname).toBe('/api/v1/teams/11')
     await waitFor(() =>
       expect((screen.getByLabelText('Название команды 1') as HTMLInputElement).value).toBe('Огонь'),
@@ -891,12 +893,227 @@ describe('названия и цвета команд', () => {
     expect(server.count('PATCH /teams/*')).toBe(0)
   })
 
-  test('цвет выбирается нативным полем color', async () => {
+  async function openPicker(number: number) {
+    const button = await screen.findByLabelText(`Цвет команды ${number}`)
+    fireEvent.click(button)
+    return { button, dialog: screen.getByRole('dialog') }
+  }
+
+  function focusedLabel() {
+    return document.activeElement?.getAttribute('aria-label')
+  }
+
+  test('кнопка цвета показывает цвет команды, окошко закрыто', async () => {
     renderAdmin(setup())
     await openTab('Команды')
-    const color = (await screen.findByLabelText('Цвет команды 2')) as HTMLInputElement
-    expect(color.type).toBe('color')
-    expect(color.value).toBe('#4363d8')
+    const button = (await screen.findByLabelText('Цвет команды 2')) as HTMLButtonElement
+    expect(button.tagName).toBe('BUTTON')
+    expect(button.style.background).toContain('rgb(67, 99, 216)')
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  test('окошко открывается по клику, текущий цвет отмечен', async () => {
+    renderAdmin(setup())
+    await openTab('Команды')
+    const { dialog } = await openPicker(2)
+    const pressed = within(dialog).getAllByRole('button', { pressed: true })
+    expect(pressed.map((b) => b.getAttribute('aria-label'))).toEqual(['#4363D8'])
+    expect(within(dialog).getByLabelText('#E6194B')).toBeDefined()
+  })
+
+  test('выбор цвета из палитры шлёт один PATCH и закрывает окошко', async () => {
+    const server = setup()
+    renderAdmin(server)
+    await openTab('Команды')
+    const { button, dialog } = await openPicker(1)
+    fireEvent.click(within(dialog).getByLabelText('#3CB44B'))
+    await waitFor(() =>
+      expect(server.bodies('PATCH /teams/*')).toEqual([{ name: 'Красные', color: '#3cb44b' }]),
+    )
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.activeElement).toBe(button)
+    expect(server.count('PATCH /teams/*')).toBe(1)
+  })
+
+  test('выбор уже выбранного цвета запрос не шлёт', async () => {
+    const server = setup()
+    renderAdmin(server)
+    await openTab('Команды')
+    const { dialog } = await openPicker(1)
+    fireEvent.click(within(dialog).getByLabelText('#E6194B'))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(server.count('PATCH /teams/*')).toBe(0)
+  })
+
+  test('свой HEX: с # и без него', async () => {
+    const server = setup()
+    renderAdmin(server)
+    await openTab('Команды')
+    let { dialog } = await openPicker(1)
+    let input = within(dialog).getByLabelText('Свой цвет (HEX)')
+    fireEvent.change(input, { target: { value: 'FF8800' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Выбрать' }))
+    await waitFor(() =>
+      expect(server.bodies('PATCH /teams/*')).toEqual([{ name: 'Красные', color: '#ff8800' }]),
+    )
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    ;({ dialog } = await openPicker(1))
+    input = within(dialog).getByLabelText('Свой цвет (HEX)')
+    fireEvent.change(input, { target: { value: '#123ABC' } })
+    fireEvent.submit(input.closest('form') as HTMLFormElement)
+    await waitFor(() => expect(server.count('PATCH /teams/*')).toBe(2))
+    expect(server.bodies('PATCH /teams/*')[1]).toEqual({ name: 'Красные', color: '#123abc' })
+  })
+
+  test('невалидный HEX: сообщение, кнопка недоступна, запроса нет', async () => {
+    const server = setup()
+    renderAdmin(server)
+    await openTab('Команды')
+    const { dialog } = await openPicker(1)
+    const input = within(dialog).getByLabelText('Свой цвет (HEX)')
+    for (const bad of ['#12345', 'zzzzzz', '#1234567']) {
+      fireEvent.change(input, { target: { value: bad } })
+      expect(within(dialog).getByText('Формат: #RRGGBB')).toBeDefined()
+      const apply = within(dialog).getByRole('button', { name: 'Выбрать' }) as HTMLButtonElement
+      expect(apply.disabled).toBe(true)
+      fireEvent.submit(input.closest('form') as HTMLFormElement)
+    }
+    expect(screen.getByRole('dialog')).toBeDefined()
+    expect(server.count('PATCH /teams/*')).toBe(0)
+  })
+
+  test('Escape закрывает окошко без запроса, фокус возвращается на кнопку', async () => {
+    const server = setup()
+    renderAdmin(server)
+    await openTab('Команды')
+    const { button, dialog } = await openPicker(1)
+    fireEvent.keyDown(within(dialog).getByLabelText('#E6194B'), { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.activeElement).toBe(button)
+    expect(server.count('PATCH /teams/*')).toBe(0)
+  })
+
+  test('Escape слушается на документе, а не только внутри окошка', async () => {
+    renderAdmin(setup())
+    await openTab('Команды')
+    const { button } = await openPicker(1)
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.activeElement).toBe(button)
+  })
+
+  test('фокус на палитру ставится, когда окошко уже на месте и не скрыто через visibility', async () => {
+    renderAdmin(setup())
+    await openTab('Команды')
+    const seen: { visibility: string; left: string }[] = []
+    const focus = vi.spyOn(HTMLElement.prototype, 'focus').mockImplementation(function (this: HTMLElement) {
+      const pop = this.closest<HTMLElement>('[role="dialog"]')
+      if (pop) seen.push({ visibility: pop.style.visibility, left: pop.style.left })
+    })
+    try {
+      await openPicker(1)
+      await waitFor(() => expect(seen.length).toBeGreaterThan(0))
+      expect(seen[0]?.visibility).not.toBe('hidden')
+      expect(seen[0]?.left).not.toBe('')
+      expect(seen[0]?.left).not.toBe('0px')
+    } finally {
+      focus.mockRestore()
+    }
+  })
+
+  test('уход фокуса за пределы окошка закрывает его без возврата фокуса', async () => {
+    renderAdmin(setup())
+    await openTab('Команды')
+    const { button, dialog } = await openPicker(1)
+    const other = await screen.findByLabelText('Название команды 2')
+    fireEvent.blur(within(dialog).getByLabelText('#E6194B'), { relatedTarget: button })
+    expect(screen.getByRole('dialog')).toBeDefined()
+    fireEvent.blur(within(dialog).getByLabelText('#E6194B'), { relatedTarget: other })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.activeElement).not.toBe(button)
+  })
+
+  test('изменение высоты окна и прокрутка не закрывают окошко, смена ширины закрывает', async () => {
+    renderAdmin(setup())
+    await openTab('Команды')
+    await openPicker(1)
+    const height = window.innerHeight
+    window.innerHeight = 300
+    fireEvent(window, new Event('resize'))
+    window.innerHeight = height
+    fireEvent.scroll(window)
+    expect(screen.getByRole('dialog')).toBeDefined()
+    const width = window.innerWidth
+    window.innerWidth = width - 100
+    try {
+      fireEvent(window, new Event('resize'))
+      expect(screen.queryByRole('dialog')).toBeNull()
+    } finally {
+      window.innerWidth = width
+    }
+  })
+
+  test('пока идёт сохранение, выбор цвета не принимается', async () => {
+    const server = setup()
+    let release: () => void = () => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    server.routes.set('PATCH /teams/*', async (body) => {
+      await gate
+      return json({ id: 11, number: 1, name: 'Красные', color: (body as { color: string }).color })
+    })
+    renderAdmin(server)
+    await openTab('Команды')
+    const { dialog } = await openPicker(1)
+    fireEvent.click(within(dialog).getByLabelText('#3CB44B'))
+    const button = screen.getByLabelText('Цвет команды 1')
+    await waitFor(() => expect(button.getAttribute('aria-disabled')).toBe('true'))
+    fireEvent.click(button)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    release()
+    await waitFor(() => expect(button.getAttribute('aria-disabled')).toBe('false'))
+    expect(server.count('PATCH /teams/*')).toBe(1)
+  })
+
+  test('клик вне окошка закрывает его без запроса', async () => {
+    const server = setup()
+    renderAdmin(server)
+    await openTab('Команды')
+    const { dialog } = await openPicker(1)
+    fireEvent.mouseDown(within(dialog).getByLabelText('#E6194B'))
+    expect(screen.getByRole('dialog')).toBeDefined()
+    fireEvent.mouseDown(document.body)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(server.count('PATCH /teams/*')).toBe(0)
+  })
+
+  test('стрелки двигают фокус по палитре, выбор шлёт PATCH', async () => {
+    const server = setup()
+    renderAdmin(server)
+    await openTab('Команды')
+    const { dialog } = await openPicker(1)
+    // Фокус сразу на текущем цвете (#E6194B, первый в палитре).
+    await waitFor(() => expect(focusedLabel()).toBe('#E6194B'))
+    const press = (key: string) => fireEvent.keyDown(document.activeElement as Element, { key })
+    press('ArrowRight')
+    expect(focusedLabel()).toBe('#4363D8')
+    press('ArrowDown')
+    expect(focusedLabel()).toBe('#9A6324')
+    press('ArrowLeft')
+    expect(focusedLabel()).toBe('#BFEF45')
+    press('ArrowUp')
+    expect(focusedLabel()).toBe('#E6194B')
+    press('ArrowLeft')
+    expect(focusedLabel()).toBe('#E6194B')
+    for (let i = 0; i < 5; i++) press('ArrowRight')
+    expect(focusedLabel()).toBe('#42D4F4')
+    // Enter на кнопке даёт click.
+    fireEvent.click(document.activeElement as Element)
+    await waitFor(() =>
+      expect(server.bodies('PATCH /teams/*')).toEqual([{ name: 'Красные', color: '#42d4f4' }]),
+    )
+    expect(dialog.isConnected).toBe(false)
   })
 
   test('пустое название не сохраняется, длина ограничена 24', async () => {
@@ -1203,6 +1420,10 @@ describe('экспорт', () => {
     renderAdmin(server)
     await openTab('Экспорт XLSX')
     const link = await screen.findByRole('link', { name: 'Скачать XLSX' })
-    expect(link.getAttribute('href')).toBe('/api/v1/export.xlsx')
+    expect(link.getAttribute('href')).toBe(EXPORT_URL)
+    expect(link.getAttribute('download')).toBe('neurotlon.xlsx')
+    const card = screen.getByRole('heading', { name: 'Выгрузить таблицу' }).closest('section')
+    expect(card?.classList.contains('card')).toBe(true)
+    expect(card?.classList.contains('standalone')).toBe(true)
   })
 })
