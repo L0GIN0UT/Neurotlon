@@ -115,8 +115,8 @@ export function StaffShell({ title, allow, fetchFn, children }: Props) {
   const ready = auth.status === 'ready' ? auth : null
   const here = window.location.pathname
   const pages = [
-    ...(ready && ready.me.role !== 'judge' ? [{ href: '/admin', label: 'Админка' }] : []),
-    { href: '/judge', label: 'Судья' },
+    { href: '/admin', label: 'Админка' },
+    { href: '/judge', label: 'Результаты' },
     { href: '/board', label: 'Табло' },
   ]
   return (

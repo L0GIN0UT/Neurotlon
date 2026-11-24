@@ -53,8 +53,8 @@ describe('вход и роли', () => {
     expect(await screen.findByText('Неверный логин или пароль')).toBeDefined()
   })
 
-  test('судье админка закрыта', async () => {
-    const server = createFakeServer('judge', 'judy')
+  test('волонтёру админка закрыта', async () => {
+    const server = createFakeServer('volunteer', 'vol')
     renderAdmin(server)
     expect(await screen.findByRole('heading', { name: 'Нет доступа' })).toBeDefined()
     expect(screen.queryByRole('tab')).toBeNull()
@@ -155,7 +155,7 @@ describe('участники', () => {
     const link = await screen.findByRole('link', { name: 'Табло' })
     expect(link.getAttribute('target')).toBe('_blank')
     expect(link.getAttribute('rel')).toContain('noopener')
-    expect(screen.getByRole('link', { name: 'Судья' }).getAttribute('target')).toBeNull()
+    expect(screen.getByRole('link', { name: 'Результаты' }).getAttribute('target')).toBeNull()
   })
 
   test('в списке участников категории нет', async () => {

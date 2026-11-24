@@ -19,7 +19,6 @@ function blockersOf(error: unknown): Blockers | null {
 interface Props {
   api: StaffApi
   /** Фиксировать вопреки блокировкам могут только админ и суперпользователь. */
-  canForce: boolean
   /** Невыполненные пункты чек-листа: показываются в окне подтверждения. */
   warnings?: string[]
   /** Вызывается после успешной фиксации (обновить счётчики). */
@@ -28,8 +27,8 @@ interface Props {
   onOpen?: () => void
 }
 
-/** «Зафиксировать итоги» с двойным подтверждением: после этого судья уже не правит (решение 22). */
-export function LockPanel({ api, canForce, warnings = [], onLocked, onOpen }: Props) {
+/** «Зафиксировать итоги» с двойным подтверждением: после этого результаты правит только админ (решение 22). */
+export function LockPanel({ api, warnings = [], onLocked, onOpen }: Props) {
   const action = useAction()
   const [step, setStep] = useState<0 | 1 | 2>(0)
   const [locked, setLocked] = useState<number | null>(null)
@@ -67,8 +66,8 @@ export function LockPanel({ api, canForce, warnings = [], onLocked, onOpen }: Pr
         <h2>Зафиксировать итоги</h2>
       </div>
       <p>
-        Все подтверждённые результаты станут заблокированными: после этого судья их уже не
-        правит, только админ.
+        Все подтверждённые результаты станут заблокированными: после этого их правит
+        только админ.
       </p>
       <p className="irreversible">Это действие нельзя отменить.</p>
       {shown ? (
@@ -80,13 +79,9 @@ export function LockPanel({ api, canForce, warnings = [], onLocked, onOpen }: Pr
               <li>Открытых запросов на исправление: {shown.openCorrections}</li>
             )}
           </ul>
-          {canForce ? (
-            <button type="button" disabled={action.busy} onClick={() => void lock(true)}>
-              Всё равно зафиксировать
-            </button>
-          ) : (
-            <span>Разберите их или попросите админа зафиксировать вопреки этому.</span>
-          )}
+          <button type="button" disabled={action.busy} onClick={() => void lock(true)}>
+            Всё равно зафиксировать
+          </button>
         </div>
       ) : (
         <ErrorText error={action.error} />
@@ -130,7 +125,7 @@ export function LockPanel({ api, canForce, warnings = [], onLocked, onOpen }: Pr
       {step === 2 && (
         <ConfirmDialog
           title="Точно зафиксировать?"
-          message="Последнее подтверждение: судья больше не сможет править эти результаты."
+          message="Последнее подтверждение: результаты больше нельзя будет править."
           confirmLabel="Да, зафиксировать"
           busy={action.busy}
           onConfirm={() => void lock(false)}

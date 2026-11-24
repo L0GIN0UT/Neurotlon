@@ -51,7 +51,7 @@ describe('роли', () => {
     expect(await screen.findByRole('heading', { name: 'Нет доступа' })).toBeDefined()
   })
 
-  test('админ может открыть страницу судьи', async () => {
+  test('админ может открыть страницу результатов', async () => {
     const server = createFakeServer('admin')
     server.routes.set('GET /conflicts', () => json([]))
     renderJudge(server)
@@ -60,8 +60,8 @@ describe('роли', () => {
 })
 
 describe('конфликты', () => {
-  test('судья оставляет один результат с причиной', async () => {
-    const server = createFakeServer('judge', 'judy')
+  test('админ оставляет один результат с причиной', async () => {
+    const server = createFakeServer('admin', 'boss')
     let items = [conflict]
     server.routes.set('GET /conflicts', () => json(items))
     server.routes.set('POST /conflicts/resolve', () => {
@@ -96,7 +96,7 @@ describe('запросы на исправление и правка', () => {
     resolved_at: null,
   }
 
-  function setup(role = 'judge') {
+  function setup(role = 'admin') {
     const server = createFakeServer(role, 'judy')
     const row = stored()
     let open = [correction]
@@ -240,17 +240,7 @@ describe('запросы на исправление и правка', () => {
     expect(await within(form).findByText('Действие уже недоступно')).toBeDefined()
   })
 
-  test('заблокированный результат судье не правится, админу правится', async () => {
-    const judge = setup('judge')
-    judge.server.routes.set('GET /results', () => json({ total: 1, items: [stored({ status: 'locked' })] }))
-    const first = renderJudge(judge.server)
-    await openTab('Поиск и правка')
-    fireEvent.click(await screen.findByRole('button', { name: 'Найти' }))
-    const form = await screen.findByRole('form', { name: 'Правка 5' })
-    expect(within(form).getByText(/правит админ/)).toBeDefined()
-    expect(within(form).getByRole('button', { name: 'Сохранить правку' }).matches(':disabled')).toBe(true)
-    first.unmount()
-
+  test('заблокированный результат правится', async () => {
     const admin = setup('admin')
     admin.server.routes.set('GET /results', () => json({ total: 1, items: [stored({ status: 'locked' })] }))
     renderJudge(admin.server)
@@ -273,7 +263,7 @@ describe('запросы на исправление и правка', () => {
 
 describe('фиксация итогов', () => {
   function setup() {
-    const server = createFakeServer('judge', 'judy')
+    const server = createFakeServer('admin', 'boss')
     server.routes.set('GET /conflicts', () => json([]))
     server.routes.set('GET /results', () => json({ total: 1, items: [stored()] }))
     server.routes.set('GET /corrections', () => json([]))
@@ -313,7 +303,7 @@ describe('фиксация итогов', () => {
     expect(server.count('POST /results/lock')).toBe(0)
   })
 
-  test('на странице судьи есть экспорт', async () => {
+  test('на странице результатов есть экспорт', async () => {
     renderJudge(setup())
     await openTab('Итоги')
     expect((await screen.findByRole('link', { name: 'Скачать XLSX' })).getAttribute('href')).toBe(
@@ -324,7 +314,7 @@ describe('фиксация итогов', () => {
 
 describe('панель итогов', () => {
   function summaryServer() {
-    const server = createFakeServer('judge', 'judy')
+    const server = createFakeServer('admin', 'boss')
     server.routes.set('GET /conflicts', () => json([conflict]))
     server.routes.set('GET /corrections', () =>
       json(
@@ -386,7 +376,7 @@ describe('панель итогов', () => {
   })
 
   test('при готовности все пункты выполнены, ссылок нет, в окне нет предупреждения', async () => {
-    const server = createFakeServer('judge', 'judy')
+    const server = createFakeServer('admin', 'boss')
     server.routes.set('GET /conflicts', () => json([]))
     server.routes.set('GET /corrections', () => json([]))
     server.routes.set('GET /results', () => json({ total: 1, items: [stored()] }))
@@ -417,7 +407,7 @@ describe('панель итогов', () => {
 
 describe('панель итогов: данные недоступны или устарели', () => {
   test('ошибка загрузки: пометка у плиток и предупреждение в окне подтверждения', async () => {
-    const server = createFakeServer('judge', 'judy')
+    const server = createFakeServer('admin', 'boss')
     server.routes.set('GET /conflicts', () => json([]))
     server.routes.set('GET /corrections', () => json([]))
     server.routes.set('GET /results', () => problem(500, 'internal'))
@@ -431,7 +421,7 @@ describe('панель итогов: данные недоступны или у
   })
 
   test('окно, открытое до ответа сервера, тоже предупреждает', async () => {
-    const server = createFakeServer('judge', 'judy')
+    const server = createFakeServer('admin', 'boss')
     server.routes.set('GET /conflicts', () => json([]))
     server.routes.set('GET /corrections', () => json([]))
     server.routes.set('GET /results', () => new Promise<Response>(() => {}))
@@ -443,7 +433,7 @@ describe('панель итогов: данные недоступны или у
   })
 
   test('открытие окна перезагружает счётчики', async () => {
-    const server = createFakeServer('judge', 'judy')
+    const server = createFakeServer('admin', 'boss')
     let conflicts: unknown[] = []
     server.routes.set('GET /conflicts', () => json(conflicts))
     server.routes.set('GET /corrections', () => json([]))
@@ -458,7 +448,7 @@ describe('панель итогов: данные недоступны или у
   })
 
   test('пока данных нет, список плиток помечен занятым', async () => {
-    const server = createFakeServer('judge', 'judy')
+    const server = createFakeServer('admin', 'boss')
     server.routes.set('GET /conflicts', () => json([]))
     server.routes.set('GET /corrections', () => json([]))
     server.routes.set('GET /results', () => new Promise<Response>(() => {}))
@@ -502,16 +492,6 @@ describe('фиксация при блокировках', () => {
     )
   }
 
-  test('судья видит причины и не может зафиксировать вопреки им', async () => {
-    const server = blockedServer('judge')
-    renderJudge(server)
-    await tryLock()
-    expect(await screen.findByText('Неразрешённых конфликтов: 2')).toBeDefined()
-    expect(screen.getByText('Открытых запросов на исправление: 1')).toBeDefined()
-    expect(screen.queryByRole('button', { name: 'Всё равно зафиксировать' })).toBeNull()
-    expect(server.bodies('POST /results/lock')).toEqual([undefined])
-  })
-
   test('админ может зафиксировать принудительно', async () => {
     const server = blockedServer('admin')
     renderJudge(server)
@@ -525,7 +505,7 @@ describe('фиксация при блокировках', () => {
 
 describe('победитель в понге', () => {
   test('один выбор «Победитель»: назначение отправляет wins=1, текущего победителя снять нельзя', async () => {
-    const server = createFakeServer('judge', 'judy')
+    const server = createFakeServer('admin', 'boss')
     const rows = [
       stored({ id: 1, participant_code: 'NT03', discipline: 'pong', points: 11, wins: 1 }),
       stored({ id: 2, participant_code: 'NT04', discipline: 'pong', points: 7, wins: 0 }),
@@ -547,19 +527,19 @@ describe('победитель в понге', () => {
     expect(box.checked).toBe(false)
     fireEvent.click(box)
     fireEvent.change(within(loser).getByLabelText('Причина исправления (в журнал)'), {
-      target: { value: 'судья пересмотрел' },
+      target: { value: 'админ пересмотрел' },
     })
     fireEvent.click(within(loser).getByRole('button', { name: 'Сохранить правку' }))
     await waitFor(() => expect(server.count('PATCH /results/*')).toBe(1))
     expect(server.bodies('PATCH /results/*')).toEqual([
-      { wins: 1, change_reason: 'судья пересмотрел' },
+      { wins: 1, change_reason: 'админ пересмотрел' },
     ])
   })
 })
 
 describe('длинный список результатов', () => {
   test('показывает, что найдено больше, чем выведено', async () => {
-    const server = createFakeServer('judge', 'judy')
+    const server = createFakeServer('admin', 'boss')
     server.routes.set('GET /conflicts', () => json([]))
     server.routes.set('GET /results', () => json({ total: 450, items: [stored()] }))
     renderJudge(server)

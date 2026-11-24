@@ -131,7 +131,7 @@ describe('login', () => {
   })
 
   test('other roles see a message instead of the tablet', async () => {
-    const server = createServer('darts', 'judge')
+    const server = createServer('darts', 'admin')
     renderApp(server)
     await login()
     expect(await screen.findByText('Только для волонтёров')).toBeDefined()
@@ -219,8 +219,8 @@ describe('darts flow', () => {
 
     expect(screen.queryByRole('button', { name: /Отменить/ })).toBeNull()
     fireEvent.change(screen.getByLabelText('Что исправить'), { target: { value: 'Не те очки' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Запрос судье на исправление' }))
-    expect(await screen.findByText('Запрос отправлен судье.')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Запрос админу на исправление' }))
+    expect(await screen.findByText('Запрос отправлен админу.')).toBeDefined()
     const [sent] = server.bodies('POST /results') as ResultSubmission[]
     expect(server.bodies('POST /corrections')).toEqual([
       { session_id: sent?.session_id, comment: 'Не те очки' },

@@ -11,7 +11,6 @@ import './UsersTab.css'
 
 const ROLE_NAMES: Record<string, string> = {
   admin: 'Админ',
-  judge: 'Судья',
   volunteer: 'Волонтёр',
 }
 
@@ -345,7 +344,6 @@ function CreateUser({ api, onClose, onDone }: CreateProps) {
           Роль
           <select value={role} onChange={(e) => setRole(e.target.value as NewUser['role'])}>
             <option value="volunteer">Волонтёр</option>
-            <option value="judge">Судья</option>
             <option value="admin">Админ</option>
           </select>
         </label>
