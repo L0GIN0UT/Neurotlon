@@ -10,6 +10,8 @@ _PRAGMAS = (
     "PRAGMA busy_timeout=5000",
     "PRAGMA foreign_keys=ON",
     "PRAGMA synchronous=NORMAL",
+    # Deleted content (participant photos) is overwritten with zeros, not just unlinked.
+    "PRAGMA secure_delete=ON",
 )
 
 

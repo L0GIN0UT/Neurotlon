@@ -105,6 +105,7 @@ def test_pragmas_are_set(engine: Engine) -> None:
         assert conn.execute(text("PRAGMA foreign_keys")).scalar() == 1
         assert conn.execute(text("PRAGMA busy_timeout")).scalar() == 5000
         assert conn.execute(text("PRAGMA synchronous")).scalar() == 1
+        assert conn.execute(text("PRAGMA secure_delete")).scalar() == 1
 
 
 def test_models_match_migration(engine: Engine) -> None:

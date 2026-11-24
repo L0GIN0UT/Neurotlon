@@ -1,9 +1,12 @@
+import contextlib
+from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from neurotlon_server.audit import write_audit
@@ -11,7 +14,8 @@ from neurotlon_server.auth import Db, Now, require_role
 from neurotlon_server.badges import build_badges_pdf, qr_for
 from neurotlon_server.codes import normalize_code
 from neurotlon_server.errors import ProblemError
-from neurotlon_server.models import Participant, Team, User
+from neurotlon_server.jpeg import InvalidJpegError, sanitize_jpeg
+from neurotlon_server.models import Participant, ParticipantPhoto, Team, User
 
 router = APIRouter(prefix="/api/v1/participants", tags=["participants"])
 
@@ -61,7 +65,17 @@ def _get_participant(db: Session, raw_code: str) -> Participant:
     return participant
 
 
-def _out(participant: Participant, team: Team | None, with_category: bool) -> dict[str, Any]:
+def _photo_version(updated_at: datetime) -> int:
+    """Cache-busting stamp: milliseconds, so a quick replacement still changes it."""
+    return int(updated_at.timestamp() * 1000)
+
+
+def _out(
+    participant: Participant,
+    team: Team | None,
+    with_category: bool,
+    photo_updated_at: datetime | None = None,
+) -> dict[str, Any]:
     out: dict[str, Any] = {
         "code": participant.code,
         "display_name": participant.display_name,
@@ -70,6 +84,8 @@ def _out(participant: Participant, team: Team | None, with_category: bool) -> di
         "team": None
         if team is None
         else {"number": team.number, "name": team.name, "color": team.color},
+        "has_photo": photo_updated_at is not None,
+        "photo_version": None if photo_updated_at is None else _photo_version(photo_updated_at),
     }
     if with_category:
         out["category"] = participant.category
@@ -78,7 +94,10 @@ def _out(participant: Participant, team: Team | None, with_category: bool) -> di
 
 def _out_one(db: Session, participant: Participant) -> dict[str, Any]:
     team = None if participant.team_id is None else db.get(Team, participant.team_id)
-    return _out(participant, team, with_category=True)
+    photo_updated_at = db.scalar(
+        select(ParticipantPhoto.updated_at).where(ParticipantPhoto.participant_id == participant.id)
+    )
+    return _out(participant, team, with_category=True, photo_updated_at=photo_updated_at)
 
 
 @router.post("/generate")
@@ -116,7 +135,14 @@ def list_participants(db: Db, user: Viewer) -> list[dict[str, Any]]:
         .outerjoin(Team, Participant.team_id == Team.id)
         .order_by(Participant.code)
     )
-    return [_out(p, t, with_category) for p, t in rows]
+    # One query for all photo stamps; the BLOB column is never loaded here.
+    stamps = {
+        pid: updated_at
+        for pid, updated_at in db.execute(
+            select(ParticipantPhoto.participant_id, ParticipantPhoto.updated_at)
+        )
+    }
+    return [_out(p, t, with_category, stamps.get(p.id)) for p, t in rows]
 
 
 def _selected_codes(db: Session, codes: str | None) -> list[str]:
@@ -214,3 +240,105 @@ def patch_participant(code: str, body: PatchRequest, db: Db, actor: Manager) -> 
     )
     db.commit()
     return _out_one(db, participant)
+
+
+MAX_PHOTO_BYTES = 400 * 1024
+
+
+def _photo_too_large() -> ProblemError:
+    return ProblemError(413, "photo_too_large", "Photo is larger than 400 KB")
+
+
+async def _read_photo(request: Request) -> bytes:
+    media_type = request.headers.get("content-type", "").split(";")[0].strip().lower()
+    if media_type != "image/jpeg":
+        raise ProblemError(415, "unsupported_media_type", "The photo must be image/jpeg")
+    declared = request.headers.get("content-length")
+    if declared is not None:
+        if not (declared.isascii() and declared.isdigit()):
+            raise ProblemError(400, "bad_content_length", "Invalid Content-Length")
+        if int(declared) > MAX_PHOTO_BYTES:
+            raise _photo_too_large()
+    body = bytearray()
+    async for chunk in request.stream():
+        body += chunk
+        if len(body) > MAX_PHOTO_BYTES:
+            raise _photo_too_large()
+    return bytes(body)
+
+
+PhotoBody = Annotated[bytes, Depends(_read_photo)]
+
+
+def _truncate_wal(db: Session) -> None:
+    """Best effort: drop deleted photo bytes from the write-ahead log too."""
+    with contextlib.suppress(OperationalError):
+        db.execute(text("PRAGMA wal_checkpoint(TRUNCATE)"))
+    db.commit()
+
+
+def _photo_headers() -> dict[str, str]:
+    return {"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"}
+
+
+@router.put("/{code}/photo", status_code=204)
+def set_photo(code: str, db: Db, now: Now, actor: Manager, content: PhotoBody) -> Response:
+    try:
+        # Metadata (EXIF, GPS, comments) and trailing data never reach the database.
+        content = sanitize_jpeg(content)
+    except InvalidJpegError as error:
+        raise ProblemError(422, "invalid_photo", "The photo must be a complete JPEG") from error
+    participant = _get_participant(db, code)
+    # Upsert: two first uploads in parallel cannot fail with a unique violation.
+    db.execute(
+        sqlite_insert(ParticipantPhoto)
+        .values(participant_id=participant.id, content=content, updated_at=now)
+        .on_conflict_do_update(
+            index_elements=["participant_id"], set_={"content": content, "updated_at": now}
+        )
+    )
+    # Only the size is audited, never the picture.
+    write_audit(
+        db,
+        action="participant.photo_set",
+        object_type="participant",
+        object_id=participant.id,
+        user_id=actor.id,
+        after={"code": participant.code, "size": len(content)},
+    )
+    db.commit()
+    return Response(status_code=204, headers=_photo_headers())
+
+
+@router.delete("/{code}/photo", status_code=204)
+def clear_photo(code: str, db: Db, actor: Manager) -> Response:
+    participant = _get_participant(db, code)
+    photo = db.get(ParticipantPhoto, participant.id)
+    if photo is None:
+        raise ProblemError(404, "no_photo", "The participant has no photo")
+    db.delete(photo)
+    write_audit(
+        db,
+        action="participant.photo_clear",
+        object_type="participant",
+        object_id=participant.id,
+        user_id=actor.id,
+        after={"code": participant.code},
+    )
+    db.commit()
+    _truncate_wal(db)
+    return Response(status_code=204, headers=_photo_headers())
+
+
+@router.get("/{code}/photo")
+def get_photo(code: str, db: Db, actor: Manager) -> Response:
+    participant = _get_participant(db, code)
+    photo = db.get(ParticipantPhoto, participant.id)
+    if photo is None:
+        raise ProblemError(404, "no_photo", "The participant has no photo")
+    headers = {
+        **_photo_headers(),
+        "Content-Security-Policy": "default-src 'none'; sandbox",
+        "Content-Disposition": f'inline; filename="{participant.code}.jpg"',
+    }
+    return Response(photo.content, media_type="image/jpeg", headers=headers)

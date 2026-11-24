@@ -113,6 +113,108 @@ paths:
         "404":
           $ref: "#/components/responses/Problem"
 
+  /participants:
+    get:
+      operationId: listParticipants
+      summary: Список участников (админка)
+      description: |
+        Админ и суперпользователь. `has_photo` и `photo_version` показывают, есть ли фото
+        для бейджа и какую метку версии подставить в адрес картинки, чтобы браузер не
+        отдал старую. Сами фото в список не входят.
+      security:
+        - volunteerSession: []
+      responses:
+        "200":
+          description: Участники по возрастанию кода
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ParticipantAdmin"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Problem"
+
+  /participants/{code}/photo:
+    put:
+      operationId: setParticipantPhoto
+      summary: Загрузить фото участника для бейджа (админка)
+      description: |
+        Админ и суперпользователь. Персональные данные: фото хранится только на сервере,
+        не попадает на табло, в выгрузку, журналы (в аудите код и размер) и станционные
+        ответы. Тело — сырой JPEG до 400 КБ (начало `FF D8 FF`, конец `FF D9`).
+        Повторная загрузка заменяет фото.
+      security:
+        - volunteerSession: []
+      parameters:
+        - $ref: "#/components/parameters/ParticipantCodePath"
+      requestBody:
+        required: true
+        content:
+          image/jpeg:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "204":
+          description: Фото сохранено
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "413":
+          $ref: "#/components/responses/Problem"
+        "422":
+          $ref: "#/components/responses/Problem"
+    get:
+      operationId: getParticipantPhoto
+      summary: Фото участника (админка)
+      description: |
+        Админ и суперпользователь. Ответ с `Cache-Control: private, no-store` и
+        `X-Content-Type-Options: nosniff`.
+      security:
+        - volunteerSession: []
+      parameters:
+        - $ref: "#/components/parameters/ParticipantCodePath"
+      responses:
+        "200":
+          description: JPEG
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+    delete:
+      operationId: clearParticipantPhoto
+      summary: Удалить фото участника (админка)
+      security:
+        - volunteerSession: []
+      parameters:
+        - $ref: "#/components/parameters/ParticipantCodePath"
+      responses:
+        "204":
+          description: Фото удалено
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          description: Нет участника или у него нет фото
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
   /sessions:
     post:
       operationId: startSession
@@ -774,6 +876,40 @@ components:
       type: string
       pattern: "^NT(0[1-9]|[1-9][0-9])$"
       examples: [NT07]
+
+    ParticipantAdmin:
+      type: object
+      description: |
+        Участник в списке админки (только админ и суперпользователь). Перечислены поля,
+        важные этому контракту.
+      required: [code, display_name, checked_in, checked_in_at, team, has_photo, photo_version]
+      properties:
+        code:
+          $ref: "#/components/schemas/ParticipantCode"
+        display_name:
+          type: [string, "null"]
+        checked_in:
+          type: boolean
+        checked_in_at:
+          type: [string, "null"]
+          format: date-time
+        team:
+          type: [object, "null"]
+          properties:
+            number:
+              type: integer
+            name:
+              type: string
+            color:
+              type: string
+        has_photo:
+          type: boolean
+          description: У участника есть фото для бейджа.
+        photo_version:
+          type: [integer, "null"]
+          description: |
+            Метка версии фото (миллисекунды Unix от последней загрузки), `null` без фото.
+            Подставляется в адрес картинки, чтобы сбросить кэш браузера.
 
     Discipline:
       type: string
