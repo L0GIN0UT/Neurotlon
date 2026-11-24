@@ -275,6 +275,16 @@ class StationMachine:
             # тот же session_id: на сервере одна сессия, повтор startSession безопасен
             self.state = Starting(self.state.session_id, self.state.players)
 
+    def back(self) -> None:
+        """С экрана проблемы к началу: результат не отправляется, очередь игроков пуста.
+
+        Нужно, когда волонтёр хочет отсканировать другого игрока или начать заново. Сессия на
+        сервере остаётся открытой: повторный вход того же участника продолжит её (startSession
+        идемпотентен), а «не пройдено» по-прежнему отдельное действие.
+        """
+        if isinstance(self.state, TechnicalProblem):
+            self.state = Idle()
+
     def give_up(self) -> None:
         state = self.state
         if not isinstance(state, TechnicalProblem):

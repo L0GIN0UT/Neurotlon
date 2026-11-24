@@ -134,6 +134,16 @@ describe('StationApp', () => {
     expect(screen.getByText('Анна')).toBeTruthy()
   })
 
+  it('lets the volunteer go back from the problem screen', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<StationApp />)
+    act(() => FakeEventSource.last?.emit(snapshot({ kind: 'problem', reason: 'нет связи', players: [anna] })))
+    fireEvent.click(await screen.findByRole('button', { name: 'Назад' }))
+    const sent = fetchMock.mock.calls.map((call) => JSON.parse((call[1] as RequestInit).body as string))
+    expect(sent).toContainEqual({ action: 'back' })
+  })
+
   it('maps the keyboard to commands', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true })
     vi.stubGlobal('fetch', fetchMock)

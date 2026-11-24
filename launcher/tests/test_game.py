@@ -373,12 +373,12 @@ def test_game_waits_for_the_bridge_and_starts_when_it_answers(tmp_path: Path) ->
         8765,
         monotonic=lambda: now[0],
         bridge_ready=lambda: ready[0],
-        bridge_wait_s=45.0,
+        bridge_wait_s=20.0,
     )
     req = request()
     game.start(req)
     assert game._proc is None  # моста нет: игру не запускаем
-    now[0] = 20.0
+    now[0] = 10.0
     assert game.poll() is None
     assert game._proc is None
     ready[0] = True
@@ -387,7 +387,7 @@ def test_game_waits_for_the_bridge_and_starts_when_it_answers(tmp_path: Path) ->
     game.stop()
 
 
-def test_game_starts_anyway_when_the_bridge_never_answers(tmp_path: Path) -> None:
+def test_game_is_not_started_when_the_bridge_never_answers(tmp_path: Path) -> None:
     now = [0.0]
     game = SubprocessGameRunner(
         tuple(STUB),
@@ -397,13 +397,14 @@ def test_game_starts_anyway_when_the_bridge_never_answers(tmp_path: Path) -> Non
         8765,
         monotonic=lambda: now[0],
         bridge_ready=lambda: False,
-        bridge_wait_s=45.0,
+        bridge_wait_s=20.0,
     )
     game.start(request())
-    now[0] = 46.0
-    game.poll()
-    assert game._proc is not None  # игра сама сообщит, что связи нет
-    game.stop()
+    now[0] = 21.0
+    outcome = game.poll()
+    assert game._proc is None  # без моста игра только зря покажет ошибку
+    assert isinstance(outcome, Crashed)
+    assert "мост" in outcome.detail
 
 
 def test_bridge_answers_probe(tmp_path: Path) -> None:

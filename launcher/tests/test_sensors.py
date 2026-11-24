@@ -1,7 +1,7 @@
 import json
 import subprocess
 import threading
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -140,10 +140,10 @@ class _Pipe:
         self._text = text
         self._block = block
 
-    def read(self) -> str:
+    def __iter__(self) -> Iterator[str]:
         if self._block is not None:
             self._block.wait()
-        return self._text
+        return iter(self._text.splitlines(keepends=True))
 
 
 def test_bridge_is_restarted_with_growing_pauses_and_reports_the_last_error() -> None:

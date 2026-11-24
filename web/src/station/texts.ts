@@ -58,7 +58,7 @@ export const GIVE_UP = 'Не пройдено'
 
 export const BLOCKED = 'Стенд остановлен'
 export const BLOCKED_CALL = 'Позовите организатора'
-export const BLOCKED_HINT = 'Исправьте launcher.toml или станцию в админке и перезапустите лаунчер (Ctrl+Q)'
+export const BLOCKED_HINT = 'Исправьте станцию в админке или откройте настройку стенда (Ctrl+Alt+S)'
 
 export const REJECTED_TITLE = 'Отклонённые результаты'
 export const REJECTED_HINT = 'Покажите волонтёру или нажмите F2'

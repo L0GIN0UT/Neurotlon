@@ -40,6 +40,7 @@ PLAIN_ACTIONS = frozenset(
         "confirm",
         "cancel",
         "retry",
+        "back",
         "give_up",
         "show_rejected",
         "close_rejected",

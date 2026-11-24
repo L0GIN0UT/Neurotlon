@@ -9,6 +9,22 @@ const ICONS: Record<'good' | 'bad' | 'warn' | 'info', IconName> = {
   info: 'info',
 }
 
+/** Путь с местами переноса после `\` и `/`: имя файла не рвётся посреди слова (`.ex` и `e`). */
+export function BreakablePath({ path }: { path: string }) {
+  const parts = path.split(/(?<=[/\\])/)
+  return (
+    <>
+      {parts.map((part, index) => (
+        // eslint-disable-next-line react/no-array-index-key
+        <span key={index}>
+          {part}
+          <wbr />
+        </span>
+      ))}
+    </>
+  )
+}
+
 /**
  * Сообщение в форме: занимает всю ширину и переносится по словам (плашка-«таблетка» обрезала
  * длинные тексты многоточием).

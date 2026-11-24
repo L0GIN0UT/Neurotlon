@@ -286,6 +286,27 @@ def test_technical_problem_retry_reuses_session_and_people() -> None:
     assert rig.queue.items[0]["entries"][0]["outcome"] == "completed"
 
 
+def test_technical_problem_back_returns_to_start_without_a_result() -> None:
+    rig = Rig("darts", Aborted("датчик отвалился"))
+    rig.scan("NT07")
+    rig.machine.confirm()
+    rig.machine.tick()
+    rig.machine.tick()
+    assert isinstance(rig.state, TechnicalProblem)
+
+    rig.machine.back()
+    assert isinstance(rig.state, Idle)
+    assert rig.state.taken == ()
+    assert rig.queue.items == []  # результат не отправлен
+
+
+def test_back_does_nothing_outside_the_problem_screen() -> None:
+    rig = Rig("darts", DARTS_DONE)
+    rig.scan("NT07")
+    rig.machine.back()
+    assert isinstance(rig.state, Confirm)
+
+
 def test_technical_problem_give_up_enqueues_not_completed_for_each() -> None:
     rig = Rig("pong", Aborted("датчик отвалился"))
     rig.confirm_through("NT03")

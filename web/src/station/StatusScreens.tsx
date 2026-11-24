@@ -160,6 +160,9 @@ export function ProblemScreen({
         <button type="button" className="ghost wide" onClick={() => send({ action: 'give_up' })}>
           {t.GIVE_UP}
         </button>
+        <button type="button" className="ghost wide" onClick={() => send({ action: 'back' })}>
+          {t.BACK}
+        </button>
       </div>
     </div>
   )
