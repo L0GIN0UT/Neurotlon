@@ -1,4 +1,6 @@
+import sqlite3
 from collections.abc import Iterator
+from contextlib import closing
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -359,7 +361,31 @@ def test_migration_turns_judges_into_admins(url: str) -> None:
         ("vol", "volunteer", "darts"),
         ("root", "superuser", None),
     ]
-    assert audit_users == [1]
+    assert audit_users == [1, None]
+    with engine.connect() as conn:
+        migrated = conn.execute(
+            text(
+                "SELECT user_id, action, object_type, object_id, before, after "
+                "FROM audit_log WHERE action = 'user.role_migrated'"
+            )
+        ).all()
+    assert [tuple(r) for r in migrated] == [
+        (None, "user.role_migrated", "user", "1", '{"role": "judge"}', '{"role": "admin"}')
+    ]
     with pytest.raises(IntegrityError):
         _insert(engine, "user", login="again", password_hash="h", role="judge")
     engine.dispose()
+
+
+def test_migration_reports_foreign_key_violations(url: str) -> None:
+    config = _alembic_config(url)
+    command.upgrade(config, "0008")
+    with closing(sqlite3.connect(url.removeprefix("sqlite:///"))) as raw:  # foreign keys off
+        raw.execute(
+            "INSERT INTO audit_log (at, user_id, action, object_type, object_id) "
+            "VALUES (?, 99, 'a', 't', '1')",
+            (NOW,),
+        )
+        raw.commit()
+    with pytest.raises(RuntimeError, match=r"table=audit_log rowid=\d+ parent=user"):
+        command.upgrade(config, "head")

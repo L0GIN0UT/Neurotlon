@@ -166,7 +166,9 @@ def test_correction_requires_login(client: TestClient, db: Session, seeded: Seed
     assert client.patch(f"{API}/results/{row.id}", json=FIX).status_code == 401
 
 
-def test_locked_result_only_admin_edits(app: FastAPI, db: Session, seeded: Seeded) -> None:
+def test_locked_result_editable_only_by_admin_and_superuser(
+    app: FastAPI, db: Session, seeded: Seeded
+) -> None:
     make_user(db, "vol", role="volunteer", discipline="darts")
     volunteer = login_as(app, "vol")
     admin = staff(app, db, "admin")
@@ -263,7 +265,7 @@ def test_pong_winner_cannot_be_removed_without_a_new_one(
     assert row_of(db, "NT03", "pong").wins == 1
 
 
-def test_pong_winner_edit_respects_locked_sibling(
+def test_pong_winner_edit_with_locked_sibling_by_admin_only(
     app: FastAPI, db: Session, seeded: Seeded
 ) -> None:
     make_user(db, "vol", role="volunteer", discipline="pong")
