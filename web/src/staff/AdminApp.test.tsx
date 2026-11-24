@@ -562,19 +562,43 @@ describe('пользователи (суперпользователь)', () => 
     renderAdmin(server)
     await openTab('Пользователи')
 
-    fireEvent.change(await screen.findByLabelText('Логин'), { target: { value: 'dart1' } })
-    fireEvent.change(screen.getByLabelText(/Пароль \(от 8/), { target: { value: 'longenough' } })
-    fireEvent.change(screen.getByLabelText('Секция волонтёра'), { target: { value: 'pong' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Создать аккаунт' }))
+    expect(await screen.findByText('Пользователей: 1, активных: 1')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Добавить пользователя' }))
+    const create = await screen.findByRole('dialog', { name: 'Новый пользователь' })
+    fireEvent.change(within(create).getByLabelText('Логин'), { target: { value: 'dart1' } })
+    const pass = within(create).getByLabelText(/Пароль \(от 8/) as HTMLInputElement
+    fireEvent.change(pass, { target: { value: 'longenough' } })
+    expect(pass.type).toBe('password')
+    fireEvent.click(within(create).getByRole('button', { name: 'Показать' }))
+    expect(pass.type).toBe('text')
+    fireEvent.change(within(create).getByLabelText('Секция волонтёра'), { target: { value: 'pong' } })
+    fireEvent.click(within(create).getByRole('button', { name: 'Создать аккаунт' }))
     expect(await screen.findByText('Аккаунт «dart1» создан')).toBeDefined()
+    expect(screen.queryByRole('dialog')).toBeNull()
     expect(server.bodies('POST /users')).toEqual([
       { login: 'dart1', password: 'longenough', role: 'volunteer', discipline: 'pong' },
     ])
+    expect(await screen.findByText('Пользователей: 2, активных: 2')).toBeDefined()
 
     fireEvent.click(await screen.findByRole('button', { name: 'Отключить dart1' }))
+    expect(server.count('PATCH /users/*')).toBe(0)
+    fireEvent.click(
+      within(await screen.findByRole('dialog', { name: 'Отключить аккаунт?' })).getByRole('button', {
+        name: 'Отключить',
+      }),
+    )
     await waitFor(() => expect(server.bodies('PATCH /users/*')).toEqual([{ is_active: false }]))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Сбросить пароль dart1' }))
+    const more = screen.getByRole('button', { name: 'Действия dart1' })
+    expect(more.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(more)
+    expect(more.getAttribute('aria-expanded')).toBe('true')
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(more.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByRole('menu')).toBeNull()
+
+    fireEvent.click(more)
+    fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Сменить пароль' }))
     const dialog = await screen.findByRole('dialog', { name: 'Новый пароль dart1' })
     fireEvent.change(within(dialog).getByLabelText('Новый пароль'), { target: { value: 'another-pass' } })
     fireEvent.click(within(dialog).getByRole('button', { name: 'Сменить пароль' }))
@@ -582,7 +606,8 @@ describe('пользователи (суперпользователь)', () => 
       expect(server.bodies('PATCH /users/*')).toContainEqual({ password: 'another-pass' }),
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Завершить сессии dart1' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Действия dart1' }))
+    fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Завершить сессии' }))
     fireEvent.click(
       within(await screen.findByRole('dialog', { name: 'Завершить сессии?' })).getByRole('button', {
         name: 'Завершить сессии',
