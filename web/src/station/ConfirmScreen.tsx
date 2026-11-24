@@ -99,6 +99,7 @@ export function ConfirmScreen({
           </div>
         </dl>
         <button type="button" className="ghost" onClick={() => send({ action: 'cancel' })}>
+          <Icon name="back" />
           {t.NOT_ME}
         </button>
       </div>
