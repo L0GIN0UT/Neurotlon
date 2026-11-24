@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { FormEvent } from 'react'
+import type { FocusEvent, FormEvent, KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { DisciplineIcon } from '../../shared/icons/DisciplineIcon.tsx'
 import { DISCIPLINE_NAMES } from '../../shared/messages.ts'
 import { DISCIPLINES } from '../../shared/types.ts'
@@ -10,7 +10,6 @@ import { useAction, useLoader } from '../hooks.ts'
 import './UsersTab.css'
 
 const ROLE_NAMES: Record<string, string> = {
-  superuser: 'Суперпользователь',
   admin: 'Админ',
   judge: 'Судья',
   volunteer: 'Волонтёр',
@@ -18,7 +17,7 @@ const ROLE_NAMES: Record<string, string> = {
 
 const MIN_PASSWORD = 8
 
-export function UsersTab({ api }: { api: StaffApi }) {
+export function UsersTab({ api, meLogin }: { api: StaffApi; meLogin: string }) {
   const list = useLoader(() => api.users())
   const action = useAction()
   const [creating, setCreating] = useState(false)
@@ -27,16 +26,19 @@ export function UsersTab({ api }: { api: StaffApi }) {
   const [disabling, setDisabling] = useState<UserInfo | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
-  const users = list.data ?? []
+  // Суперпользователь скрыт в веб-админке и в счётчик не входит.
+  const users = (list.data ?? []).filter((user) => user.role !== 'superuser')
   const activeCount = users.filter((user) => user.is_active).length
 
   async function toggle(user: UserInfo) {
+    setNotice(null)
     const done = await action.run(() => api.patchUser(user.id, { is_active: !user.is_active }))
     setDisabling(null)
     if (done) list.reload()
   }
 
   async function revoke(user: UserInfo) {
+    setNotice(null)
     const done = await action.run(() => api.revokeSessions(user.id).then(() => true))
     setRevoking(null)
     if (done) setNotice(`Сессии «${user.login}» завершены`)
@@ -45,14 +47,25 @@ export function UsersTab({ api }: { api: StaffApi }) {
   return (
     <section className="stack users-tab">
       <div className="users-head">
-        <p className="users-count">
-          Пользователей: {users.length}, активных: {activeCount}
-        </p>
-        <button type="button" className="primary" onClick={() => setCreating(true)}>
+        {list.data !== undefined ? (
+          <p className="users-count">
+            Пользователей: {users.length}, активных: {activeCount}
+          </p>
+        ) : (
+          <span />
+        )}
+        <button
+          type="button"
+          className="primary"
+          onClick={() => {
+            setNotice(null)
+            setCreating(true)
+          }}
+        >
           Добавить пользователя
         </button>
       </div>
-      {notice && <p role="status">{notice}</p>}
+      {notice && !action.error && <p role="status">{notice}</p>}
       <ErrorText error={action.error ?? list.error} />
 
       <ul className="users-list">
@@ -60,9 +73,21 @@ export function UsersTab({ api }: { api: StaffApi }) {
           <UserCard
             key={user.id}
             user={user}
-            onToggle={() => (user.is_active ? setDisabling(user) : void toggle(user))}
-            onReset={() => setResetting(user)}
-            onRevoke={() => setRevoking(user)}
+            busy={action.busy}
+            isSelf={user.login === meLogin}
+            onToggle={() => {
+              setNotice(null)
+              if (user.is_active) setDisabling(user)
+              else void toggle(user)
+            }}
+            onReset={() => {
+              setNotice(null)
+              setResetting(user)
+            }}
+            onRevoke={() => {
+              setNotice(null)
+              setRevoking(user)
+            }}
           />
         ))}
       </ul>
@@ -115,12 +140,14 @@ export function UsersTab({ api }: { api: StaffApi }) {
 
 interface CardProps {
   user: UserInfo
+  busy: boolean
+  isSelf: boolean
   onToggle: () => void
   onReset: () => void
   onRevoke: () => void
 }
 
-function UserCard({ user, onToggle, onReset, onRevoke }: CardProps) {
+function UserCard({ user, busy, isSelf, onToggle, onReset, onRevoke }: CardProps) {
   return (
     <li className="users-card">
       <span className="users-avatar" aria-hidden="true">
@@ -142,14 +169,17 @@ function UserCard({ user, onToggle, onReset, onRevoke }: CardProps) {
         </div>
       </div>
       <div className="users-actions">
-        <button
-          type="button"
-          className="small"
-          aria-label={user.is_active ? `Отключить ${user.login}` : `Включить ${user.login}`}
-          onClick={onToggle}
-        >
-          {user.is_active ? 'Отключить' : 'Включить'}
-        </button>
+        {!(isSelf && user.is_active) && (
+          <button
+            type="button"
+            className="small"
+            disabled={busy}
+            aria-label={user.is_active ? `Отключить ${user.login}` : `Включить ${user.login}`}
+            onClick={onToggle}
+          >
+            {user.is_active ? 'Отключить' : 'Включить'}
+          </button>
+        )}
         <ActionMenu login={user.login} onReset={onReset} onRevoke={onRevoke} />
       </div>
     </li>
@@ -188,11 +218,34 @@ function ActionMenu({ login, onReset, onRevoke }: MenuProps) {
 
   function pick(run: () => void) {
     setOpen(false)
+    trigger.current?.focus()
     run()
   }
 
+  function onMenuKey(event: ReactKeyboardEvent<HTMLDivElement>) {
+    const items = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    )
+    const index = items.indexOf(document.activeElement as HTMLElement)
+    const target: Record<string, number> = {
+      ArrowDown: (index + 1) % items.length,
+      ArrowUp: (index - 1 + items.length) % items.length,
+      Home: 0,
+      End: items.length - 1,
+    }
+    const next = target[event.key]
+    if (next === undefined) return
+    event.preventDefault()
+    items[next]?.focus()
+  }
+
+  function onBlur(event: FocusEvent<HTMLDivElement>) {
+    const next = event.relatedTarget
+    if (next instanceof Node && !event.currentTarget.contains(next)) setOpen(false)
+  }
+
   return (
-    <div className="users-menu" ref={root}>
+    <div className="users-menu" ref={root} onBlur={onBlur}>
       <button
         type="button"
         className="small users-more"
@@ -205,7 +258,12 @@ function ActionMenu({ login, onReset, onRevoke }: MenuProps) {
         <span aria-hidden="true">⋯</span>
       </button>
       {open && (
-        <div className="users-popup" role="menu" aria-label={`Действия ${login}`}>
+        <div
+          className="users-popup"
+          role="menu"
+          aria-label={`Действия ${login}`}
+          onKeyDown={onMenuKey}
+        >
           <button type="button" role="menuitem" autoFocus onClick={() => pick(onReset)}>
             Сменить пароль
           </button>
