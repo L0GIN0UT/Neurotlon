@@ -252,11 +252,13 @@ export function ParticipantsTab({ api }: { api: StaffApi }) {
 
       {photoPerson && (
         <PhotoDialog
+          key={photoPerson.code}
           api={api}
           person={photoPerson}
           onClose={() => setPhotoCode(null)}
           onSaved={() => {
-            setPhotoCode(null)
+            // окно уже могло смениться на другого участника: закрываем только своё
+            setPhotoCode((current) => (current === photoPerson.code ? null : current))
             list.reload()
           }}
         />

@@ -59,17 +59,90 @@ function setup(server: FakeServer, who: Participant = person()) {
   return { onSaved, ...view }
 }
 
-async function pickFile(name = 'Предпросмотр NT07') {
-  const input = screen.getByLabelText('Файл фото') as HTMLInputElement
-  fireEvent.change(input, { target: { files: [new File(['x'], 'me.png', { type: 'image/png' })] } })
-  const img = await screen.findByAltText(name)
-  Object.defineProperty(img, 'naturalWidth', { value: 4000 })
-  Object.defineProperty(img, 'naturalHeight', { value: 3000 })
+function chooseFile(file: File) {
+  fireEvent.change(screen.getByLabelText('Файл фото') as HTMLInputElement, {
+    target: { files: [file] },
+  })
+}
+
+async function pickFile(width = 4000, height = 3000) {
+  chooseFile(new File(['x'], 'me.png', { type: 'image/png' }))
+  const img = await screen.findByAltText('Предпросмотр NT07')
+  Object.defineProperty(img, 'naturalWidth', { value: width })
+  Object.defineProperty(img, 'naturalHeight', { value: height })
   fireEvent.load(img)
   return img
 }
 
 describe('PhotoDialog', () => {
+  test('двойной клик по «Сохранить» даёт один PUT', async () => {
+    const server = createFakeServer('admin')
+    let release: () => void = () => undefined
+    server.routes.set(PUT, () => new Promise<Response>((resolve) => {
+      release = () => resolve(new Response(null, { status: 204 }))
+    }))
+    const { onSaved } = setup(server)
+    await pickFile()
+    const save = screen.getByRole('button', { name: 'Сохранить' })
+    fireEvent.click(save)
+    fireEvent.click(save)
+    await waitFor(() => expect(server.count(PUT)).toBe(1))
+    release()
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1))
+    expect(server.count(PUT)).toBe(1)
+  })
+
+  test('пока идёт запрос, Escape и «Закрыть» окно не закрывают', async () => {
+    const server = createFakeServer('admin')
+    let release: () => void = () => undefined
+    server.routes.set(PUT, () => new Promise<Response>((resolve) => {
+      release = () => resolve(new Response(null, { status: 204 }))
+    }))
+    const { onSaved } = setup(server)
+    await pickFile()
+    fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+    await waitFor(() => expect(server.count(PUT)).toBe(1))
+    const dialog = screen.getByRole('dialog', { name: 'Фото NT07' })
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Закрыть' }))
+    expect(screen.queryByRole('dialog', { name: 'Фото NT07' })).not.toBeNull()
+    release()
+    await waitFor(() => expect(onSaved).toHaveBeenCalled())
+  })
+
+  test('стрелки сдвигают фото в рамке, Shift ускоряет', async () => {
+    const server = createFakeServer('admin')
+    server.routes.set(PUT, () => new Response(null, { status: 204 }))
+    setup(server)
+    await pickFile()
+    const frame = screen.getByRole('group', { name: 'Рамка фото' })
+    expect(frame.getAttribute('tabindex')).toBe('0')
+    fireEvent.keyDown(frame, { key: 'ArrowRight' })
+    fireEvent.keyDown(frame, { key: 'ArrowRight', shiftKey: true })
+    fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+    await waitFor(() => expect(drawImage).toHaveBeenCalled())
+    // центр 2000 сдвигается влево на 2% и 10% ширины кадра 2250: 45 + 225
+    expect(drawImage.mock.calls[0]?.[1]).toBeCloseTo(875 - 270)
+  })
+
+  test('нулевой размер изображения даёт ошибку', async () => {
+    setup(createFakeServer('admin'))
+    await pickFile(0, 0)
+    expect(screen.getByText('Не удалось открыть изображение')).toBeDefined()
+    expect((screen.getByRole('button', { name: 'Сохранить' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  test('HEIC и слишком большой файл отклоняются', () => {
+    setup(createFakeServer('admin'))
+    chooseFile(new File(['x'], 'IMG_1.HEIC', { type: 'image/heic' }))
+    expect(screen.getByText('Формат не поддерживается: нужен JPEG или PNG')).toBeDefined()
+    const big = new File(['x'], 'big.jpg', { type: 'image/jpeg' })
+    Object.defineProperty(big, 'size', { value: 26 * 1024 * 1024 })
+    chooseFile(big)
+    expect(screen.getByText('Файл слишком большой: не более 25 МБ')).toBeDefined()
+    expect(screen.queryByAltText('Предпросмотр NT07')).toBeNull()
+  })
+
   test('файл: предпросмотр, затем сохранение шлёт PUT с image/jpeg', async () => {
     const server = createFakeServer('admin')
     server.routes.set(PUT, () => new Response(null, { status: 204 }))
@@ -89,13 +162,13 @@ describe('PhotoDialog', () => {
     expect(drawImage).toHaveBeenCalledWith(expect.anything(), 875, 0, 2250, 3000, 0, 0, 450, 600)
   })
 
-  test('слишком тяжёлый результат не отправляется', async () => {
+  test('не удалось уложиться в лимит: PUT не уходит', async () => {
     jpegSize = 500 * 1024
     const server = createFakeServer('admin')
     setup(server)
     await pickFile()
     fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
-    expect(await screen.findByText('Фото слишком большое')).toBeDefined()
+    expect(await screen.findByText('Не удалось сжать фото')).toBeDefined()
     expect(server.count(PUT)).toBe(0)
   })
 

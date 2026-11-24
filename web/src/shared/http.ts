@@ -89,7 +89,9 @@ export function createRequester({ fetchFn, onUnauthorized }: ApiOptions = {}): R
       )
     }
     if (response.status === 204) return undefined as T
-    return (await response.json()) as T
+    // пустое тело (200 без содержимого) — не ошибка
+    const text = await response.text()
+    return (text.trim() === '' ? undefined : JSON.parse(text)) as T
   }
 }
 

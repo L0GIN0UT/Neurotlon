@@ -190,7 +190,11 @@ export function createStaffApi(options: ApiOptions = {}) {
         display_name: displayName,
       }),
     putPhoto: (participant: string, jpeg: Blob) =>
-      request<void>('PUT', `/participants/${code(participant)}/photo`, jpeg),
+      request<void>(
+        'PUT',
+        `/participants/${code(participant)}/photo`,
+        new Blob([jpeg], { type: 'image/jpeg' }),
+      ),
     deletePhoto: (participant: string) =>
       request<void>('DELETE', `/participants/${code(participant)}/photo`),
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { PointerEvent } from 'react'
+import type { KeyboardEvent, PointerEvent } from 'react'
 import { photoErrorText } from '../../shared/messages.ts'
 import type { Participant, StaffApi } from '../api.ts'
 import { photoUrl } from '../api.ts'
@@ -15,6 +15,19 @@ const OUT_HEIGHT = 600
 const MAX_BYTES = 400 * 1024
 /** Качество JPEG: от обычного к минимальному, пока файл не поместится в лимит. */
 const QUALITIES = [0.85, 0.75, 0.65, 0.55, 0.5]
+const MAX_FILE_BYTES = 25 * 1024 * 1024
+/** Браузер такие снимки не декодирует (HEIC с телефонов Apple). */
+const UNSUPPORTED = /hei[cf]/i
+const BAD_FORMAT = 'Формат не поддерживается: нужен JPEG или PNG'
+/** Шаг стрелки в долях видимой части; с Shift в KEY_FAST раз больше. */
+const KEY_STEP = 0.02
+const KEY_FAST = 5
+const ARROWS: Record<string, Point | undefined> = {
+  ArrowLeft: { x: -1, y: 0 },
+  ArrowRight: { x: 1, y: 0 },
+  ArrowUp: { x: 0, y: -1 },
+  ArrowDown: { x: 0, y: 1 },
+}
 
 function canvasBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob | null> {
   return new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality))
@@ -64,7 +77,9 @@ export function PhotoDialog({ api, person, onClose, onSaved }: Props) {
   const fileRef = useRef<HTMLInputElement>(null)
   const imgRef = useRef<HTMLImageElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
-  const drag = useRef<Point | null>(null)
+  const drag = useRef<(Point & { id: number }) | null>(null)
+  const saving = useRef(false)
+  const [encoding, setEncoding] = useState(false)
 
   // Адрес объекта освобождается при смене снимка и при закрытии окна
   const sourceUrl = source?.url
@@ -112,6 +127,14 @@ export function PhotoDialog({ api, person, onClose, onSaved }: Props) {
 
   function chooseFile(file: File | undefined) {
     if (!file) return
+    if (file.size > MAX_FILE_BYTES) {
+      setProblem('Файл слишком большой: не более 25 МБ')
+      return
+    }
+    if (UNSUPPORTED.test(file.type) || UNSUPPORTED.test(file.name)) {
+      setProblem(BAD_FORMAT)
+      return
+    }
     setCamera(false)
     openImage(URL.createObjectURL(file), false)
   }
@@ -149,6 +172,10 @@ export function PhotoDialog({ api, person, onClose, onSaved }: Props) {
   function imageLoaded() {
     const img = imgRef.current
     if (!img) return
+    if (img.naturalWidth === 0 || img.naturalHeight === 0) {
+      setProblem('Не удалось открыть изображение')
+      return
+    }
     setSize({ width: img.naturalWidth, height: img.naturalHeight })
     setCenter({ x: img.naturalWidth / 2, y: img.naturalHeight / 2 })
   }
@@ -161,16 +188,36 @@ export function PhotoDialog({ api, person, onClose, onSaved }: Props) {
   }
 
   function onPointerDown(event: PointerEvent<HTMLDivElement>) {
-    if (!size) return
+    // второй палец и повторное нажатие не перехватывают перетаскивание
+    if (!size || drag.current) return
     event.currentTarget.setPointerCapture?.(event.pointerId)
-    drag.current = { x: event.clientX, y: event.clientY }
+    drag.current = { x: event.clientX, y: event.clientY, id: event.pointerId }
+  }
+
+  function endDrag() {
+    drag.current = null
+  }
+
+  function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    const dir = ARROWS[event.key]
+    if (!dir || !size || !rect) return
+    event.preventDefault()
+    const step = KEY_STEP * (event.shiftKey ? KEY_FAST : 1)
+    // как при перетаскивании: фото движется в сторону стрелки, центр кадра в обратную
+    setCenter((now) =>
+      clampCenter(size, zoom, {
+        x: now.x - dir.x * step * rect.width,
+        y: now.y - dir.y * step * rect.height,
+      }),
+    )
   }
 
   function onPointerMove(event: PointerEvent<HTMLDivElement>) {
     const last = drag.current
     const box = event.currentTarget.getBoundingClientRect()
-    if (!last || !size || !rect || box.width === 0 || box.height === 0) return
-    drag.current = { x: event.clientX, y: event.clientY }
+    if (!last || last.id !== event.pointerId) return
+    if (!size || !rect || box.width === 0 || box.height === 0) return
+    drag.current = { x: event.clientX, y: event.clientY, id: event.pointerId }
     const dx = event.clientX - last.x
     const dy = event.clientY - last.y
     setCenter((now) =>
@@ -183,29 +230,37 @@ export function PhotoDialog({ api, person, onClose, onSaved }: Props) {
 
   async function save() {
     const img = imgRef.current
-    if (!img || !rect) return
-    setProblem(null)
-    const canvas = document.createElement('canvas')
-    canvas.width = OUT_WIDTH
-    canvas.height = OUT_HEIGHT
-    const context = canvas.getContext('2d')
-    if (!context) {
-      setProblem('Не удалось подготовить фото')
-      return
+    if (!img || !rect || saving.current) return
+    // блокировка сразу по клику: повторный клик или Enter не запустит второй PUT
+    saving.current = true
+    setEncoding(true)
+    try {
+      setProblem(null)
+      const canvas = document.createElement('canvas')
+      canvas.width = OUT_WIDTH
+      canvas.height = OUT_HEIGHT
+      const context = canvas.getContext('2d')
+      if (!context) {
+        setProblem('Не удалось подготовить фото')
+        return
+      }
+      context.fillStyle = '#ffffff'
+      context.fillRect(0, 0, OUT_WIDTH, OUT_HEIGHT)
+      context.drawImage(img, rect.x, rect.y, rect.width, rect.height, 0, 0, OUT_WIDTH, OUT_HEIGHT)
+      const blob = await encodeJpeg(canvas)
+      if (!blob) {
+        setProblem('Не удалось сжать фото')
+        return
+      }
+      const done = await action.run(async () => {
+        await api.putPhoto(person.code, blob)
+        return true
+      })
+      if (done) onSaved()
+    } finally {
+      saving.current = false
+      setEncoding(false)
     }
-    context.fillStyle = '#ffffff'
-    context.fillRect(0, 0, OUT_WIDTH, OUT_HEIGHT)
-    context.drawImage(img, rect.x, rect.y, rect.width, rect.height, 0, 0, OUT_WIDTH, OUT_HEIGHT)
-    const blob = await encodeJpeg(canvas)
-    if (!blob) {
-      setProblem('Фото слишком большое')
-      return
-    }
-    const done = await action.run(async () => {
-      await api.putPhoto(person.code, blob)
-      return true
-    })
-    if (done) onSaved()
   }
 
   async function remove() {
@@ -218,17 +273,22 @@ export function PhotoDialog({ api, person, onClose, onSaved }: Props) {
   }
 
   const shownError = problem ?? (action.error ? photoErrorText(action.error) : null)
-  const locked = action.busy
+  const locked = action.busy || encoding
 
   return (
     <>
-      <Dialog title={`Фото ${person.code}`} onClose={onClose}>
+      <Dialog title={`Фото ${person.code}`} onClose={locked ? () => undefined : onClose}>
         <div
           className="photo-frame"
+          role="group"
+          aria-label="Рамка фото"
+          tabIndex={0}
+          onKeyDown={onKeyDown}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
-          onPointerUp={() => (drag.current = null)}
-          onPointerCancel={() => (drag.current = null)}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+          onLostPointerCapture={endDrag}
         >
           {camera ? (
             <video ref={videoRef} className="photo-video" autoPlay playsInline muted />
@@ -240,7 +300,7 @@ export function PhotoDialog({ api, person, onClose, onSaved }: Props) {
               alt={`Предпросмотр ${person.code}`}
               draggable={false}
               onLoad={imageLoaded}
-              onError={() => setProblem('Не удалось открыть изображение')}
+              onError={() => setProblem(BAD_FORMAT)}
               style={
                 size && rect
                   ? {
@@ -280,7 +340,7 @@ export function PhotoDialog({ api, person, onClose, onSaved }: Props) {
             />
           </label>
         )}
-        {source && <p className="hint photo-hint">Перетащите фото, чтобы сдвинуть его в рамке.</p>}
+        {source && <p className="hint photo-hint">Перетащите фото, чтобы сдвинуть его в рамке. Стрелки двигают фото, Shift ускоряет.</p>}
 
         <div className="row photo-actions">
           <input
