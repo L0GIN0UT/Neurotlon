@@ -395,6 +395,86 @@ body:has(.staff) {
   gap: 16px;
 }
 
+/* ---------- дисциплины ---------- */
+
+.staff .discipline-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: 16px;
+  align-items: stretch;
+}
+
+.staff .discipline-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.staff .discipline-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+}
+
+.staff .discipline-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: rgb(91 140 255 / 16%);
+  color: var(--accent);
+}
+
+.staff .discipline-icon svg {
+  width: 26px;
+  height: 26px;
+}
+
+.staff .discipline-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 12px;
+  flex: 1;
+  align-content: start;
+}
+
+.staff .with-unit {
+  position: relative;
+  display: block;
+}
+
+.staff .with-unit input {
+  width: 100%;
+  padding-right: 44px;
+}
+
+.staff .with-unit .unit {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+  font-size: 0.85rem;
+  pointer-events: none;
+}
+
+.staff .field-hint {
+  font-size: 0.78rem;
+  line-height: 1.3;
+  color: var(--muted);
+  opacity: 0.85;
+}
+
+.staff .discipline-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 40px;
+}
+
 /* ---------- меню разделов ---------- */
 
 .staff .tabs button {

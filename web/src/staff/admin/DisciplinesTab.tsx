@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { DisciplineIcon } from '../../shared/icons/DisciplineIcon.tsx'
 import { DISCIPLINE_NAMES } from '../../shared/messages.ts'
 import type { DisciplineSettings, StaffApi } from '../api.ts'
 import { ErrorText } from '../ui.tsx'
@@ -6,36 +7,49 @@ import { useAction, useLoader } from '../hooks.ts'
 
 type Field = 'game_duration_s' | 'physical_duration_s' | 'win_points' | 'max_section_points'
 
-const FIELDS: { id: Field; label: string; min: number; max: number }[] = [
-  { id: 'game_duration_s', label: 'Время игры, с', min: 10, max: 3600 },
-  { id: 'physical_duration_s', label: 'Время физической секции, с', min: 10, max: 3600 },
-  { id: 'win_points', label: 'Очки за победу', min: 0, max: 1000 },
-  { id: 'max_section_points', label: 'Лимит очков за секцию', min: 1, max: 1000 },
+interface FieldSpec {
+  id: Field
+  /** Короткая подпись над полем. */
+  label: string
+  /** Полное имя для скринридера и тестов, к нему добавляется название дисциплины. */
+  full: string
+  unit: string
+  min: number
+  max: number
+}
+
+const FIELDS: FieldSpec[] = [
+  { id: 'game_duration_s', label: 'Игра', full: 'Время игры, с', unit: 'с', min: 10, max: 3600 },
+  { id: 'physical_duration_s', label: 'Физ. секция', full: 'Время физической секции, с', unit: 'с', min: 10, max: 3600 },
+  { id: 'win_points', label: 'За победу', full: 'Очки за победу', unit: 'очк.', min: 0, max: 1000 },
+  { id: 'max_section_points', label: 'Лимит секции', full: 'Лимит очков за секцию', unit: 'очк.', min: 1, max: 1000 },
 ]
 
 export function DisciplinesTab({ api }: { api: StaffApi }) {
   const list = useLoader(() => api.disciplines())
   return (
     <section className="stack">
-      <p>
+      <p className="hint">
         Лимит очков за секцию действует для дартса и футбола (физика и BCI); понг считается по победам.
         Новое время применяется со следующей сессии, идущая не обрывается. Изменение пишется в журнал.
       </p>
       <ErrorText error={list.error} />
-      {(list.data ?? []).map((discipline) => (
-        <DisciplineRow key={discipline.code} api={api} discipline={discipline} onSaved={list.reload} />
-      ))}
+      <div className="discipline-grid">
+        {(list.data ?? []).map((discipline) => (
+          <DisciplineCard key={discipline.code} api={api} discipline={discipline} onSaved={list.reload} />
+        ))}
+      </div>
     </section>
   )
 }
 
-interface RowProps {
+interface CardProps {
   api: StaffApi
   discipline: DisciplineSettings
   onSaved: () => void
 }
 
-function DisciplineRow({ api, discipline, onSaved }: RowProps) {
+function DisciplineCard({ api, discipline, onSaved }: CardProps) {
   const action = useAction()
   const [values, setValues] = useState<Record<Field, string>>({
     game_duration_s: String(discipline.game_duration_s),
@@ -64,29 +78,55 @@ function DisciplineRow({ api, discipline, onSaved }: RowProps) {
   }
 
   return (
-    <div className="card row" role="group" aria-label={name}>
-      <h2 className="grow">{name}</h2>
-      {FIELDS.map((field) => (
-        <label key={field.id} className="field">
-          {field.label} ({name})
-          <input
-            type="number"
-            min={field.min}
-            max={field.max}
-            value={values[field.id]}
-            onChange={(e) => {
-              setSaved(false)
-              setValues({ ...values, [field.id]: e.target.value })
-            }}
-          />
-        </label>
-      ))}
-      <button type="button" className="primary" disabled={!dirty || !valid || action.busy} onClick={() => void save()}>
-        Сохранить {name}
-      </button>
+    <div className="card discipline-card" role="group" aria-label={name}>
+      <h2 className="discipline-head">
+        <span className="discipline-icon">
+          <DisciplineIcon discipline={discipline.code} />
+        </span>
+        {name}
+      </h2>
+      <div className="discipline-fields">
+        {FIELDS.map((field) => (
+          <label key={field.id} className="field">
+            {field.label}
+            <span className="with-unit">
+              <input
+                type="number"
+                min={field.min}
+                max={field.max}
+                aria-label={`${field.full} (${name})`}
+                value={values[field.id]}
+                onChange={(e) => {
+                  setSaved(false)
+                  setValues({ ...values, [field.id]: e.target.value })
+                }}
+              />
+              <span className="unit" aria-hidden>
+                {field.unit}
+              </span>
+            </span>
+            {field.id === 'max_section_points' && (
+              <small className="field-hint">
+                {discipline.code === 'pong' ? 'Понг лимитом не ограничен' : 'Максимум за физику и BCI'}
+              </small>
+            )}
+          </label>
+        ))}
+      </div>
       {!valid && <p className="error">Проверьте значения: целые числа в допустимых пределах</p>}
-      {saved && !dirty && <p role="status">Сохранено</p>}
       <ErrorText error={action.error} />
+      <div className="discipline-actions">
+        <button
+          type="button"
+          className="primary"
+          aria-label={`Сохранить ${name}`}
+          disabled={!dirty || !valid || action.busy}
+          onClick={() => void save()}
+        >
+          Сохранить
+        </button>
+        {saved && !dirty && <span role="status">Сохранено</span>}
+      </div>
     </div>
   )
 }
