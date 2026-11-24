@@ -1,34 +1,43 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { DISCIPLINE_NAMES } from '../../shared/messages.ts'
+import { DisciplineIcon } from '../../shared/icons/DisciplineIcon.tsx'
 import { DISCIPLINES } from '../../shared/types.ts'
 import type { Discipline } from '../../shared/types.ts'
-import type { StaffApi, StationWithToken } from '../api.ts'
+import type { StaffApi, StationInfo, StationWithToken } from '../api.ts'
 import { ConfirmDialog, ErrorText } from '../ui.tsx'
-import { formatTime } from '../format.ts'
 import { useAction, useLoader } from '../hooks.ts'
+import { ONLINE_HINT, QUEUE_HINT, lastSeen, onlineAgo, stateName } from './stationStatus.ts'
+import './StationsTab.css'
 
 export const STATIONS_REFRESH_MS = 5000
+const CLOCK_TICK_MS = 5000
 
-const STATE_NAMES: Record<string, string> = {
-  idle: 'ждёт',
-  confirming: 'подтверждение',
-  calibrating: 'калибровка',
-  playing: 'игра',
-  sending: 'отправка',
+/** Текущее время браузера: обновляется само, данные списка при этом не перезагружаются. */
+function useNow(): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), CLOCK_TICK_MS)
+    return () => clearInterval(timer)
+  }, [])
+  return now
 }
 
 export function StationsTab({ api }: { api: StaffApi }) {
   const list = useLoader(() => api.stations(), STATIONS_REFRESH_MS)
-  const action = useAction()
+  const creation = useAction()
+  const rotation = useAction()
+  const removal = useAction()
+  const now = useNow()
   const [name, setName] = useState('')
   const [discipline, setDiscipline] = useState<Discipline>('darts')
   const [issued, setIssued] = useState<StationWithToken | null>(null)
   const [rotating, setRotating] = useState<number | null>(null)
+  const [deleting, setDeleting] = useState<number | null>(null)
 
   async function create(event: FormEvent) {
     event.preventDefault()
-    const station = await action.run(() => api.createStation(name.trim(), discipline))
+    const station = await creation.run(() => api.createStation(name.trim(), discipline))
     if (station) {
       setIssued(station)
       setName('')
@@ -37,15 +46,41 @@ export function StationsTab({ api }: { api: StaffApi }) {
   }
 
   async function rotate(id: number) {
-    const station = await action.run(() => api.rotateStationToken(id))
-    setRotating(null)
-    if (station) setIssued(station)
+    const station = await rotation.run(() => api.rotateStationToken(id))
+    if (station) {
+      setRotating(null)
+      setIssued(station)
+    }
   }
 
-  const rotatingStation = list.data?.find((s) => s.id === rotating)
+  async function remove(id: number) {
+    const done = await removal.run(async () => {
+      await api.deleteStation(id)
+      return true
+    })
+    if (done) {
+      setDeleting(null)
+      setIssued((current) => (current?.id === id ? null : current))
+      list.reload()
+    }
+  }
+
+  function cancelRotate() {
+    rotation.clear()
+    setRotating(null)
+  }
+
+  function cancelDelete() {
+    removal.clear()
+    setDeleting(null)
+  }
+
+  const stations = list.data ?? []
+  const rotatingStation = stations.find((s) => s.id === rotating)
+  const deletingStation = stations.find((s) => s.id === deleting)
   return (
-    <section className="stack">
-      <form className="row card" onSubmit={(e) => void create(e)}>
+    <section className="stack stations">
+      <form className="card stations-form" onSubmit={(e) => void create(e)}>
         <label className="field">
           Название станции
           <input value={name} maxLength={64} onChange={(e) => setName(e.target.value)} required />
@@ -63,67 +98,124 @@ export function StationsTab({ api }: { api: StaffApi }) {
             ))}
           </select>
         </label>
-        <button type="submit" className="primary" disabled={action.busy || name.trim() === ''}>
+        <button type="submit" className="primary" disabled={creation.busy || name.trim() === ''}>
           Создать станцию
         </button>
       </form>
-      <ErrorText error={action.error ?? list.error} />
+      <ErrorText error={creation.error ?? list.error} />
 
       {issued && <TokenPanel station={issued} onDone={() => setIssued(null)} />}
 
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Станция</th>
-              <th>Дисциплина</th>
-              <th>Связь</th>
-              <th>Последний сигнал</th>
-              <th>Состояние</th>
-              <th>В очереди</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {(list.data ?? []).map((station) => (
-              <tr key={station.id}>
-                <td>{station.name}</td>
-                <td>{DISCIPLINE_NAMES[station.discipline]}</td>
-                <td>
-                  <span className={station.online ? 'badge ok' : 'badge bad'}>
-                    {station.online ? 'на связи' : 'нет связи'}
-                  </span>
-                </td>
-                <td>{formatTime(station.last_heartbeat_at)}</td>
-                <td>{station.last_state ? (STATE_NAMES[station.last_state] ?? station.last_state) : '—'}</td>
-                <td>{station.queue_length}</td>
-                <td className="actions">
-                  <button
-                    type="button"
-                    className="small"
-                    aria-label={`Новый токен ${station.name}`}
-                    onClick={() => setRotating(station.id)}
-                  >
-                    Новый токен
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <p className="stations-hint">{ONLINE_HINT}</p>
+      <div className="stations-grid">
+        {stations.map((station) => (
+          <StationCard
+            key={station.id}
+            station={station}
+            now={now}
+            onRotate={() => setRotating(station.id)}
+            onDelete={() => setDeleting(station.id)}
+          />
+        ))}
       </div>
 
       {rotatingStation && (
         <ConfirmDialog
           title="Выдать новый токен?"
-          message={`Старый токен станции «${rotatingStation.name}» перестанет работать. Лаунчер придётся перенастроить.`}
+          message={
+            <>
+              <p>{`Старый токен станции «${rotatingStation.name}» перестанет работать. Лаунчер придётся перенастроить.`}</p>
+              <ErrorText error={rotation.error} />
+            </>
+          }
           confirmLabel="Выдать новый токен"
-          busy={action.busy}
+          busy={rotation.busy}
           onConfirm={() => void rotate(rotatingStation.id)}
-          onCancel={() => setRotating(null)}
+          onCancel={cancelRotate}
+        />
+      )}
+      {deletingStation && (
+        <ConfirmDialog
+          title="Удалить станцию?"
+          message={
+            <>
+              <p>
+                {`Станция «${deletingStation.name}» исчезнет из списка, её токен перестанет работать. История в журнале сохранится. Это действие нельзя отменить.`}
+              </p>
+              <ErrorText error={removal.error} />
+            </>
+          }
+          confirmLabel="Удалить станцию"
+          busy={removal.busy}
+          onConfirm={() => void remove(deletingStation.id)}
+          onCancel={cancelDelete}
         />
       )}
     </section>
+  )
+}
+
+function StationCard({
+  station,
+  now,
+  onRotate,
+  onDelete,
+}: {
+  station: StationInfo
+  now: number
+  onRotate: () => void
+  onDelete: () => void
+}) {
+  const ago = station.online ? onlineAgo(station.last_heartbeat_at, now) : null
+  return (
+    <div className="station-card" role="group" aria-label={station.name}>
+      <div className="station-head">
+        <span className="station-icon">
+          <DisciplineIcon discipline={station.discipline} />
+        </span>
+        <div className="station-title">
+          <strong>{station.name}</strong>
+          <span className="station-discipline">{DISCIPLINE_NAMES[station.discipline]}</span>
+        </div>
+        <span className={station.online ? 'station-status online' : 'station-status offline'}>
+          <span className="station-dot" aria-hidden="true" />
+          {station.online ? 'В сети' : 'Не в сети'}
+        </span>
+      </div>
+      <div className="station-body">
+        {station.online ? (
+          <>
+            {ago && <span className="station-note">{ago}</span>}
+            {station.last_state && <span>{stateName(station.last_state)}</span>}
+          </>
+        ) : (
+          <span className="station-note">{lastSeen(station.last_heartbeat_at, now)}</span>
+        )}
+        {station.queue_length > 0 && (
+          <span className="station-queue" title={QUEUE_HINT}>
+            ждут отправки: {station.queue_length}
+          </span>
+        )}
+      </div>
+      <div className="station-actions">
+        <button
+          type="button"
+          className="small"
+          aria-label={`Новый токен ${station.name}`}
+          onClick={onRotate}
+        >
+          Новый токен
+        </button>
+        <button
+          type="button"
+          className="small danger"
+          aria-label={`Удалить станцию ${station.name}`}
+          onClick={onDelete}
+        >
+          Удалить станцию
+        </button>
+      </div>
+    </div>
   )
 }
 

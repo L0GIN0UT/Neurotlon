@@ -228,7 +228,7 @@ describe('станции', () => {
     renderAdmin(server)
     await openTab('Станции')
     expect(await screen.findByText('Дартс-1')).toBeDefined()
-    expect(screen.getByText('на связи')).toBeDefined()
+    expect(screen.getByText('В сети')).toBeDefined()
 
     fireEvent.change(screen.getByLabelText('Название станции'), { target: { value: 'Футбол-1' } })
     fireEvent.change(screen.getByLabelText('Дисциплина'), { target: { value: 'football' } })
@@ -264,7 +264,7 @@ describe('станции', () => {
     const dialog = screen.getByRole('dialog', { name: 'Выдать новый токен?' })
     fireEvent.click(within(dialog).getByRole('button', { name: 'Выдать новый токен' }))
     expect(await screen.findByText('NEW-TOKEN')).toBeDefined()
-    expect(screen.getByText('нет связи')).toBeDefined()
+    expect(screen.getByText('Не в сети')).toBeDefined()
   })
 
   test('состояние станций обновляется раз в 5 секунд', async () => {
@@ -276,16 +276,259 @@ describe('станции', () => {
     )
     renderAdmin(server)
     await openTab('Станции')
-    expect(await screen.findByText('нет связи')).toBeDefined()
+    expect(await screen.findByText('Не в сети')).toBeDefined()
     const before = server.count('GET /stations')
 
     online = true
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5000)
     })
-    expect(await screen.findByText('на связи')).toBeDefined()
+    expect(await screen.findByText('В сети')).toBeDefined()
     expect(server.count('GET /stations')).toBe(before + 1)
-    expect(screen.getByText('игра')).toBeDefined()
+    expect(screen.getByText('Идёт игра')).toBeDefined()
+  })
+})
+
+describe('станции: статусы и удаление', () => {
+  const NOW = new Date(2027, 0, 15, 14, 0, 0)
+  const at = (offsetSeconds: number) => new Date(NOW.getTime() + offsetSeconds * 1000).toISOString()
+  const station = (id: number, extra: Partial<StationInfo>): StationInfo => ({
+    id,
+    name: `Станция-${id}`,
+    discipline: 'darts',
+    online: false,
+    last_heartbeat_at: null,
+    last_state: null,
+    queue_length: 0,
+    ...extra,
+  })
+
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(NOW)
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  async function openStations(server: FakeServer) {
+    renderAdmin(server)
+    await openTab('Станции')
+  }
+
+  function card(name: string): HTMLElement {
+    return screen.getByRole('group', { name }) as HTMLElement
+  }
+
+  test('подсказка над списком объясняет «В сети»', async () => {
+    const server = createFakeServer('admin')
+    server.routes.set('GET /stations', () => json([]))
+    await openStations(server)
+    expect(
+      await screen.findByText('В сети значит, что станция прислала сигнал за последние 30 секунд.'),
+    ).toBeDefined()
+  })
+
+  test('в сети: подпись, давность сигнала и состояние словами', async () => {
+    const server = createFakeServer('admin')
+    server.routes.set('GET /stations', () =>
+      json([station(1, { online: true, last_heartbeat_at: at(-12), last_state: 'calibrating' })]),
+    )
+    await openStations(server)
+    await screen.findByText('Станция-1')
+    const c = within(card('Станция-1'))
+    expect(c.getByText('В сети')).toBeDefined()
+    expect(c.getByText('сигнал 12 с назад')).toBeDefined()
+    expect(c.getByText('Запуск игры, калибровка')).toBeDefined()
+  })
+
+  test('давность сигнала растёт без перезагрузки данных', async () => {
+    const server = createFakeServer('admin')
+    server.routes.set('GET /stations', () =>
+      json([station(1, { online: true, last_heartbeat_at: at(-12), last_state: 'idle' })]),
+    )
+    await openStations(server)
+    await screen.findByText('Станция-1')
+    const c = within(card('Станция-1'))
+    expect(c.getByText('сигнал 12 с назад')).toBeDefined()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000)
+    })
+    expect(await c.findByText('сигнал 17 с назад')).toBeDefined()
+  })
+
+  test('в сети: неизвестное состояние как есть, расхождение часов даёт «только что»', async () => {
+    const server = createFakeServer('admin')
+    server.routes.set('GET /stations', () =>
+      json([
+        station(2, { online: true, last_heartbeat_at: at(-180), last_state: 'mystery' }),
+        station(3, { online: true, last_heartbeat_at: at(+40), last_state: 'idle' }),
+      ]),
+    )
+    await openStations(server)
+    await screen.findByText('Станция-2')
+    const c = within(card('Станция-2'))
+    expect(c.getByText('сигнал только что')).toBeDefined()
+    expect(c.getByText('mystery')).toBeDefined()
+    expect(within(card('Станция-3')).getByText('сигнал только что')).toBeDefined()
+  })
+
+  test('время без смещения считается UTC, как отдаёт сервер', async () => {
+    vi.setSystemTime(new Date(Date.UTC(2027, 0, 15, 14, 0, 0)))
+    const server = createFakeServer('admin')
+    const seen = new Date(Date.UTC(2027, 0, 15, 12, 5, 0))
+    const hh = String(seen.getHours()).padStart(2, '0')
+    const mm = String(seen.getMinutes()).padStart(2, '0')
+    server.routes.set('GET /stations', () =>
+      json([
+        station(1, { online: true, last_heartbeat_at: '2027-01-15T13:59:48', last_state: 'idle' }),
+        station(2, { last_heartbeat_at: '2027-01-15T12:05:00' }),
+        station(3, { last_heartbeat_at: '2027-01-15T12:05:00+00:00' }),
+      ]),
+    )
+    await openStations(server)
+    await screen.findByText('Станция-1')
+    expect(within(card('Станция-1')).getByText('сигнал 12 с назад')).toBeDefined()
+    expect(within(card('Станция-2')).getByText(`последний сигнал в ${hh}:${mm}`)).toBeDefined()
+    expect(within(card('Станция-3')).getByText(`последний сигнал в ${hh}:${mm}`)).toBeDefined()
+  })
+
+  test('удаление станции убирает её показанный токен', async () => {
+    const server = createFakeServer('admin')
+    const stations = [station(1, { name: 'Старая' })]
+    server.routes.set('GET /stations', () => json(stations))
+    server.routes.set('POST /stations', () => {
+      stations.push(station(2, { name: 'Новая' }))
+      return json({ id: 2, name: 'Новая', discipline: 'darts', token: 'FRESH-TOKEN' }, 201)
+    })
+    server.routes.set('DELETE /stations/*', () => {
+      stations.pop()
+      return new Response(null, { status: 204 })
+    })
+    await openStations(server)
+    await screen.findByText('Старая')
+    fireEvent.change(screen.getByLabelText('Название станции'), { target: { value: 'Новая' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Создать станцию' }))
+    expect(await screen.findByText('FRESH-TOKEN')).toBeDefined()
+    fireEvent.click(await screen.findByRole('button', { name: 'Удалить станцию Новая' }))
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Удалить станцию' }))
+    await waitFor(() => expect(screen.queryByText('Новая')).toBeNull())
+    expect(document.body.textContent).not.toContain('FRESH-TOKEN')
+  })
+
+  test('двойной клик по подтверждению удаления шлёт один запрос', async () => {
+    const server = createFakeServer('admin')
+    server.routes.set('GET /stations', () => json([station(8, { name: 'Понг-1' })]))
+    server.routes.set('DELETE /stations/*', async () => {
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      return new Response(null, { status: 204 })
+    })
+    await openStations(server)
+    fireEvent.click(await screen.findByRole('button', { name: 'Удалить станцию Понг-1' }))
+    const confirm = within(screen.getByRole('dialog')).getByRole('button', { name: 'Удалить станцию' })
+    fireEvent.click(confirm)
+    fireEvent.click(confirm)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200)
+    })
+    expect(server.count('DELETE /stations/*')).toBe(1)
+  })
+
+  test('ошибка выдачи нового токена показывается в окне подтверждения', async () => {
+    const server = createFakeServer('admin')
+    server.routes.set('GET /stations', () => json([station(7, { name: 'Понг-1' })]))
+    server.routes.set('POST /stations/*/rotate-token', () => problem(403, 'forbidden'))
+    await openStations(server)
+    fireEvent.click(await screen.findByRole('button', { name: 'Новый токен Понг-1' }))
+    const dialog = screen.getByRole('dialog', { name: 'Выдать новый токен?' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Выдать новый токен' }))
+    expect(await within(dialog).findByText('Нет доступа')).toBeDefined()
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+  })
+
+  test('не в сети: время последнего сигнала, состояние скрыто', async () => {
+    const server = createFakeServer('admin')
+    const earlier = new Date(2027, 0, 15, 13, 25, 0).toISOString()
+    const yesterday = new Date(2027, 0, 14, 9, 5, 0).toISOString()
+    server.routes.set('GET /stations', () =>
+      json([
+        station(3, { last_heartbeat_at: earlier, last_state: 'playing' }),
+        station(4, { last_heartbeat_at: yesterday, last_state: 'idle' }),
+        station(5, {}),
+      ]),
+    )
+    await openStations(server)
+    await screen.findByText('Станция-3')
+    expect(within(card('Станция-3')).getByText('Не в сети')).toBeDefined()
+    expect(within(card('Станция-3')).getByText('последний сигнал в 13:25')).toBeDefined()
+    expect(within(card('Станция-4')).getByText('последний сигнал 14.01 в 09:05')).toBeDefined()
+    expect(within(card('Станция-5')).getByText('ещё ни разу не подключалась')).toBeDefined()
+    expect(screen.queryByText('Идёт игра')).toBeNull()
+    expect(screen.queryByText('Ждёт участника')).toBeNull()
+  })
+
+  test('очередь видна только когда она не пуста', async () => {
+    const server = createFakeServer('admin')
+    server.routes.set('GET /stations', () =>
+      json([
+        station(6, { online: true, last_heartbeat_at: at(-5), last_state: 'idle', queue_length: 3 }),
+        station(7, { online: true, last_heartbeat_at: at(-5), last_state: 'idle', queue_length: 0 }),
+      ]),
+    )
+    await openStations(server)
+    await screen.findByText('Станция-6')
+    const withQueue = within(card('Станция-6'))
+    expect(withQueue.getByText('ждут отправки: 3')).toBeDefined()
+    expect(
+      withQueue.getByTitle('результаты сохранены на стенде и уйдут на сервер при появлении связи'),
+    ).toBeDefined()
+    expect(within(card('Станция-7')).queryByText(/ждут отправки/)).toBeNull()
+  })
+
+  test('удаление: подтверждение, запрос и перезагрузка списка', async () => {
+    const server = createFakeServer('admin')
+    let stations = [station(8, { name: 'Понг-1', discipline: 'pong' }), station(9, { name: 'Понг-2' })]
+    server.routes.set('GET /stations', () => json(stations))
+    server.routes.set('DELETE /stations/*', () => {
+      stations = stations.filter((s) => s.id !== 8)
+      return new Response(null, { status: 204 })
+    })
+    await openStations(server)
+    fireEvent.click(await screen.findByRole('button', { name: 'Удалить станцию Понг-1' }))
+    expect(server.count('DELETE /stations/*')).toBe(0)
+    const dialog = screen.getByRole('dialog', { name: 'Удалить станцию?' })
+    expect(within(dialog).getByText(/Станция «Понг-1» исчезнет из списка/)).toBeDefined()
+    const before = server.count('GET /stations')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Удалить станцию' }))
+    await waitFor(() => expect(screen.queryByText('Понг-1')).toBeNull())
+    expect(
+      server.calls.filter((c) => c.key === 'DELETE /stations/*').map((c) => c.url.pathname),
+    ).toEqual(['/api/v1/stations/8'])
+    expect(server.count('GET /stations')).toBeGreaterThan(before)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.getByText('Понг-2')).toBeDefined()
+  })
+
+  test('удаление: ошибка 409 показывается в окне', async () => {
+    const server = createFakeServer('admin')
+    server.routes.set('GET /stations', () => json([station(8, { name: 'Понг-1' })]))
+    server.routes.set('DELETE /stations/*', () => problem(409, 'conflict'))
+    await openStations(server)
+    fireEvent.click(await screen.findByRole('button', { name: 'Удалить станцию Понг-1' }))
+    const dialog = screen.getByRole('dialog', { name: 'Удалить станцию?' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Удалить станцию' }))
+    expect(await within(dialog).findByRole('alert')).toBeDefined()
+    expect(screen.getByText('Понг-1')).toBeDefined()
+  })
+
+  test('удаление можно отменить', async () => {
+    const server = createFakeServer('admin')
+    server.routes.set('GET /stations', () => json([station(8, { name: 'Понг-1' })]))
+    await openStations(server)
+    fireEvent.click(await screen.findByRole('button', { name: 'Удалить станцию Понг-1' }))
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Отмена' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(server.count('DELETE /stations/*')).toBe(0)
   })
 })
 
