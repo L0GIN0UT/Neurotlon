@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react'
-import type { DragEvent } from 'react'
+import type { DragEvent, ReactNode } from 'react'
 import { errorText } from '../../shared/messages.ts'
-import type { Category, Participant, StaffApi, TeamsPayload } from '../api.ts'
+import type { Category, Participant, StaffApi, TeamInfo, TeamsPayload } from '../api.ts'
 import { useAction, useLoader } from '../hooks.ts'
 import { ErrorText } from '../ui.tsx'
-import { TeamsEditor } from './TeamsEditor.tsx'
+import { TeamTitle } from './TeamsEditor.tsx'
 import { assignmentBody, locate, moveTo, pairsOf, step } from './teamsLayout.ts'
 import type { Area, Lineup, Lock, Locks } from './teamsLayout.ts'
 import './TeamsTab.css'
@@ -19,14 +19,6 @@ interface Board {
   lineup: Lineup
   locks: Locks
   people: ReadonlyMap<string, Person>
-}
-
-const AREAS: readonly Area[] = ['pool', 'team1', 'team2']
-
-const AREA_TITLES: Record<Area, string> = {
-  pool: 'Не распределены',
-  team1: 'Команда 1',
-  team2: 'Команда 2',
 }
 
 function lineupOf(teams: TeamsPayload, participants: Participant[]): Lineup {
@@ -53,20 +45,31 @@ function locksOf(lineup: Lineup, played: ReadonlySet<string>): Locks {
   return locks
 }
 
-function LockIcon() {
+function Icon({ children, label }: { children: ReactNode; label?: string }) {
   return (
     <svg
-      className="tm-lock"
       viewBox="0 0 16 16"
-      width="14"
-      height="14"
-      role="img"
-      aria-label="Есть результат, место закреплено"
+      width="16"
+      height="16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      role={label ? 'img' : undefined}
+      aria-label={label}
+      aria-hidden={label ? undefined : true}
     >
-      <rect x="3" y="7" width="10" height="7" rx="1.5" fill="currentColor" />
-      <path d="M5 7V5a3 3 0 0 1 6 0v2" fill="none" stroke="currentColor" strokeWidth="1.6" />
+      {children}
     </svg>
   )
+}
+
+const ICONS = {
+  up: <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" />,
+  down: <path d="M8 3v10M3.5 8.5 8 13l4.5-4.5" />,
+  swap: <path d="M2 5.5h11M10 2.5l3 3-3 3M14 10.5H3M6 7.5l-3 3 3 3" />,
+  remove: <path d="M3.5 3.5l9 9M12.5 3.5l-9 9" />,
 }
 
 interface Handlers {
@@ -77,22 +80,31 @@ interface Handlers {
   onDropAt: (area: Area, position?: number) => void
 }
 
-function CardButton({
+function Button({
   label,
   code,
-  text,
   enabled,
   onClick,
+  className,
+  children,
 }: {
   label: string
   code: string
-  text: string
   enabled: boolean
   onClick: () => void
+  className: string
+  children: ReactNode
 }) {
   return (
-    <button type="button" disabled={!enabled} aria-label={`${label}: ${code}`} onClick={onClick}>
-      {text}
+    <button
+      type="button"
+      className={className}
+      disabled={!enabled}
+      title={label}
+      aria-label={`${label}: ${code}`}
+      onClick={onClick}
+    >
+      {children}
     </button>
   )
 }
@@ -119,8 +131,9 @@ function PlayerCard({
   const other: Area = area === 'team1' ? 'team2' : 'team1'
 
   return (
-    <li
+    <div
       className={`tm-card${locked ? ' locked' : ''}`}
+      data-card={code}
       draggable={!locked && !busy}
       onDragStart={(e: DragEvent) => {
         e.dataTransfer.setData('text/plain', code)
@@ -136,93 +149,158 @@ function PlayerCard({
       }}
     >
       <div className="tm-card-head">
-        {area !== 'pool' && <span className="tm-num">{index + 1}</span>}
         <strong>{code}</strong>
-        {locked && <LockIcon />}
+        {locked && (
+          <Icon label="Есть результат, место закреплено">
+            <rect x="3" y="7" width="10" height="7" rx="1.5" fill="currentColor" />
+            <path d="M5 7V5a3 3 0 0 1 6 0v2" />
+          </Icon>
+        )}
         {name && <span className="tm-name">{name}</span>}
       </div>
       {!locked && area === 'pool' && (
-        <div className="tm-actions">
-          <CardButton
+        <div className="tm-actions always">
+          <Button
+            className="tm-mini"
             label="В команду 1"
             code={code}
-            text="В команду 1"
             enabled={free(moveTo(lineup, locks, code, 'team1'))}
             onClick={() => handlers.onMove(code, 'team1')}
-          />
-          <CardButton
+          >
+            →1
+          </Button>
+          <Button
+            className="tm-mini"
             label="В команду 2"
             code={code}
-            text="В команду 2"
             enabled={free(moveTo(lineup, locks, code, 'team2'))}
             onClick={() => handlers.onMove(code, 'team2')}
-          />
+          >
+            →2
+          </Button>
         </div>
       )}
       {!locked && area !== 'pool' && (
         <div className="tm-actions">
-          <CardButton
+          <Button
+            className="tm-icon"
             label="Вверх"
             code={code}
-            text="Вверх"
             enabled={free(step(lineup, locks, code, -1))}
             onClick={() => handlers.onStep(code, -1)}
-          />
-          <CardButton
+          >
+            <Icon>{ICONS.up}</Icon>
+          </Button>
+          <Button
+            className="tm-icon"
             label="Вниз"
             code={code}
-            text="Вниз"
             enabled={free(step(lineup, locks, code, 1))}
             onClick={() => handlers.onStep(code, 1)}
-          />
-          <CardButton
+          >
+            <Icon>{ICONS.down}</Icon>
+          </Button>
+          <Button
+            className="tm-icon"
             label="В другую команду"
             code={code}
-            text="В другую"
             enabled={free(moveTo(lineup, locks, code, other))}
             onClick={() => handlers.onMove(code, other)}
-          />
-          <CardButton
+          >
+            <Icon>{ICONS.swap}</Icon>
+          </Button>
+          <Button
+            className="tm-icon"
             label="Убрать из команды"
             code={code}
-            text="Убрать"
             enabled={free(moveTo(lineup, locks, code, 'pool'))}
             onClick={() => handlers.onMove(code, 'pool')}
-          />
+          >
+            <Icon>{ICONS.remove}</Icon>
+          </Button>
         </div>
       )}
-    </li>
+    </div>
   )
 }
 
-function PairsList({ board }: { board: Board }) {
-  const rows = pairsOf(board.lineup)
+function Cell({
+  code,
+  area,
+  index,
+  board,
+  busy,
+  handlers,
+}: {
+  code: string | null
+  area: 'team1' | 'team2'
+  index: number
+  board: Board
+  busy: boolean
+  handlers: Handlers
+}) {
+  if (code !== null) {
+    return (
+      <PlayerCard code={code} area={area} index={index} board={board} busy={busy} handlers={handlers} />
+    )
+  }
   return (
-    <section className="tm-pairs card" aria-label="Пары">
-      <h3>Пары</h3>
-      {rows.length === 0 && <p className="muted">Команды пусты.</p>}
-      <ol>
-        {rows.map((row) => {
-          const a = row.a === null ? undefined : board.people.get(row.a)
-          const b = row.b === null ? undefined : board.people.get(row.b)
-          const mixed = Boolean(a?.category && b?.category && a.category !== b.category)
-          return (
-            <li key={row.k} value={row.k}>
-              {row.a !== null && row.b !== null ? (
-                <span>
-                  {row.a} против {row.b}
-                </span>
-              ) : (
-                <span>
-                  {row.a ?? row.b} <em>без пары</em>
-                </span>
-              )}
-              {mixed && <span className="tm-warn">разные категории</span>}
-            </li>
-          )
-        })}
-      </ol>
-    </section>
+    <div
+      className="tm-empty"
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        handlers.onDropAt(area)
+      }}
+    >
+      без пары
+    </div>
+  )
+}
+
+function TeamHead({
+  area,
+  team,
+  count,
+  api,
+  onSaved,
+  handlers,
+  over,
+  setOver,
+}: {
+  area: 'team1' | 'team2'
+  team: TeamInfo | undefined
+  count: number
+  api: StaffApi
+  onSaved: () => void
+  handlers: Handlers
+  over: Area | null
+  setOver: (area: Area | null) => void
+}) {
+  const number = area === 'team1' ? 1 : 2
+  return (
+    <div
+      className={`tm-head${over === area ? ' over' : ''}`}
+      onDragOver={(e) => {
+        e.preventDefault()
+        setOver(area)
+      }}
+      onDragLeave={() => setOver(null)}
+      onDrop={(e) => {
+        e.preventDefault()
+        handlers.onDropAt(area)
+      }}
+    >
+      {team ? (
+        <TeamTitle key={`${team.id}:${team.name}:${team.color}`} team={team} api={api} onSaved={onSaved} />
+      ) : (
+        <h3>Команда {number}</h3>
+      )}
+      <span className="tm-count" title="Игроков в команде">
+        {count}
+      </span>
+    </div>
   )
 }
 
@@ -246,6 +324,9 @@ function TeamsBoard({
   const [pending, setPending] = useState<Lineup | null>(null)
   const [dragging, setDragging] = useState<string | null>(null)
   const [over, setOver] = useState<Area | null>(null)
+  const [poolOpen, setPoolOpen] = useState(
+    () => typeof window.matchMedia !== 'function' || window.matchMedia('(min-width: 900px)').matches,
+  )
   const action = useAction()
   const busy = action.busy
   const board: Board = { lineup: pending ?? committed, locks, people }
@@ -279,60 +360,104 @@ function TeamsBoard({
     onDropAt: dropAt,
   }
 
+  const rows = pairsOf(board.lineup)
+  const teamOf = (n: number) => teams.find((t) => t.number === n)
+  const pool = board.lineup.pool
+
   return (
     <>
       <ErrorText error={action.error === null ? null : errorText(action.error)} />
-      <div className="tm-board" aria-busy={busy}>
-        {AREAS.map((area) => {
-          const team = area === 'pool' ? undefined : teams.find((t) => t.number === (area === 'team1' ? 1 : 2))
-          const list = board.lineup[area]
-          return (
-            <section
-              key={area}
-              className={`tm-column card${over === area ? ' over' : ''}`}
-              aria-label={AREA_TITLES[area]}
-              onDragOver={(e) => {
-                e.preventDefault()
-                setOver(area)
-              }}
-              onDragLeave={() => setOver((o) => (o === area ? null : o))}
-              onDrop={(e) => {
-                e.preventDefault()
-                dropAt(area)
-              }}
-            >
-              <h3>
-                {team && <span className="swatch" style={{ background: team.color }} />}
-                <span className="grow">
-                  {AREA_TITLES[area]}
-                  {team ? `: ${team.name}` : ''}
-                </span>
-                <span className="tm-count">{list.length}</span>
-              </h3>
-              <ul>
-                {list.map((code, index) => (
-                  <PlayerCard
-                    key={code}
-                    code={code}
-                    area={area}
-                    index={index}
-                    board={board}
-                    busy={busy}
-                    handlers={handlers}
-                  />
-                ))}
-              </ul>
-              {list.length === 0 && <p className="muted">Пусто. Перетащите игрока сюда.</p>}
-            </section>
-          )
-        })}
-        <PairsList board={board} />
+      <div className="tm-layout" aria-busy={busy}>
+        <section
+          className={`tm-pool card${over === 'pool' ? ' over' : ''}`}
+          aria-label="Не распределены"
+          onDragOver={(e) => {
+            e.preventDefault()
+            setOver('pool')
+          }}
+          onDragLeave={() => setOver(null)}
+          onDrop={(e) => {
+            e.preventDefault()
+            dropAt('pool')
+          }}
+        >
+          <details open={poolOpen} onToggle={(e) => setPoolOpen(e.currentTarget.open)}>
+            <summary>
+              Не распределены <span className="tm-count">{pool.length}</span>
+            </summary>
+            <div className="tm-pool-list">
+              {pool.map((code, index) => (
+                <PlayerCard
+                  key={code}
+                  code={code}
+                  area="pool"
+                  index={index}
+                  board={board}
+                  busy={busy}
+                  handlers={handlers}
+                />
+              ))}
+              {pool.length === 0 && <p className="muted">Пусто</p>}
+            </div>
+          </details>
+        </section>
+
+        <section className="tm-teams card" aria-label="Команды">
+          <div className="tm-row tm-heads">
+            <TeamHead
+              area="team1"
+              team={teamOf(1)}
+              count={board.lineup.team1.length}
+              api={api}
+              onSaved={onSaved}
+              handlers={handlers}
+              over={over}
+              setOver={setOver}
+            />
+            <span />
+            <TeamHead
+              area="team2"
+              team={teamOf(2)}
+              count={board.lineup.team2.length}
+              api={api}
+              onSaved={onSaved}
+              handlers={handlers}
+              over={over}
+              setOver={setOver}
+            />
+          </div>
+          <ol className="tm-rows" aria-label="Пары">
+            {rows.map((row, i) => {
+              const a = row.a === null ? undefined : board.people.get(row.a)
+              const b = row.b === null ? undefined : board.people.get(row.b)
+              const mixed = Boolean(a?.category && b?.category && a.category !== b.category)
+              return (
+                <li key={row.k} className="tm-row" value={row.k}>
+                  <Cell code={row.a} area="team1" index={i} board={board} busy={busy} handlers={handlers} />
+                  <span className="tm-vs">
+                    против
+                    {mixed && (
+                      <span className="tm-warn">
+                        <Icon label="разные категории">
+                          <path d="M8 2 14.5 13.5h-13z" />
+                          <path d="M8 6.5v3.2M8 11.6v.1" />
+                        </Icon>
+                      </span>
+                    )}
+                  </span>
+                  <Cell code={row.b} area="team2" index={i} board={board} busy={busy} handlers={handlers} />
+                </li>
+              )
+            })}
+          </ol>
+          {rows.length === 0 && <p className="muted">Перетащите игроков в команды или нажмите →1 и →2.</p>}
+        </section>
       </div>
     </>
   )
 }
 
-/** Ручная раскладка пришедших по двум командам; пары — по местам в командах. */
+/** Ручная раскладка пришедших по двум командам; пары — строки напротив друг друга. */
 export function TeamsTab({ api }: { api: StaffApi }) {
   const teams = useLoader(() => api.teams())
   const participants = useLoader(() => api.participants())
@@ -350,7 +475,6 @@ export function TeamsTab({ api }: { api: StaffApi }) {
 
   return (
     <section className="stack">
-      <TeamsEditor api={api} onSaved={teams.reload} />
       <ErrorText error={teams.error ?? participants.error ?? results.error} />
       {initial && teams.data && (
         <TeamsBoard

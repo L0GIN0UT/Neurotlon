@@ -1,9 +1,46 @@
-import { useState } from 'react'
-import type { StaffApi, TeamInfo } from '../api.ts'
-import { useAction, useLoader } from '../hooks.ts'
+﻿import type { StaffApi, TeamInfo } from '../api.ts'
+import { useLoader } from '../hooks.ts'
 import { ErrorText } from '../ui.tsx'
+import { MAX_NAME, useTeamDraft } from './useTeamDraft.ts'
 
-const MAX_NAME = 24
+/** Название и цвет команды в шапке колонки: сохранение по Enter и по потере фокуса. */
+export function TeamTitle({
+  team,
+  api,
+  onSaved,
+}: {
+  team: TeamInfo
+  api: StaffApi
+  onSaved: () => void
+}) {
+  const draft = useTeamDraft(team, api, onSaved)
+  return (
+    <div className="tm-title">
+      <div className="row">
+        <input
+          type="color"
+          className="tm-color"
+          aria-label={`Цвет команды ${team.number}`}
+          value={draft.color.toLowerCase()}
+          onChange={(e) => draft.setColor(e.target.value)}
+          onBlur={() => void draft.save()}
+        />
+        <input
+          className="tm-name-input grow"
+          aria-label={`Название команды ${team.number}`}
+          value={draft.name}
+          maxLength={MAX_NAME}
+          onChange={(e) => draft.setName(e.target.value)}
+          onBlur={() => void draft.save()}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') void draft.save()
+          }}
+        />
+      </div>
+      <ErrorText error={draft.action.error} />
+    </div>
+  )
+}
 
 function TeamRow({
   team,
@@ -14,43 +51,40 @@ function TeamRow({
   api: StaffApi
   onSaved: () => void
 }) {
-  const [name, setName] = useState(team.name)
-  const [color, setColor] = useState(team.color)
-  const action = useAction()
-  const trimmed = name.trim()
-  const invalid = trimmed.length < 1 || trimmed.length > MAX_NAME
-  const changed = trimmed !== team.name || color.toLowerCase() !== team.color.toLowerCase()
-
-  async function save() {
-    const saved = await action.run(() => api.patchTeam(team.id, trimmed, color))
-    if (saved) onSaved()
-  }
-
+  const draft = useTeamDraft(team, api, onSaved)
   return (
     <li className="row">
       <label className="field grow">
         {`Название команды ${team.number}`}
-        <input value={name} maxLength={MAX_NAME} onChange={(e) => setName(e.target.value)} />
+        <input
+          value={draft.name}
+          maxLength={MAX_NAME}
+          onChange={(e) => draft.setName(e.target.value)}
+        />
       </label>
       <label className="field">
         {`Цвет команды ${team.number}`}
-        <input type="color" value={color.toLowerCase()} onChange={(e) => setColor(e.target.value)} />
+        <input
+          type="color"
+          value={draft.color.toLowerCase()}
+          onChange={(e) => draft.setColor(e.target.value)}
+        />
       </label>
       <button
         type="button"
         className="primary"
-        disabled={invalid || !changed || action.busy}
-        onClick={() => void save()}
+        disabled={draft.invalid || !draft.changed || draft.action.busy}
+        onClick={() => void draft.save()}
         aria-label={`Сохранить команду ${team.number}`}
       >
         Сохранить
       </button>
-      <ErrorText error={action.error} />
+      <ErrorText error={draft.action.error} />
     </li>
   )
 }
 
-/** Название и цвет команд: показываются на табло и в оверлее. */
+/** Название и цвет команд: показываются на табло и в оверлее. Используется вкладкой жеребьёвки. */
 export function TeamsEditor({ api, onSaved }: { api: StaffApi; onSaved: () => void }) {
   const teams = useLoader(() => api.teams())
   if (!teams.data || teams.data.teams.length === 0) return <ErrorText error={teams.error} />

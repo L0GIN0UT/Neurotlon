@@ -321,9 +321,13 @@ describe('команды', () => {
   })
 
   const dataTransfer = () => ({ dataTransfer: { setData: () => undefined, effectAllowed: 'move' } })
-  const column = async (name: string) => within(await screen.findByRole('region', { name }))
-  const cardOf = (name: string, code: string) =>
-    within(screen.getByRole('region', { name })).getByText(code).closest('li') as HTMLElement
+  // Команды лежат в строках пар, поэтому «колонка команды» — это список пар.
+  const column = async (name: string) =>
+    name === 'Не распределены'
+      ? within(await screen.findByRole('region', { name }))
+      : within(await screen.findByRole('list', { name: 'Пары' }))
+  const cardOf = (_area: string, code: string) =>
+    screen.getByText(code).closest('[data-card]') as HTMLElement
 
   test('вкладки «Жеребьёвка» нет, есть три области и пары', async () => {
     renderAdmin(server)
@@ -338,9 +342,13 @@ describe('команды', () => {
     expect((await column('Команда 1')).getByText('NT02')).toBeDefined()
     expect((await column('Команда 2')).getByText('NT03')).toBeDefined()
 
-    const pairs = within(screen.getByRole('region', { name: 'Пары' }))
-    expect(pairs.getByText('NT01 против NT03')).toBeDefined()
-    expect(pairs.getByText('без пары')).toBeDefined()
+    const rows = within(screen.getByRole('list', { name: 'Пары' })).getAllByRole('listitem')
+    expect(rows).toHaveLength(2)
+    expect(within(rows[0] as HTMLElement).getByText('NT01')).toBeDefined()
+    expect(within(rows[0] as HTMLElement).getByText('NT03')).toBeDefined()
+    expect(within(rows[0] as HTMLElement).getByText('против')).toBeDefined()
+    expect(within(rows[1] as HTMLElement).getByText('NT02')).toBeDefined()
+    expect(within(rows[1] as HTMLElement).getByText('без пары')).toBeDefined()
     expect(document.body.textContent).not.toContain('Протокол жеребьёвки')
   })
 
@@ -434,9 +442,10 @@ describe('команды', () => {
   test('в паре из разных категорий есть подсказка', async () => {
     renderAdmin(server)
     await openTab('Команды')
-    const pairs = within(await screen.findByRole('region', { name: 'Пары' }))
-    expect(pairs.getByText('NT01 против NT03')).toBeDefined()
-    expect(pairs.getByText('разные категории')).toBeDefined()
+    const pairs = within(await screen.findByRole('list', { name: 'Пары' }))
+    const [first, second] = pairs.getAllByRole('listitem') as HTMLElement[]
+    expect(within(first as HTMLElement).getByRole('img', { name: 'разные категории' })).toBeDefined()
+    expect(within(second as HTMLElement).queryByRole('img', { name: 'разные категории' })).toBeNull()
     expect(document.body.textContent?.toLowerCase()).not.toContain('овз')
   })
 })
@@ -462,18 +471,17 @@ describe('названия и цвета команд', () => {
     return server
   }
 
-  test('админ переименовывает команду и выбирает цвет', async () => {
+  test('название и цвет сохраняются по потере фокуса', async () => {
     const server = setup()
     renderAdmin(server)
     await openTab('Команды')
     const name = await screen.findByLabelText('Название команды 1')
-    const save = screen.getByRole('button', { name: 'Сохранить команду 1' }) as HTMLButtonElement
-    expect(save.disabled).toBe(true)
+    fireEvent.blur(name)
+    expect(server.count('PATCH /teams/*')).toBe(0)
 
     fireEvent.change(name, { target: { value: '  Огонь  ' } })
     fireEvent.change(screen.getByLabelText('Цвет команды 1'), { target: { value: '#ff8800' } })
-    expect(save.disabled).toBe(false)
-    fireEvent.click(save)
+    fireEvent.blur(name)
 
     await waitFor(() =>
       expect(server.bodies('PATCH /teams/*')).toEqual([{ name: 'Огонь', color: '#ff8800' }]),
@@ -481,6 +489,18 @@ describe('названия и цвета команд', () => {
     expect(server.calls.find((c) => c.key === 'PATCH /teams/*')?.url.pathname).toBe('/api/v1/teams/11')
     await waitFor(() =>
       expect((screen.getByLabelText('Название команды 1') as HTMLInputElement).value).toBe('Огонь'),
+    )
+  })
+
+  test('Enter сохраняет название', async () => {
+    const server = setup()
+    renderAdmin(server)
+    await openTab('Команды')
+    const name = await screen.findByLabelText('Название команды 2')
+    fireEvent.change(name, { target: { value: 'Волны' } })
+    fireEvent.keyDown(name, { key: 'Enter' })
+    await waitFor(() =>
+      expect(server.bodies('PATCH /teams/*')).toEqual([{ name: 'Волны', color: '#4363d8' }]),
     )
   })
 
@@ -492,28 +512,27 @@ describe('названия и цвета команд', () => {
     expect(color.value).toBe('#4363d8')
   })
 
-  test('пустое название нельзя сохранить, длина ограничена 24', async () => {
+  test('пустое название не сохраняется, длина ограничена 24', async () => {
     const server = setup()
     renderAdmin(server)
     await openTab('Команды')
     const name = (await screen.findByLabelText('Название команды 1')) as HTMLInputElement
-    const save = screen.getByRole('button', { name: 'Сохранить команду 1' }) as HTMLButtonElement
     fireEvent.change(name, { target: { value: '   ' } })
-    expect(save.disabled).toBe(true)
-    fireEvent.change(name, { target: { value: 'Ф' } })
-    expect(save.disabled).toBe(false)
+    fireEvent.blur(name)
     expect(name.maxLength).toBe(24)
     expect(server.count('PATCH /teams/*')).toBe(0)
   })
 
-  test('ошибка сервера показывается, введённое остаётся', async () => {
+  test('ошибка сервера показывается под шапкой, введённое остаётся', async () => {
     const server = setup()
     server.routes.set('PATCH /teams/*', () => problem(422, 'invalid_request'))
     renderAdmin(server)
     await openTab('Команды')
-    fireEvent.change(await screen.findByLabelText('Название команды 1'), { target: { value: 'Новая' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Сохранить команду 1' }))
+    const name = await screen.findByLabelText('Название команды 1')
+    fireEvent.change(name, { target: { value: 'Новая' } })
+    fireEvent.blur(name)
     await waitFor(() => expect(server.count('PATCH /teams/*')).toBe(1))
+    expect(await screen.findByRole('alert')).toBeDefined()
     expect((screen.getByLabelText('Название команды 1') as HTMLInputElement).value).toBe('Новая')
   })
 })
