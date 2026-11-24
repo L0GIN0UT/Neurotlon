@@ -188,6 +188,7 @@ export function createStaffApi(options: ApiOptions = {}) {
       request<StationWithToken>('POST', '/stations', { name, discipline }),
     rotateStationToken: (id: number) =>
       request<StationWithToken>('POST', `/stations/${id}/rotate-token`),
+    deleteStation: (id: number) => request<void>('DELETE', `/stations/${id}`),
 
     disciplines: () => request<DisciplineSettings[]>('GET', '/disciplines'),
     patchDiscipline: (
