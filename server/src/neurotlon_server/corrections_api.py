@@ -1,4 +1,4 @@
-"""Volunteer undo (30 s) and correction requests to the judge afterwards."""
+"""Volunteer undo (30 s) and correction requests to the admin afterwards."""
 
 from datetime import datetime, timedelta
 from typing import Annotated, Literal
@@ -18,8 +18,8 @@ UNDO_WINDOW = timedelta(seconds=30)
 router = APIRouter(prefix="/api/v1", tags=["corrections"])
 
 Volunteer = Annotated[User, Depends(require_role("volunteer"))]
-Judge = Annotated[User, Depends(require_role("judge", "admin", "superuser"))]
-AnyStaff = Annotated[User, Depends(require_role("volunteer", "judge", "admin", "superuser"))]
+Resolver = Annotated[User, Depends(require_role("admin", "superuser"))]
+AnyStaff = Annotated[User, Depends(require_role("volunteer", "admin", "superuser"))]
 
 
 class CorrectionIn(BaseModel):
@@ -169,7 +169,7 @@ def list_corrections(
 
 
 @router.post("/corrections/{correction_id}/done")
-def resolve_correction(correction_id: int, db: Db, now: Now, user: Judge) -> CorrectionOut:
+def resolve_correction(correction_id: int, db: Db, now: Now, user: Resolver) -> CorrectionOut:
     row = db.get(CorrectionRequest, correction_id)
     if row is None:
         raise not_found("Correction request not found")

@@ -231,7 +231,7 @@ class SectionResult(Base):
 
 
 class CorrectionRequest(Base):
-    """A volunteer asks the judge to fix a submitted result after the undo window."""
+    """A volunteer asks the admin to fix a submitted result after the undo window."""
 
     __tablename__ = "correction_request"
     __table_args__ = (
@@ -252,7 +252,7 @@ class CorrectionRequest(Base):
 class User(Base):
     __tablename__ = "user"
     __table_args__ = (
-        CheckConstraint("role IN ('superuser', 'admin', 'judge', 'volunteer')", name="role"),
+        CheckConstraint("role IN ('superuser', 'admin', 'volunteer')", name="role"),
         CheckConstraint(
             "(role = 'volunteer') = (discipline IS NOT NULL)", name="volunteer_discipline"
         ),

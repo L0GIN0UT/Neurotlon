@@ -26,6 +26,7 @@ from neurotlon_server.badges import (
 )
 from neurotlon_server.codes import normalize_code
 from neurotlon_server.models import AuditLog, Participant, Team
+from neurotlon_server.participants import _out
 
 from .conftest import FakeClock, login_as, make_user
 
@@ -91,9 +92,8 @@ def test_generate_rejects_extra_fields(admin: TestClient) -> None:
     assert admin.post(f"{API}/generate", json={"count": 2, "x": 1}).status_code == 422
 
 
-@pytest.mark.parametrize("role", ["judge", "volunteer"])
-def test_generate_forbidden_for_other_roles(app: FastAPI, db: Session, role: str) -> None:
-    make_user(db, "other", role=role, discipline="darts" if role == "volunteer" else None)
+def test_generate_forbidden_for_volunteer(app: FastAPI, db: Session) -> None:
+    make_user(db, "other", role="volunteer", discipline="darts")
     other = login_as(app, "other")
     assert other.post(f"{API}/generate", json={"count": 2}).status_code == 403
 
@@ -129,16 +129,10 @@ def test_list_for_admin_includes_category_and_team(
     assert rows[1]["team"] == {"number": 1, "name": "Red", "color": "#FF0000"}
 
 
-def test_list_for_judge_has_no_category(app: FastAPI, admin: TestClient, db: Session) -> None:
-    _generate(admin, 2)
-    admin.post(f"{API}/NT01/check-in", json={"category": "general"})
-    make_user(db, "jd", role="judge")
-    response = login_as(app, "jd").get(API)
-    assert response.status_code == 200
-    rows = response.json()
-    assert len(rows) == 2
-    assert all("category" not in row for row in rows)
-    assert "general" not in response.text
+def test_output_without_category_hides_it() -> None:
+    participant = Participant(code="NT01", category="ovz")
+    assert "category" not in _out(participant, None, with_category=False)
+    assert _out(participant, None, with_category=True)["category"] == "ovz"
 
 
 def test_list_forbidden_for_volunteer(app: FastAPI, db: Session) -> None:
@@ -180,8 +174,8 @@ def test_badges_pdf_without_participants(admin: TestClient) -> None:
     assert admin.get(f"{API}/badges.pdf").status_code == 404
 
 
-def test_badges_pdf_forbidden_for_judge(app: FastAPI, db: Session) -> None:
-    make_user(db, "jd", role="judge")
+def test_badges_pdf_forbidden_for_volunteer(app: FastAPI, db: Session) -> None:
+    make_user(db, "jd", role="volunteer", discipline="darts")
     assert login_as(app, "jd").get(f"{API}/badges.pdf").status_code == 403
 
 
@@ -373,16 +367,16 @@ def test_display_name_length_boundary(admin: TestClient) -> None:
     assert admin.post(f"{API}/NT01/check-in", json=padded).status_code == 200
 
 
-def test_check_in_forbidden_for_judge_and_anonymous(
+def test_check_in_forbidden_for_volunteer_and_anonymous(
     app: FastAPI, admin: TestClient, client: TestClient, db: Session
 ) -> None:
     _generate(admin)
-    make_user(db, "jd", role="judge")
-    judge = login_as(app, "jd")
+    make_user(db, "jd", role="volunteer", discipline="darts")
+    vol = login_as(app, "jd")
     body = {"category": "general"}
-    assert judge.post(f"{API}/NT01/check-in", json=body).status_code == 403
-    assert judge.delete(f"{API}/NT01/check-in").status_code == 403
-    assert judge.patch(f"{API}/NT01", json={"display_name": "A"}).status_code == 403
+    assert vol.post(f"{API}/NT01/check-in", json=body).status_code == 403
+    assert vol.delete(f"{API}/NT01/check-in").status_code == 403
+    assert vol.patch(f"{API}/NT01", json={"display_name": "A"}).status_code == 403
     assert client.post(f"{API}/NT01/check-in", json=body).status_code == 401
 
 

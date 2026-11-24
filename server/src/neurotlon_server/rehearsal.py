@@ -5,7 +5,7 @@ accounts and stations, 20 participants are generated and checked in, the draw ru
 pair "plays" all three disciplines (BCI results from station tokens, physical results from
 volunteers). It also provokes the awkward cases: a replayed result, an offline duplicate that
 becomes a conflict, an undo and a correction request. Finally it checks the scoreboard stream,
-resolves the conflict as the judge, locks the results and downloads the XLSX.
+resolves the conflict as the admin, locks the results and downloads the XLSX.
 
 Everything it creates is prefixed `rehearsal-` / `Rehearsal`, and it refuses to run on a
 database that already has participants. `--reset` wipes only a database that holds nothing but
@@ -235,7 +235,6 @@ def _now() -> str:
 @dataclass
 class _Actors:
     admin: Http
-    judge: Http
     volunteers: dict[str, Http]
     tokens: dict[str, str]
 
@@ -276,7 +275,6 @@ class Rehearsal:
             _call(su.post(f"{API}/users", body), 201, f"create {login}")
 
         create(f"{PREFIX}admin", "admin")
-        create(f"{PREFIX}judge", "judge")
         for d in DISCIPLINES:
             create(f"{PREFIX}vol-{d}", "volunteer", d)
         tokens: dict[str, str] = {}
@@ -289,14 +287,13 @@ class Rehearsal:
             tokens[d] = reply.json()["token"]
         actors = _Actors(
             admin=_login(self.make_http(), f"{PREFIX}admin", passwords[f"{PREFIX}admin"]),
-            judge=_login(self.make_http(), f"{PREFIX}judge", passwords[f"{PREFIX}judge"]),
             volunteers={
                 d: _login(self.make_http(), f"{PREFIX}vol-{d}", passwords[f"{PREFIX}vol-{d}"])
                 for d in DISCIPLINES
             },
             tokens=tokens,
         )
-        self.report.check("accounts: admin, judge, 3 volunteers, 3 stations created", True)
+        self.report.check("accounts: admin, 3 volunteers, 3 stations created", True)
         for d in DISCIPLINES:
             reply = actors.volunteers[d].get(f"{API}/auth/me")
             self.report.check(f"volunteer {d} signs in", reply.status == 200, str(reply.status))
@@ -461,7 +458,7 @@ class Rehearsal:
         duplicate = self._body("darts", "bci", [self._entry(code, self._points("bci"))])
         got = station.post(f"{API}/results", duplicate, auth)
         self.report.check("offline duplicate is stored (never dropped)", got.status == 201)
-        listing = _call(actors.judge.get(f"{API}/conflicts"), 200, "conflicts").json()
+        listing = _call(actors.admin.get(f"{API}/conflicts"), 200, "conflicts").json()
         found = [c for c in listing if c["participant_code"] == code]
         self.report.check("duplicate shows up as a conflict", len(found) == 1, str(listing))
         board = self.make_http().get(f"{API}/scoreboard").json()
@@ -471,16 +468,16 @@ class Rehearsal:
         self.report.check("scoreboard marks the conflict as pending", len(pending) == 1)
         special["conflict"] = found[0] if found else None
 
-    def _judge(self, actors: _Actors, special: dict[str, Any], watcher: ScoreboardWatcher) -> None:
-        judge = actors.judge
+    def _review(self, actors: _Actors, special: dict[str, Any], watcher: ScoreboardWatcher) -> None:
+        admin = actors.admin
         conflict = special["conflict"]
         if conflict is not None:
             keep = conflict["results"][0]["id"]
-            resolved = judge.post(
+            resolved = admin.post(
                 f"{API}/conflicts/resolve", {"keep_result_id": keep, "reason": "rehearsal"}
             )
-            self.report.check("judge resolves the conflict", resolved.status == 200)
-        left = _call(judge.get(f"{API}/conflicts"), 200, "conflicts").json()
+            self.report.check("admin resolves the conflict", resolved.status == 200)
+        left = _call(admin.get(f"{API}/conflicts"), 200, "conflicts").json()
         self.report.check("no conflicts left", left == [], str(left))
 
         corr = special["correction"]
@@ -489,20 +486,20 @@ class Rehearsal:
             f"{API}/corrections", {"session_id": corr["session_id"], "comment": "wrong score"}
         )
         self.report.check("volunteer asks for a correction", asked.status == 201, str(asked.status))
-        pending = _call(judge.get(f"{API}/corrections"), 200, "corrections").json()
-        self.report.check("judge sees the open request", len(pending) == 1, str(pending))
+        pending = _call(admin.get(f"{API}/corrections"), 200, "corrections").json()
+        self.report.check("admin sees the open request", len(pending) == 1, str(pending))
         rows = _call(
-            judge.get(f"{API}/results?session_id={corr['session_id']}"), 200, "results"
+            admin.get(f"{API}/results?session_id={corr['session_id']}"), 200, "results"
         ).json()["items"]
 
         started = time.monotonic()
         if rows and pending:
-            fixed = judge.patch(
+            fixed = admin.patch(
                 f"{API}/results/{rows[0]['id']}",
                 {"points": self._other_points(rows[0]["points"]), "change_reason": "rehearsal"},
             )
-            self.report.check("judge corrects the result", fixed.status == 200, str(fixed.status))
-            done = judge.post(f"{API}/corrections/{pending[0]['id']}/done")
+            self.report.check("admin corrects the result", fixed.status == 200, str(fixed.status))
+            done = admin.post(f"{API}/corrections/{pending[0]['id']}/done")
             self.report.check("request marked done", done.status == 200, str(done.status))
 
         expected = _call(self.make_http().get(f"{API}/scoreboard"), 200, "scoreboard").json()
@@ -517,7 +514,7 @@ class Rehearsal:
             self.report.out(f"      (seen after {elapsed:.1f} s, {len(watcher.events)} events)")
 
     def _finish(self, actors: _Actors) -> None:
-        judge = actors.judge
+        admin = actors.admin
         board = _call(self.make_http().get(f"{API}/scoreboard"), 200, "scoreboard")
         data = board.json()
         self.report.check("scoreboard has 2 teams", len(data["teams"]) == 2)
@@ -529,17 +526,17 @@ class Rehearsal:
             "scoreboard hides the category", "ovz" not in text and "general" not in text
         )
 
-        locked = judge.post(f"{API}/results/lock", {})
+        locked = admin.post(f"{API}/results/lock", {})
         self.report.check(
-            "judge locks the results",
+            "admin locks the results",
             locked.status == 200 and locked.json()["locked"] > 0,
             f"{locked.status} {locked.body[:120]!r}",
         )
-        again = judge.post(f"{API}/results/lock", {})
+        again = admin.post(f"{API}/results/lock", {})
         self.report.check(
             "second lock changes nothing", again.status == 200 and again.json()["locked"] == 0
         )
-        rows = _call(judge.get(f"{API}/results?limit=1000"), 200, "results").json()["items"]
+        rows = _call(admin.get(f"{API}/results?limit=1000"), 200, "results").json()["items"]
         live = [r for r in rows if not r["voided"]]
         self.report.check("every live result is locked", all(r["status"] == "locked" for r in live))
         after = _call(self.make_http().get(f"{API}/scoreboard"), 200, "scoreboard").json()
@@ -571,7 +568,7 @@ class Rehearsal:
             self.report.check("scoreboard stream opens", bool(watcher.events), watcher.error or "")
             special = self._play(actors, pairs)
             self._edge_cases(actors, special)
-            self._judge(actors, special, watcher)
+            self._review(actors, special, watcher)
             self._finish(actors)
         except Abort as exc:
             self.report.check("rehearsal could continue", False, str(exc))

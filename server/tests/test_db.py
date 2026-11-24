@@ -1,4 +1,6 @@
+import sqlite3
 from collections.abc import Iterator
+from contextlib import closing
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -276,8 +278,8 @@ def test_section_result_session_unique_but_duplicates_across_sessions_allowed(
     [
         ("volunteer", "darts", True),
         ("volunteer", None, False),
-        ("judge", "darts", False),
-        ("judge", None, True),
+        ("judge", None, False),
+        ("admin", "darts", False),
         ("admin", None, True),
         ("boss", None, False),
     ],
@@ -340,3 +342,67 @@ def test_audit_log_none_stored_as_sql_null(engine: Engine) -> None:
         row = conn.execute(text("SELECT before IS NULL, after FROM audit_log")).one()
     assert row[0] == 1
     assert row[1] == '{"k": 1}'
+
+
+def test_migration_turns_judges_into_admins(url: str) -> None:
+    config = _alembic_config(url)
+    command.upgrade(config, "0009")
+    engine = create_engine_from_settings(Settings(database_url=url))
+    _insert(engine, "user", login="judy", password_hash="h", role="judge")
+    _insert(engine, "user", login="vol", password_hash="h", role="volunteer", discipline="darts")
+    _insert(engine, "user", login="root", password_hash="h", role="superuser")
+    _insert(engine, "station", name="s", discipline="darts", token_hash="h")
+    _insert(
+        engine,
+        "audit_log",
+        at=NOW,
+        action="a",
+        object_type="t",
+        object_id="1",
+        user_id=1,
+        station_id=1,
+    )
+    command.upgrade(config, "head")
+    with engine.connect() as conn:
+        rows = conn.execute(text('SELECT login, role, discipline FROM "user" ORDER BY id')).all()
+        audit_users = conn.execute(text("SELECT user_id FROM audit_log")).scalars().all()
+    assert [tuple(r) for r in rows] == [
+        ("judy", "admin", None),
+        ("vol", "volunteer", "darts"),
+        ("root", "superuser", None),
+    ]
+    assert audit_users == [1, None]
+    with engine.connect() as conn:
+        migrated = conn.execute(
+            text(
+                "SELECT user_id, action, object_type, object_id, before, after "
+                "FROM audit_log WHERE action = 'user.role_migrated'"
+            )
+        ).all()
+    assert [tuple(r) for r in migrated] == [
+        (None, "user.role_migrated", "user", "1", '{"role": "judge"}', '{"role": "admin"}')
+    ]
+    with pytest.raises(IntegrityError):
+        _insert(engine, "user", login="again", password_hash="h", role="judge")
+    command.downgrade(config, "0009")  # one step back and forward again keeps the data
+    command.upgrade(config, "head")
+    with engine.connect() as conn:
+        roles = conn.execute(text('SELECT role FROM "user" ORDER BY id')).scalars().all()
+        audit_rows = conn.execute(text("SELECT COUNT(*) FROM audit_log")).scalar()
+    assert roles == ["admin", "volunteer", "superuser"]
+    assert audit_rows == 2
+    engine.dispose()
+
+
+def test_migration_reports_foreign_key_violations(url: str) -> None:
+    config = _alembic_config(url)
+    command.upgrade(config, "0008")
+    with closing(sqlite3.connect(url.removeprefix("sqlite:///"))) as raw:  # foreign keys off
+        raw.execute(
+            "INSERT INTO audit_log (at, user_id, action, object_type, object_id) "
+            "VALUES (?, 99, 'a', 't', '1')",
+            (NOW,),
+        )
+        raw.commit()
+    with pytest.raises(RuntimeError, match=r"table=audit_log rowid=\d+ parent=user"):
+        command.upgrade(config, "head")

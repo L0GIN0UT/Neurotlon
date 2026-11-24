@@ -138,7 +138,7 @@ def top_players(
     The first `limit` entries are ranked 1..limit: points desc, sections passed in the discipline
     desc, number in team asc; players with no counted result are left out. Players whose section
     in this discipline is in a conflict take no place: they follow as extra entries with
-    `rank=None` and `pending=True`, so the judge's open question is never cut off.
+    `rank=None` and `pending=True`, so the admin's open question is never cut off.
     """
     counted = []
     pending = []

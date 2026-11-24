@@ -14,7 +14,6 @@ BEAT = {"state": "idle", "queue_length": 2, "sensors": {"eeg": "connected"}}
     [
         ("superuser", None, 200),
         ("admin", None, 200),
-        ("judge", None, 403),
         ("volunteer", "pong", 403),
     ],
 )
@@ -76,7 +75,6 @@ def test_station_last_beat_is_returned_as_time(
     [
         ("superuser", None, 200),
         ("admin", None, 403),
-        ("judge", None, 403),
         ("volunteer", "pong", 403),
     ],
 )
