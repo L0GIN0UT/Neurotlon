@@ -17,7 +17,7 @@ export interface FakeServer {
   fetchFn: typeof fetch
   /** Ключ — «МЕТОД /путь» без /api/v1; `*` заменяет один сегмент пути. */
   routes: Map<string, Handler>
-  calls: { key: string; body: unknown; url: URL }[]
+  calls: { key: string; body: unknown; url: URL; contentType: string | null }[]
   bodies: (key: string) => unknown[]
   count: (key: string) => number
 }
@@ -53,9 +53,11 @@ export function createFakeServer(role: string | null, login = 'boss'): FakeServe
     const url = new URL(String(input), 'https://hall.local')
     const path = url.pathname.replace('/api/v1', '')
     const method = init?.method ?? 'GET'
-    const body: unknown = init?.body ? JSON.parse(String(init.body)) : undefined
+    // Blob (JPEG фото) остаётся как есть, остальное тело — JSON
+    const body: unknown =
+      init?.body instanceof Blob ? init.body : init?.body ? JSON.parse(String(init.body)) : undefined
     const key = resolveKey(routes, `${method} ${path}`)
-    calls.push({ key, body, url })
+    calls.push({ key, body, url, contentType: new Headers(init?.headers).get('Content-Type') })
     const handler = routes.get(key)
     if (!handler) return Promise.resolve(problem(404, 'not_found'))
     return Promise.resolve(handler(body, url))
