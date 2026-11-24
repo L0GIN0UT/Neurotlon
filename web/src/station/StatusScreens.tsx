@@ -246,6 +246,7 @@ export function RejectedScreen({
           {t.EXPORT}
         </button>
         <button type="button" className="ghost wide" onClick={() => send({ action: 'close_rejected' })}>
+          <Icon name="back" />
           {t.BACK}
         </button>
       </div>

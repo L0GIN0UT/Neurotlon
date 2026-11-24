@@ -844,14 +844,29 @@ body:has(.station) {
 }
 
 .ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.9rem;
   height: 6.4rem;
   min-width: 15.5rem;
-  padding: 0 2rem;
+  padding: 0 2.4rem;
   border: 1px solid rgb(255 255 255 / 12%);
-  border-radius: 1.6rem;
+  border-radius: 1.6rem; /* как у «Играть» и клавиш: одна форма на весь экран */
   background: var(--surface-hi);
   font-size: 1.9rem;
   font-weight: 700;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.ghost:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--surface-hi) 80%, white 8%);
+  border-color: rgb(255 255 255 / 20%);
+}
+
+.ghost svg {
+  width: 2.4rem;
+  height: 2.4rem;
 }
 
 .ghost.wide {
@@ -1158,10 +1173,16 @@ body:has(.station) {
 .setup-action {
   padding: 0 1.4rem;
   border: 1px solid rgb(255 255 255 / 12%);
-  border-radius: 1rem;
+  border-radius: 1rem; /* как у полей ввода рядом */
   background: var(--surface-hi);
   font-size: 1.4rem;
   font-weight: 700;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.setup-action:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--surface-hi) 80%, white 8%);
+  border-color: rgb(255 255 255 / 20%);
 }
 
 .setup-result {
@@ -1506,19 +1527,17 @@ body:has(.station) {
   }
 }
 
-.back-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 1rem;
-  margin-top: 2.4rem;
+.ghost.back-button {
+  height: 6rem;
+  min-width: 0;
+  margin-top: 3.2rem;
+  padding: 0 2.8rem 0 2.2rem;
+  font-size: 2rem;
 }
 
-.back-button svg {
-  width: 2.6rem;
-  height: 2.6rem;
-}
-
-.back-button.inline {
+.ghost.back-button.inline {
+  height: 7rem; /* рядом с «Повторить» кнопки одной высоты */
+  min-width: 22rem;
   margin-top: 0;
+  font-size: 2.4rem;
 }
