@@ -1,4 +1,4 @@
-"""Judge and admin tools for stored results: search, correction, lock (decision 9, section 8)."""
+"""Admin tools for stored results: search, correction, lock (decision 9, section 8)."""
 
 from datetime import datetime
 from typing import Annotated, Any, Literal
@@ -11,7 +11,7 @@ from sqlalchemy.engine import CursorResult
 from neurotlon_server.audit import write_audit
 from neurotlon_server.auth import Db, require_role
 from neurotlon_server.codes import normalize_code
-from neurotlon_server.errors import ProblemError, conflict, forbidden, not_found
+from neurotlon_server.errors import ProblemError, conflict, not_found
 from neurotlon_server.models import (
     CorrectionRequest,
     Discipline,
@@ -24,7 +24,7 @@ from neurotlon_server.scoring import COUNTED_STATUSES
 
 router = APIRouter(prefix="/api/v1/results", tags=["results"])
 
-Judge = Annotated[User, Depends(require_role("judge", "admin", "superuser"))]
+Staff = Annotated[User, Depends(require_role("admin", "superuser"))]
 
 DEFAULT_LIMIT = 200
 MAX_LIMIT = 1000
@@ -130,9 +130,7 @@ def _apply(db: Db, row: SectionResult, patch: ResultPatch) -> dict[str, Any]:
     return new
 
 
-def _pong_siblings(
-    db: Db, row: SectionResult, new: dict[str, Any], user: User
-) -> list[SectionResult]:
+def _pong_siblings(db: Db, row: SectionResult, new: dict[str, Any]) -> list[SectionResult]:
     """Match-level rules; returns the other rows that must get wins=0 in the same edit."""
     if row.discipline != "pong":
         return []
@@ -155,8 +153,6 @@ def _pong_siblings(
         if wins != 1 or new["wins"] is None:
             raise _invalid("both players completed: exactly one must have wins=1")
     for other in changed:
-        if other.status == "locked" and user.role == "judge":
-            raise forbidden()
         if other.status not in ("confirmed", "locked"):
             raise conflict("The other player's result is not confirmed")
     return changed
@@ -165,7 +161,7 @@ def _pong_siblings(
 @router.get("")
 def list_results(
     db: Db,
-    user: Judge,
+    user: Staff,
     participant: Annotated[str | None, Query()] = None,
     discipline: Annotated[DisciplineName | None, Query()] = None,
     section: Annotated[SectionName | None, Query()] = None,
@@ -224,11 +220,9 @@ def _blockers(db: Db) -> dict[str, int]:
 
 @router.post("/lock")
 def lock_results(
-    db: Db, user: Judge, body: Annotated[LockRequest | None, Body()] = None
+    db: Db, user: Staff, body: Annotated[LockRequest | None, Body()] = None
 ) -> dict[str, int]:
     force = body is not None and body.force
-    if force and user.role == "judge":
-        raise forbidden()
     blockers = _blockers(db)
     blocked = any(blockers.values())
     if blocked and not force:
@@ -305,18 +299,16 @@ def _demote_sibling(db: Db, other: SectionResult, user: User, change_reason: str
 
 
 @router.patch("/{result_id}")
-def patch_result(result_id: int, body: ResultPatch, db: Db, user: Judge) -> ResultOut:
+def patch_result(result_id: int, body: ResultPatch, db: Db, user: Staff) -> ResultOut:
     row = db.get(SectionResult, result_id)
     if row is None:
         raise not_found("Result not found")
     if row.voided_at is not None:
         raise conflict("Result is voided")
-    if row.status == "locked" and user.role == "judge":
-        raise forbidden()
     if row.status not in ("confirmed", "locked"):
         raise conflict("Only confirmed or locked results can be corrected")
     new = _apply(db, row, body)
-    siblings = _pong_siblings(db, row, new, user)
+    siblings = _pong_siblings(db, row, new)
     before = _snapshot(row) | {"version": row.version}
     version, status = row.version, row.status
     # Guarded update: of two parallel corrections (or a lock in between) only one wins.

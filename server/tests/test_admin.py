@@ -13,7 +13,7 @@ from neurotlon_server.security import hash_token
 
 from .conftest import PASSWORD, login_as, make_user
 
-NEW_USER = {"login": "judy", "password": "password-1", "role": "judge"}
+NEW_USER = {"login": "ann", "password": "password-1", "role": "admin"}
 
 
 @pytest.fixture
@@ -22,9 +22,7 @@ def root(app: FastAPI, db: Session) -> TestClient:
     return login_as(app, "root")
 
 
-@pytest.mark.parametrize(
-    ("role", "discipline"), [("admin", None), ("judge", None), ("volunteer", "darts")]
-)
+@pytest.mark.parametrize(("role", "discipline"), [("admin", None), ("volunteer", "darts")])
 def test_non_superuser_cannot_manage_users(
     app: FastAPI, db: Session, role: str, discipline: str | None
 ) -> None:
@@ -46,12 +44,12 @@ def test_superuser_creates_user_who_can_log_in(app: FastAPI, root: TestClient, d
     response = root.post("/api/v1/users", json=NEW_USER)
     assert response.status_code == 201
     body = response.json()
-    assert body == {"id": body["id"], "login": "judy", "role": "judge", "discipline": None}
+    assert body == {"id": body["id"], "login": "ann", "role": "admin", "discipline": None}
     user = db.get(User, body["id"])
     assert user is not None
     assert user.password_hash.startswith("$argon2")
-    judy = TestClient(app, base_url="https://testserver")
-    login = judy.post("/api/v1/auth/login", json={"login": "judy", "password": "password-1"})
+    ann = TestClient(app, base_url="https://testserver")
+    login = ann.post("/api/v1/auth/login", json={"login": "ann", "password": "password-1"})
     assert login.status_code == 204
 
 
@@ -68,7 +66,8 @@ def test_duplicate_login_is_409(root: TestClient) -> None:
         {"password": "short"},
         {"role": "superuser"},
         {"role": "volunteer"},
-        {"role": "judge", "discipline": "darts"},
+        {"role": "admin", "discipline": "darts"},
+        {"role": "judge"},
         {"role": "volunteer", "discipline": "chess"},
         {"login": ""},
     ],
@@ -143,13 +142,13 @@ def test_admin_can_create_station_and_only_hash_is_stored(app: FastAPI, db: Sess
     assert body["token"] != station.token_hash
 
 
-def test_station_creation_forbidden_for_judge_and_duplicate_name(
+def test_station_creation_forbidden_for_volunteer_and_duplicate_name(
     app: FastAPI, root: TestClient, db: Session
 ) -> None:
-    make_user(db, "judy", role="judge")
-    judy = login_as(app, "judy")
+    make_user(db, "vol", role="volunteer", discipline="pong")
+    ann = login_as(app, "vol")
     payload = {"name": "S1", "discipline": "pong"}
-    assert judy.post("/api/v1/stations", json=payload).status_code == 403
+    assert ann.post("/api/v1/stations", json=payload).status_code == 403
     assert root.post("/api/v1/stations", json=payload).status_code == 201
     assert root.post("/api/v1/stations", json=payload).status_code == 409
     assert root.post("/api/v1/stations", json={"name": "S2", "discipline": "x"}).status_code == 422
@@ -202,7 +201,7 @@ def test_audit_rows_written_without_secrets(root: TestClient, db: Session) -> No
     ]
     root_id = db.scalars(select(User.id).where(User.login == "root")).one()
     assert all(r.user_id == root_id for r in rows[1:])
-    assert rows[1].after == {"login": "judy", "role": "judge", "discipline": None}
+    assert rows[1].after == {"login": "ann", "role": "admin", "discipline": None}
     dump = json.dumps([[r.action, r.object_type, r.object_id, r.after] for r in rows])
     for secret in (
         "password-1",

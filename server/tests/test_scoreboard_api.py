@@ -106,21 +106,21 @@ def test_conflicts_require_login(client: TestClient) -> None:
     assert client.post(f"{API}/conflicts/resolve", json={}).status_code == 401
 
 
-def test_judge_resolves_and_scoreboard_counts_kept(
+def test_admin_resolves_and_scoreboard_counts_kept(
     app: FastAPI, client: TestClient, db: Session
 ) -> None:
     two_darts(client, db)
-    make_user(db, "judge", role="judge")
-    judge = login_as(app, "judge")
+    make_user(db, "adm", role="admin")
+    admin = login_as(app, "adm")
     first, second = result_ids(db)
-    response = judge.post(
+    response = admin.post(
         f"{API}/conflicts/resolve", json={"keep_result_id": second, "reason": "station glitch"}
     )
     assert response.status_code == 200
     assert response.json() == {"voided": [first]}
     assert alpha(client)["total"] == 10
     assert alpha(client)["top"]["darts"][0]["pending"] is False
-    assert judge.get(f"{API}/conflicts").json() == []
+    assert admin.get(f"{API}/conflicts").json() == []
     db.expire_all()
     voided = db.get(SectionResult, first)
     assert voided is not None
@@ -129,7 +129,7 @@ def test_judge_resolves_and_scoreboard_counts_kept(
     audit = db.scalars(select(AuditLog).where(AuditLog.action == "result.resolve")).one()
     assert audit.after == {"kept": second, "voided": [first]}
     assert audit.reason == "station glitch"
-    again = judge.post(f"{API}/conflicts/resolve", json={"keep_result_id": second, "reason": "x"})
+    again = admin.post(f"{API}/conflicts/resolve", json={"keep_result_id": second, "reason": "x"})
     assert again.status_code == 409
 
 
@@ -154,14 +154,14 @@ def test_resolve_validation(app: FastAPI, client: TestClient, db: Session) -> No
     seed_people(db)
     _, headers = make_station(db, "d1", "darts")
     client.post(f"{API}/results", json=darts_body(), headers=headers)
-    make_user(db, "judge", role="judge")
-    judge = login_as(app, "judge")
+    make_user(db, "adm", role="admin")
+    admin = login_as(app, "adm")
     (only,) = result_ids(db)
     url = f"{API}/conflicts/resolve"
-    assert judge.post(url, json={"keep_result_id": only, "reason": "x"}).status_code == 409
-    assert judge.post(url, json={"keep_result_id": 999, "reason": "x"}).status_code == 404
-    assert judge.post(url, json={"keep_result_id": only, "reason": ""}).status_code == 422
-    assert judge.post(url, json={"keep_result_id": only, "reason": "x" * 201}).status_code == 422
+    assert admin.post(url, json={"keep_result_id": only, "reason": "x"}).status_code == 409
+    assert admin.post(url, json={"keep_result_id": 999, "reason": "x"}).status_code == 404
+    assert admin.post(url, json={"keep_result_id": only, "reason": ""}).status_code == 422
+    assert admin.post(url, json={"keep_result_id": only, "reason": "x" * 201}).status_code == 422
 
 
 def test_station_cannot_use_conflicts(client: TestClient, db: Session) -> None:
@@ -186,8 +186,8 @@ def test_pong_win_points_come_from_discipline(
     }
     assert client.post(f"{API}/results", json=body, headers=headers).status_code == 201
     assert alpha(client)["total"] == 10
-    make_user(db, "judge", role="judge")
-    patch = login_as(app, "judge").patch(f"{API}/disciplines/pong", json={"win_points": 25})
+    make_user(db, "adm", role="admin")
+    patch = login_as(app, "adm").patch(f"{API}/disciplines/pong", json={"win_points": 25})
     assert patch.status_code == 200
     assert alpha(client)["total"] == 25
 
@@ -197,7 +197,6 @@ def test_discipline_patch_roles_bounds_and_audit(
 ) -> None:
     for login, role, discipline in (
         ("boss", "admin", None),
-        ("judge", "judge", None),
         ("vol", "volunteer", "darts"),
     ):
         make_user(db, login, role=role, discipline=discipline)
@@ -214,7 +213,7 @@ def test_discipline_patch_roles_bounds_and_audit(
         "win_points": 10,
         "max_section_points": 10,
     }
-    assert login_as(app, "judge").patch(url, json={"win_points": 0}).status_code == 200
+    assert admin.patch(url, json={"win_points": 0}).status_code == 200
     for bad in (
         {"game_duration_s": 9},
         {"physical_duration_s": 3601},
@@ -401,23 +400,23 @@ def test_locked_and_confirmed_in_same_section_conflict(
     db.commit()
     app.state.scoreboard.mark_dirty()
     assert alpha(client)["top"]["darts"][0]["pending"] is True
-    make_user(db, "judge", role="judge")
-    assert len(login_as(app, "judge").get(f"{API}/conflicts").json()) == 1
+    make_user(db, "adm", role="admin")
+    assert len(login_as(app, "adm").get(f"{API}/conflicts").json()) == 1
 
 
 def test_resolve_database_error_is_409(
     app: FastAPI, client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     two_darts(client, db)
-    make_user(db, "judge", role="judge")
-    judge = login_as(app, "judge")
+    make_user(db, "adm", role="admin")
+    admin = login_as(app, "adm")
     first, _second = result_ids(db)
 
     def locked(_self: Session) -> None:
         raise OperationalError("COMMIT", {}, Exception("database is locked"))
 
     monkeypatch.setattr(Session, "commit", locked)
-    response = judge.post(f"{API}/conflicts/resolve", json={"keep_result_id": first, "reason": "x"})
+    response = admin.post(f"{API}/conflicts/resolve", json={"keep_result_id": first, "reason": "x"})
     assert response.status_code == 409
     assert response.json()["code"] == "conflict"
 

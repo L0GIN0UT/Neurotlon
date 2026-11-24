@@ -78,6 +78,6 @@ def test_second_open_correction_is_409_until_done(app: FastAPI, db: Session) -> 
     ok = {"session_id": SESSION_A, "comment": "x"}
     first = vol.post(f"{API}/corrections", json=ok).json()
     assert vol.post(f"{API}/corrections", json=ok).status_code == 409
-    make_user(db, "judge1", role="judge")
-    login_as(app, "judge1").post(f"{API}/corrections/{first['id']}/done")
+    make_user(db, "admin1", role="admin")
+    login_as(app, "admin1").post(f"{API}/corrections/{first['id']}/done")
     assert vol.post(f"{API}/corrections", json=ok).status_code == 201

@@ -22,7 +22,7 @@ from neurotlon_server.models import (
 router = APIRouter(prefix="/api/v1", tags=["draw"])
 
 Manager = Annotated[User, Depends(require_role("superuser", "admin"))]
-Viewer = Annotated[User, Depends(require_role("superuser", "admin", "judge"))]
+Viewer = Annotated[User, Depends(require_role("superuser", "admin"))]
 
 MAX_SEED = 2**63 - 1
 

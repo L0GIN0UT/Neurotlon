@@ -16,7 +16,7 @@ from neurotlon_server.scoring import COUNTED_STATUSES
 
 router = APIRouter(prefix="/api/v1/conflicts", tags=["conflicts"])
 
-Resolver = Annotated[User, Depends(require_role("superuser", "admin", "judge", "volunteer"))]
+Resolver = Annotated[User, Depends(require_role("superuser", "admin", "volunteer"))]
 
 
 class ConflictResultOut(BaseModel):

@@ -13,7 +13,7 @@ from neurotlon_server.models import Discipline, User
 
 router = APIRouter(prefix="/api/v1/disciplines", tags=["disciplines"])
 
-Editor = Annotated[User, Depends(require_role("superuser", "admin", "judge"))]
+Editor = Annotated[User, Depends(require_role("superuser", "admin"))]
 
 
 class DisciplinePatch(BaseModel):

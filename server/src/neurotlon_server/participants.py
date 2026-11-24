@@ -16,7 +16,7 @@ from neurotlon_server.models import Participant, Team, User
 router = APIRouter(prefix="/api/v1/participants", tags=["participants"])
 
 Manager = Annotated[User, Depends(require_role("superuser", "admin"))]
-Viewer = Annotated[User, Depends(require_role("superuser", "admin", "judge"))]
+Viewer = Annotated[User, Depends(require_role("superuser", "admin"))]
 
 DisplayName = Annotated[str, StringConstraints(strip_whitespace=True, max_length=24)]
 

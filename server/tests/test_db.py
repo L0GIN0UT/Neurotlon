@@ -276,8 +276,8 @@ def test_section_result_session_unique_but_duplicates_across_sessions_allowed(
     [
         ("volunteer", "darts", True),
         ("volunteer", None, False),
-        ("judge", "darts", False),
-        ("judge", None, True),
+        ("judge", None, False),
+        ("admin", "darts", False),
         ("admin", None, True),
         ("boss", None, False),
     ],
@@ -340,3 +340,26 @@ def test_audit_log_none_stored_as_sql_null(engine: Engine) -> None:
         row = conn.execute(text("SELECT before IS NULL, after FROM audit_log")).one()
     assert row[0] == 1
     assert row[1] == '{"k": 1}'
+
+
+def test_migration_turns_judges_into_admins(url: str) -> None:
+    config = _alembic_config(url)
+    command.upgrade(config, "0008")
+    engine = create_engine_from_settings(Settings(database_url=url))
+    _insert(engine, "user", login="judy", password_hash="h", role="judge")
+    _insert(engine, "user", login="vol", password_hash="h", role="volunteer", discipline="darts")
+    _insert(engine, "user", login="root", password_hash="h", role="superuser")
+    _insert(engine, "audit_log", at=NOW, action="a", object_type="t", object_id="1", user_id=1)
+    command.upgrade(config, "head")
+    with engine.connect() as conn:
+        rows = conn.execute(text('SELECT login, role, discipline FROM "user" ORDER BY id')).all()
+        audit_users = conn.execute(text("SELECT user_id FROM audit_log")).scalars().all()
+    assert [tuple(r) for r in rows] == [
+        ("judy", "admin", None),
+        ("vol", "volunteer", "darts"),
+        ("root", "superuser", None),
+    ]
+    assert audit_users == [1]
+    with pytest.raises(IntegrityError):
+        _insert(engine, "user", login="again", password_hash="h", role="judge")
+    engine.dispose()

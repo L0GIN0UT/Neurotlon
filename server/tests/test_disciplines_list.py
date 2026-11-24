@@ -12,7 +12,6 @@ from .station_helpers import API
     [
         ("superuser", None, 200),
         ("admin", None, 200),
-        ("judge", None, 200),
         ("volunteer", "pong", 403),
     ],
 )

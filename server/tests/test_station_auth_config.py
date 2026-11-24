@@ -75,7 +75,7 @@ def test_bad_token_is_401(client: TestClient) -> None:
     assert response.status_code == 401
 
 
-@pytest.mark.parametrize("role", ["judge", "admin", "superuser"])
+@pytest.mark.parametrize("role", ["admin", "superuser"])
 def test_other_roles_are_403(app: FastAPI, db: Session, role: str) -> None:
     make_user(db, "someone", role=role)
     client = login_as(app, "someone")

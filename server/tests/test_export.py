@@ -27,7 +27,7 @@ def played(client: TestClient, db: Session) -> None:
 
 @pytest.mark.parametrize(
     ("role", "status"),
-    [("superuser", 200), ("admin", 200), ("judge", 200), ("volunteer", 403)],
+    [("superuser", 200), ("admin", 200), ("volunteer", 403)],
 )
 def test_export_role_matrix(app: FastAPI, db: Session, role: str, status: int) -> None:
     make_user(db, "u", role=role, discipline="darts" if role == "volunteer" else None)
