@@ -1,6 +1,7 @@
 import zipfile
 from collections.abc import Iterator
 from io import BytesIO
+from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
@@ -13,10 +14,11 @@ from neurotlon_server.models import AuditLog
 from .conftest import FakeClock, login_as, make_user
 from .station_helpers import API as ROOT
 from .station_helpers import darts_body, make_station, seed_people
+from .test_jpeg import make_jpeg, seg
 
 API = "/api/v1/participants"
-JPEG = b"\xff\xd8\xff\xe0" + b"\x00\x10JFIF\x00" + b"PHOTO-BYTES" * 10 + b"\xff\xd9"
-JPEG_2 = b"\xff\xd8\xff\xe1" + b"OTHER" * 10 + b"\xff\xd9"
+JPEG = make_jpeg(scan=b"PHOTO-BYTES" * 10)
+JPEG_2 = make_jpeg(scan=b"OTHER-BYTES" * 10)
 JPEG_HEADERS = {"Content-Type": "image/jpeg"}
 
 
@@ -72,8 +74,9 @@ def test_get_without_photo_is_404(admin: TestClient) -> None:
         b"",
         b"GIF89a" + b"x" * 40 + b"\xff\xd9",
         b"\x89PNG\r\n\x1a\n" + b"x" * 40,
-        b"\xff\xd8\xff\xe0" + b"x" * 40,  # truncated: no end marker
+        JPEG[:-2],  # truncated: no end marker
         b"\xff\xd8\xe0" + b"x" * 40 + b"\xff\xd9",  # bad start
+        b"\xff\xd8\xff\xe0\x7f\xff" + b"x" * 40 + b"\xff\xd9",  # length beyond the buffer
     ],
 )
 def test_not_a_complete_jpeg_is_422(admin: TestClient, content: bytes) -> None:
@@ -83,7 +86,8 @@ def test_not_a_complete_jpeg_is_422(admin: TestClient, content: bytes) -> None:
 
 def test_too_large_is_413_and_limit_is_accepted(admin: TestClient) -> None:
     limit = 400 * 1024
-    exact = b"\xff\xd8\xff" + b"x" * (limit - 5) + b"\xff\xd9"
+    base = make_jpeg()
+    exact = make_jpeg(scan=b"x" * (limit - len(base) + 5))
     assert len(exact) == limit
     assert put(admin, exact) == 204
     response = admin.put(f"{API}/NT02/photo", content=exact + b"x", headers=JPEG_HEADERS)
@@ -215,3 +219,50 @@ def test_photo_absent_from_public_and_station_outputs(
         assert not [n for n in names if "media" in n or "drawing" in n or n.endswith(".jpeg")]
         assert all(b"photo" not in book.read(n).lower() for n in names)
         assert all(marker not in book.read(n) for n in names)
+
+
+def test_exif_is_stripped_before_storing(admin: TestClient, db: Session) -> None:
+    dirty = make_jpeg(seg(0xE1, b"Exif\x00\x00GPS-55.75"), seg(0xFE, b"note"), tail=b"<html>")
+    assert put(admin, dirty) == 204
+    stored = admin.get(f"{API}/NT01/photo").content
+    assert stored == make_jpeg()
+    row = db.scalars(select(AuditLog).where(AuditLog.action == "participant.photo_set")).one()
+    assert row.after == {"code": "NT01", "size": len(stored)}
+
+
+def test_get_headers(admin: TestClient) -> None:
+    assert put(admin, JPEG) == 204
+    response = admin.get(f"{API}/NT01/photo")
+    assert response.headers["content-security-policy"] == "default-src 'none'; sandbox"
+    assert response.headers["content-disposition"] == 'inline; filename="NT01.jpg"'
+
+
+def test_wrong_content_type_is_415(admin: TestClient) -> None:
+    for headers in ({"Content-Type": "text/html"}, {"Content-Type": "application/octet-stream"}):
+        assert admin.put(f"{API}/NT01/photo", content=JPEG, headers=headers).status_code == 415
+    empty = {"Content-Type": ""}
+    assert admin.put(f"{API}/NT01/photo", content=JPEG, headers=empty).status_code == 415
+    ok = {"Content-Type": "image/jpeg; charset=binary"}
+    assert admin.put(f"{API}/NT01/photo", content=JPEG, headers=ok).status_code == 204
+
+
+def test_bad_content_length_is_400(admin: TestClient) -> None:
+    headers = {**JPEG_HEADERS, "Content-Length": "12abc"}
+    response = admin.put(f"{API}/NT01/photo", content=JPEG, headers=headers)
+    assert response.status_code == 400
+
+
+def test_repeated_put_keeps_one_row(admin: TestClient, db: Session) -> None:
+    from neurotlon_server.models import ParticipantPhoto
+
+    for photo in (JPEG, JPEG_2, JPEG):
+        assert put(admin, photo) == 204
+    assert len(db.scalars(select(ParticipantPhoto)).all()) == 1
+
+
+def test_delete_erases_bytes_from_database_files(admin: TestClient, tmp_path: Path) -> None:
+    marker = b"PHOTO-BYTES" * 10
+    assert put(admin, JPEG) == 204
+    assert admin.delete(f"{API}/NT01/photo").status_code == 204
+    for path in tmp_path.glob("app.db*"):
+        assert marker not in path.read_bytes(), path.name

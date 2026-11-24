@@ -1,10 +1,12 @@
+import contextlib
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from neurotlon_server.audit import write_audit
@@ -12,6 +14,7 @@ from neurotlon_server.auth import Db, Now, require_role
 from neurotlon_server.badges import build_badges_pdf
 from neurotlon_server.codes import normalize_code
 from neurotlon_server.errors import ProblemError
+from neurotlon_server.jpeg import InvalidJpegError, sanitize_jpeg
 from neurotlon_server.models import Participant, ParticipantPhoto, Team, User
 
 router = APIRouter(prefix="/api/v1/participants", tags=["participants"])
@@ -217,8 +220,6 @@ def patch_participant(code: str, body: PatchRequest, db: Db, actor: Manager) -> 
 
 
 MAX_PHOTO_BYTES = 400 * 1024
-JPEG_START = b"\xff\xd8\xff"
-JPEG_END = b"\xff\xd9"
 
 
 def _photo_too_large() -> ProblemError:
@@ -226,9 +227,15 @@ def _photo_too_large() -> ProblemError:
 
 
 async def _read_photo(request: Request) -> bytes:
+    media_type = request.headers.get("content-type", "").split(";")[0].strip().lower()
+    if media_type != "image/jpeg":
+        raise ProblemError(415, "unsupported_media_type", "The photo must be image/jpeg")
     declared = request.headers.get("content-length")
-    if declared is not None and declared.isdigit() and int(declared) > MAX_PHOTO_BYTES:
-        raise _photo_too_large()
+    if declared is not None:
+        if not (declared.isascii() and declared.isdigit()):
+            raise ProblemError(400, "bad_content_length", "Invalid Content-Length")
+        if int(declared) > MAX_PHOTO_BYTES:
+            raise _photo_too_large()
     body = bytearray()
     async for chunk in request.stream():
         body += chunk
@@ -240,21 +247,33 @@ async def _read_photo(request: Request) -> bytes:
 PhotoBody = Annotated[bytes, Depends(_read_photo)]
 
 
+def _truncate_wal(db: Session) -> None:
+    """Best effort: drop deleted photo bytes from the write-ahead log too."""
+    with contextlib.suppress(OperationalError):
+        db.execute(text("PRAGMA wal_checkpoint(TRUNCATE)"))
+    db.commit()
+
+
 def _photo_headers() -> dict[str, str]:
     return {"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"}
 
 
 @router.put("/{code}/photo", status_code=204)
 def set_photo(code: str, db: Db, now: Now, actor: Manager, content: PhotoBody) -> Response:
-    if not (content.startswith(JPEG_START) and content.endswith(JPEG_END)):
-        raise ProblemError(422, "invalid_photo", "The photo must be a complete JPEG")
+    try:
+        # Metadata (EXIF, GPS, comments) and trailing data never reach the database.
+        content = sanitize_jpeg(content)
+    except InvalidJpegError as error:
+        raise ProblemError(422, "invalid_photo", "The photo must be a complete JPEG") from error
     participant = _get_participant(db, code)
-    photo = db.get(ParticipantPhoto, participant.id)
-    if photo is None:
-        db.add(ParticipantPhoto(participant_id=participant.id, content=content, updated_at=now))
-    else:
-        photo.content = content
-        photo.updated_at = now
+    # Upsert: two first uploads in parallel cannot fail with a unique violation.
+    db.execute(
+        sqlite_insert(ParticipantPhoto)
+        .values(participant_id=participant.id, content=content, updated_at=now)
+        .on_conflict_do_update(
+            index_elements=["participant_id"], set_={"content": content, "updated_at": now}
+        )
+    )
     # Only the size is audited, never the picture.
     write_audit(
         db,
@@ -284,6 +303,7 @@ def clear_photo(code: str, db: Db, actor: Manager) -> Response:
         after={"code": participant.code},
     )
     db.commit()
+    _truncate_wal(db)
     return Response(status_code=204, headers=_photo_headers())
 
 
@@ -293,4 +313,9 @@ def get_photo(code: str, db: Db, actor: Manager) -> Response:
     photo = db.get(ParticipantPhoto, participant.id)
     if photo is None:
         raise ProblemError(404, "no_photo", "The participant has no photo")
-    return Response(photo.content, media_type="image/jpeg", headers=_photo_headers())
+    headers = {
+        **_photo_headers(),
+        "Content-Security-Policy": "default-src 'none'; sandbox",
+        "Content-Disposition": f'inline; filename="{participant.code}.jpg"',
+    }
+    return Response(photo.content, media_type="image/jpeg", headers=headers)
