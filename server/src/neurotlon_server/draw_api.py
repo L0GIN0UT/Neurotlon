@@ -223,6 +223,7 @@ def teams_payload(db: Db) -> dict[str, Any]:
                         "b": by_id[p.participant_b_id].code,
                     }
                     for p in pairs
+                    if p.participant_a_id in by_id and p.participant_b_id in by_id
                 ],
             }
         )
