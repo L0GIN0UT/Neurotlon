@@ -1507,5 +1507,18 @@ body:has(.station) {
 }
 
 .back-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
   margin-top: 2.4rem;
+}
+
+.back-button svg {
+  width: 2.6rem;
+  height: 2.6rem;
+}
+
+.back-button.inline {
+  margin-top: 0;
 }
