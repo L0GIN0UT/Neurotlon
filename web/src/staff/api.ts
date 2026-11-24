@@ -214,6 +214,18 @@ export function createStaffApi(options: ApiOptions = {}) {
 
     results: (filter: ResultFilter) =>
       request<{ total: number; items: StoredResult[] }>('GET', `/results${query(filter)}`),
+    /** Все результаты (постранично, по 1000). */
+    allResults: async (): Promise<StoredResult[]> => {
+      const all: StoredResult[] = []
+      for (;;) {
+        const page = await request<{ total: number; items: StoredResult[] }>(
+          'GET',
+          `/results${query({ limit: '1000', offset: String(all.length) })}`,
+        )
+        all.push(...page.items)
+        if (page.items.length === 0 || all.length >= page.total) return all
+      }
+    },
     patchResult: (id: number, patch: ResultPatch) =>
       request<StoredResult>('PATCH', `/results/${id}`, patch),
     lockResults: (force = false) =>

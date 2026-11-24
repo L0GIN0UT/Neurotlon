@@ -107,6 +107,46 @@ describe('участники', () => {
     expect(await screen.findByRole('button', { name: 'Отменить отметку NT01' })).toBeDefined()
   })
 
+  test('в списке видны баллы по дисциплинам и формам', async () => {
+    server.routes.set('GET /disciplines', () =>
+      json([
+        { code: 'darts', game_duration_s: 240, physical_duration_s: 120, win_points: 3, max_section_points: 10 },
+        { code: 'pong', game_duration_s: 240, physical_duration_s: 120, win_points: 3, max_section_points: 10 },
+      ]),
+    )
+    const base = {
+      session_id: 's', outcome: 'completed', reason: null, comment: null, status: 'confirmed',
+      source: 'station', finished_at: '2027-01-01T10:00:00Z', version: 1, voided: false,
+    }
+    server.routes.set('GET /results', () =>
+      json({
+        total: 3,
+        items: [
+          { ...base, id: 1, participant_code: 'NT01', discipline: 'darts', section: 'bci', points: 7, wins: null },
+          { ...base, id: 2, participant_code: 'NT01', discipline: 'darts', section: 'physical', points: 9, wins: null },
+          { ...base, id: 3, participant_code: 'NT01', discipline: 'pong', section: 'bci', points: 21, wins: 1 },
+        ],
+      }),
+    )
+    renderAdmin(server)
+    const row = (await screen.findByText('NT01')).closest('tr') as HTMLElement
+    expect(await within(row).findByText('7 из 10')).toBeDefined()
+    expect(within(row).getByText('9 из 10')).toBeDefined()
+    expect(within(row).getByText('21 · победа')).toBeDefined()
+  })
+
+  test('поиск и фильтр сужают список', async () => {
+    renderAdmin(server)
+    await screen.findByText('NT01')
+    fireEvent.click(screen.getByRole('button', { name: 'Пришли' }))
+    expect(screen.queryByText('NT01')).toBeNull()
+    expect(screen.getByText('NT02')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Все' }))
+    fireEvent.change(screen.getByLabelText('Поиск'), { target: { value: 'аня' } })
+    expect(screen.queryByText('NT01')).toBeNull()
+    expect(screen.getByText('NT02')).toBeDefined()
+  })
+
   test('в списке участников категории нет', async () => {
     people[1] = person('NT02', { checked_in: true, category: 'ovz' })
     renderAdmin(server)

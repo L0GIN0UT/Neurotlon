@@ -40,7 +40,7 @@ export function DrawTab({ api }: { api: StaffApi }) {
   return (
     <section className="stack">
       <div className="card stack no-print">
-        <h2>Жеребьёвка</h2>
+        <h2>Выбор размера команды</h2>
         {done && (
           <p className="warning">
             Жеребьёвка уже проведена. Повторить её может только суперпользователь и только пока нет
@@ -51,15 +51,16 @@ export function DrawTab({ api }: { api: StaffApi }) {
           <p>Нет подходящих вариантов: отметьте участников обеих категорий.</p>
         )}
         {options.data && options.data.length > 0 && (
+          <div className="table-wrap">
           <table>
             <thead>
               <tr>
                 <th>Выбор</th>
-                <th>m</th>
-                <th>Команд</th>
-                <th>Резерв</th>
-                <th>Резерв с ОВЗ</th>
-                <th>Резерв без ОВЗ</th>
+                <th className="num">Человек в команде (m)</th>
+                <th className="num">Команд</th>
+                <th className="num">В резерве</th>
+                <th className="num">Резерв с ОВЗ</th>
+                <th className="num">Резерв без ОВЗ</th>
               </tr>
             </thead>
             <tbody>
@@ -74,15 +75,16 @@ export function DrawTab({ api }: { api: StaffApi }) {
                       onChange={() => setM(option.m)}
                     />
                   </td>
-                  <td>{option.m}</td>
-                  <td>{option.team_count}</td>
-                  <td>{option.reserve_total}</td>
-                  <td>{option.reserve_ovz}</td>
-                  <td>{option.reserve_general}</td>
+                  <td className="num">{option.m}</td>
+                  <td className="num">{option.team_count}</td>
+                  <td className="num">{option.reserve_total}</td>
+                  <td className="num">{option.reserve_ovz}</td>
+                  <td className="num">{option.reserve_general}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+          </div>
         )}
         <label className="field">
           Зерно (необязательно, для повторяемости)

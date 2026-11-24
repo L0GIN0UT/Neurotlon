@@ -96,9 +96,14 @@ export function StationsTab({ api }: { api: StaffApi }) {
               <td>{formatTime(station.last_heartbeat_at)}</td>
               <td>{station.last_state ? (STATE_NAMES[station.last_state] ?? station.last_state) : '—'}</td>
               <td>{station.queue_length}</td>
-              <td>
-                <button type="button" onClick={() => setRotating(station.id)}>
-                  Новый токен {station.name}
+              <td className="actions">
+                <button
+                  type="button"
+                  className="small"
+                  aria-label={`Новый токен ${station.name}`}
+                  onClick={() => setRotating(station.id)}
+                >
+                  Новый токен
                 </button>
               </td>
             </tr>

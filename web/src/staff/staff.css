@@ -1,15 +1,166 @@
-/* Админка и судья: рабочий стол, шрифты системные (без интернета). */
+/* Админка и судья: тёмный рабочий стол в стиле стенда. Шрифты системные (без интернета). */
+html:has(.staff),
+body:has(.staff) {
+  margin: 0;
+  background: #0b0f1a;
+}
+
 .staff {
-  --accent: #1d5fd1;
-  --bad: #b3261e;
-  --ok: #2e7d32;
-  --warn-bg: #fff3cd;
-  --warn-fg: #6b4e00;
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 16px;
-  font-size: 1rem;
+  --bg: #0b0f1a;
+  --surface: #151b2c;
+  --surface-hi: #232c46;
+  --border: #3a4566;
+  --line: rgb(255 255 255 / 9%);
+  --text: #f1f5ff;
+  --muted: #9fb0d6;
+  --accent: #5b8cff;
+  --good: #34d399;
+  --warn: #f2b705;
+  --bad: #f0524f;
+  --radius: 12px;
+  min-height: 100vh;
   box-sizing: border-box;
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
+  color: var(--text);
+  background:
+    radial-gradient(1100px 600px at 90% -10%, rgb(91 140 255 / 14%), transparent 60%),
+    var(--bg);
+  font-family: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.staff *,
+.staff *::before,
+.staff *::after {
+  box-sizing: border-box;
+}
+
+/* ---------- боковая панель ---------- */
+
+.staff-side {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 20px 14px;
+  background: rgb(21 27 44 / 82%);
+  border-right: 1px solid var(--line);
+}
+
+.staff-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 6px;
+}
+
+.staff-brand img {
+  height: 38px;
+  width: auto;
+}
+
+.staff-brand strong {
+  font-size: 1.05rem;
+  letter-spacing: 0.02em;
+}
+
+.staff-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.staff-menu .tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.staff-pages {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.staff-pages a {
+  padding: 8px 12px;
+  border-radius: 8px;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.staff-pages a:hover {
+  color: var(--text);
+  background: rgb(255 255 255 / 6%);
+}
+
+.staff-pages a[aria-current='page'] {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.staff-user {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 6px 0;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+}
+
+.staff-user span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.staff-main {
+  min-width: 0;
+  padding: 28px 32px 48px;
+  max-width: 1400px;
+}
+
+/* вход, ошибка и «нет доступа» без боковой панели */
+.staff-center {
+  grid-column: 1 / -1;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.staff-center > .card {
+  width: min(420px, 100%);
+}
+
+/* ---------- заголовок раздела ---------- */
+
+.page-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px 24px;
+  margin-bottom: 20px;
+}
+
+.page-head h1 {
+  margin: 0;
+  font-size: 1.75rem;
+  line-height: 1.15;
+}
+
+.page-head p {
+  margin: 4px 0 0;
+  color: var(--muted);
 }
 
 .staff h1,
@@ -18,57 +169,149 @@
   margin: 0.2em 0;
 }
 
+.staff h2 {
+  font-size: 1.2rem;
+}
+
+.staff .hint {
+  margin: 0;
+  color: var(--muted);
+}
+
+/* ---------- кнопки и поля ---------- */
+
 .staff button,
 .staff input,
 .staff select,
+.staff textarea,
 .staff a.button {
   font: inherit;
+  color: inherit;
   min-height: 40px;
-  padding: 6px 14px;
-  border-radius: 8px;
-  border: 1px solid #8a8f98;
+  padding: 7px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
   box-sizing: border-box;
 }
 
 .staff button,
 .staff a.button {
-  cursor: pointer;
-  background: #eef0f4;
-  color: #111;
-  text-decoration: none;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  background: var(--surface-hi);
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.staff button:hover:not(:disabled),
+.staff a.button:hover {
+  background: color-mix(in srgb, var(--surface-hi) 78%, white 10%);
+  border-color: rgb(255 255 255 / 18%);
 }
 
 .staff button.primary,
 .staff a.button.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: #06112b;
+}
+
+.staff button.primary:hover:not(:disabled),
+.staff a.button.primary:hover {
+  background: color-mix(in srgb, var(--accent) 88%, white 12%);
 }
 
 .staff button.ghost {
   background: transparent;
 }
 
+.staff button.danger {
+  color: #ffb4b2;
+}
+
+.staff button.small {
+  min-height: 32px;
+  padding: 3px 10px;
+  font-size: 0.9rem;
+}
+
 .staff button:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
+.staff input,
+.staff select,
+.staff textarea {
+  background: #0b0f1a;
+  border-color: var(--border);
+  font-weight: 400;
+}
+
+.staff input::placeholder {
+  color: #6f7da3;
+}
+
+.staff input:focus-visible,
+.staff select:focus-visible,
+.staff textarea:focus-visible,
+.staff button:focus-visible,
+.staff a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.staff input[type='checkbox'],
+.staff input[type='radio'] {
+  min-height: 0;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  accent-color: var(--accent);
+}
+
+.staff input[type='color'] {
+  padding: 2px;
+  width: 52px;
+}
+
+.staff select option {
+  background: #151b2c;
+}
+
+.staff .field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.staff .field > input,
+.staff .field > select {
+  color: var(--text);
+  font-size: 1rem;
+}
+
+/* ---------- контейнеры ---------- */
+
 .staff .card {
-  background: #fff;
-  color: #111;
-  border-radius: 12px;
-  padding: 16px;
-  box-shadow: 0 1px 4px rgb(0 0 0 / 20%);
-  box-sizing: border-box;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 18px;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 22%);
 }
 
 .staff .stack {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 }
 
 .staff .row {
@@ -82,10 +325,13 @@
   flex: 1 1 200px;
 }
 
-.staff .field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+/* общие правила планшета (.row > button, .card) не должны менять вид админки */
+.staff .row > button {
+  flex: 0 0 auto;
+}
+
+.staff .card {
+  margin-bottom: 0;
 }
 
 .staff fieldset {
@@ -94,44 +340,69 @@
   margin: 0;
 }
 
+.staff legend {
+  padding: 0;
+  margin-bottom: 6px;
+  color: var(--muted);
+}
+
 .staff .error {
-  color: var(--bad);
+  color: #ff8b88;
   font-weight: 600;
   margin: 0;
 }
 
 .staff .warning {
-  background: var(--warn-bg);
-  color: var(--warn-fg);
-  border-radius: 8px;
-  padding: 8px 12px;
+  background: rgb(242 183 5 / 14%);
+  color: #ffd866;
+  border: 1px solid rgb(242 183 5 / 30%);
+  border-radius: 10px;
+  padding: 10px 14px;
   margin: 0;
 }
 
-.staff .topbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  align-items: center;
-  padding-bottom: 12px;
+.staff [role='status'] {
+  color: var(--good);
+  font-weight: 600;
 }
 
-.staff .topbar nav {
-  display: flex;
+.staff .columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 16px;
 }
 
-.staff .tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 12px;
+/* ---------- меню разделов ---------- */
+
+.staff .tabs button {
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 12px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.staff .tabs button:hover:not(:disabled) {
+  background: rgb(255 255 255 / 6%);
+  color: var(--text);
 }
 
 .staff .tabs button.on {
-  background: #d7e6ff;
-  border-color: var(--accent);
-  font-weight: 700;
+  background: rgb(91 140 255 / 18%);
+  border-color: rgb(91 140 255 / 40%);
+  color: var(--text);
+}
+
+/* ---------- таблицы ---------- */
+
+.staff .table-wrap {
+  overflow-x: auto;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
 }
 
 .staff table {
@@ -142,15 +413,46 @@
 .staff th,
 .staff td {
   text-align: left;
-  padding: 6px 8px;
-  border-bottom: 1px solid #d5d8de;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--line);
   vertical-align: middle;
 }
 
+.staff th {
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.staff td.team {
+  white-space: nowrap;
+}
+
+.staff tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.staff tbody tr:hover td {
+  background: rgb(255 255 255 / 3%);
+}
+
+.staff td.num,
+.staff th.num {
+  text-align: center;
+  white-space: nowrap;
+}
+
 .staff td.actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.staff td.actions > * + * {
+  margin-left: 6px;
 }
 
 .staff ul.plain {
@@ -161,69 +463,163 @@
 
 .staff .swatch {
   display: inline-block;
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
-  margin-right: 6px;
-  vertical-align: middle;
-  border: 1px solid #0006;
+  margin-right: 8px;
+  vertical-align: -2px;
+  border: 1px solid rgb(255 255 255 / 35%);
 }
 
-.staff .badge {
+/* ---------- метки ---------- */
+
+.staff .badge,
+.staff .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   border-radius: 999px;
-  padding: 2px 12px;
+  padding: 2px 11px;
+  font-size: 0.88rem;
   font-weight: 700;
-  color: #fff;
+  background: rgb(255 255 255 / 9%);
+  color: var(--text);
+  white-space: nowrap;
 }
 
-.staff .badge.ok {
-  background: var(--ok);
+.staff .badge.ok,
+.staff .chip.good {
+  background: rgb(52 211 153 / 18%);
+  color: #6ee7b7;
 }
 
-.staff .badge.bad {
-  background: var(--bad);
+.staff .badge.bad,
+.staff .chip.bad {
+  background: rgb(240 82 79 / 18%);
+  color: #ff9d9b;
 }
+
+.staff .chip.warn {
+  background: rgb(242 183 5 / 16%);
+  color: #ffd866;
+}
+
+.staff .chip.muted {
+  color: var(--muted);
+}
+
+.staff .score {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.staff .score small {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.staff .empty {
+  padding: 36px 16px;
+  text-align: center;
+  color: var(--muted);
+}
+
+/* ---------- окна ---------- */
 
 .staff .backdrop {
   position: fixed;
   inset: 0;
-  background: rgb(0 0 0 / 50%);
+  background: rgb(5 8 16 / 68%);
+  backdrop-filter: blur(3px);
   display: grid;
   place-items: center;
   z-index: 10;
 }
 
 .staff .dialog {
-  background: #fff;
-  color: #111;
-  border-radius: 12px;
-  padding: 20px;
-  min-width: 340px;
-  max-width: 560px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 22px;
+  min-width: 360px;
+  max-width: 580px;
+  box-shadow: 0 18px 60px rgb(0 0 0 / 55%);
 }
 
 .staff code.token {
   display: block;
   padding: 12px;
-  background: #101828;
+  background: #060912;
   color: #e7f0ff;
-  border-radius: 8px;
-  font-size: 1.1rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 1.05rem;
   word-break: break-all;
   user-select: all;
 }
 
-.staff .columns {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 16px;
+/* ---------- узкие экраны ---------- */
+
+@media (max-width: 900px) {
+  .staff {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .staff-side {
+    position: static;
+    height: auto;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    padding: 12px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .staff-menu,
+  .staff-menu .tabs {
+    flex-direction: row;
+    flex-wrap: wrap;
+    flex: 1 1 100%;
+    order: 3;
+  }
+
+  .staff .tabs button {
+    width: auto;
+  }
+
+  .staff-pages {
+    flex-direction: row;
+    border-top: 0;
+    padding-top: 0;
+  }
+
+  .staff-user {
+    border-top: 0;
+    padding: 0;
+    margin-left: auto;
+  }
+
+  .staff-main {
+    padding: 18px 14px 40px;
+  }
 }
+
+/* ---------- печать ---------- */
 
 .print-only {
   display: none;
 }
 
 @media print {
+  html:has(.staff),
+  body:has(.staff),
+  .staff {
+    background: #fff;
+    color: #000;
+  }
+
   .no-print {
     display: none !important;
   }
@@ -233,11 +629,18 @@
   }
 
   .staff {
+    display: block;
+  }
+
+  .staff-main {
     max-width: none;
     padding: 0;
   }
 
   .staff .card {
+    background: #fff;
+    color: #000;
+    border: 0;
     box-shadow: none;
     padding: 0;
   }
