@@ -9,20 +9,18 @@ type Field = 'game_duration_s' | 'physical_duration_s' | 'win_points' | 'max_sec
 
 interface FieldSpec {
   id: Field
-  /** Короткая подпись над полем. */
+  /** Короткая подпись над полем; она же входит в доступное имя вместе с единицей и дисциплиной. */
   label: string
-  /** Полное имя для скринридера и тестов, к нему добавляется название дисциплины. */
-  full: string
   unit: string
   min: number
   max: number
 }
 
 const FIELDS: FieldSpec[] = [
-  { id: 'game_duration_s', label: 'Игра', full: 'Время игры, с', unit: 'с', min: 10, max: 3600 },
-  { id: 'physical_duration_s', label: 'Физ. секция', full: 'Время физической секции, с', unit: 'с', min: 10, max: 3600 },
-  { id: 'win_points', label: 'За победу', full: 'Очки за победу', unit: 'очк.', min: 0, max: 1000 },
-  { id: 'max_section_points', label: 'Лимит секции', full: 'Лимит очков за секцию', unit: 'очк.', min: 1, max: 1000 },
+  { id: 'game_duration_s', label: 'Игра', unit: 'с', min: 10, max: 3600 },
+  { id: 'physical_duration_s', label: 'Физ. секция', unit: 'с', min: 10, max: 3600 },
+  { id: 'win_points', label: 'За победу', unit: 'очк.', min: 0, max: 1000 },
+  { id: 'max_section_points', label: 'Лимит секции', unit: 'очк.', min: 1, max: 1000 },
 ]
 
 export function DisciplinesTab({ api }: { api: StaffApi }) {
@@ -94,7 +92,7 @@ function DisciplineCard({ api, discipline, onSaved }: CardProps) {
                 type="number"
                 min={field.min}
                 max={field.max}
-                aria-label={`${field.full} (${name})`}
+                aria-label={`${field.label}, ${field.unit} (${name})`}
                 value={values[field.id]}
                 onChange={(e) => {
                   setSaved(false)

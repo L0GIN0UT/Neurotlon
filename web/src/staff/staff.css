@@ -9,6 +9,7 @@ body:has(.staff) {
   --bg: #0b0f1a;
   --surface: #151b2c;
   --surface-hi: #232c46;
+  --surface-hover: #1a2135;
   --border: #3a4566;
   --line: rgb(255 255 255 / 9%);
   --text: #f1f5ff;
@@ -552,7 +553,7 @@ body:has(.staff) {
 }
 
 .staff tbody tr:hover td {
-  background: rgb(255 255 255 / 3%);
+  background: var(--surface-hover);
 }
 
 .staff td.num,
@@ -648,7 +649,7 @@ body:has(.staff) {
   backdrop-filter: blur(3px);
   display: grid;
   place-items: center;
-  z-index: 10;
+  z-index: 30;
 }
 
 .staff .dialog {
@@ -737,6 +738,7 @@ body:has(.staff) {
     flex-direction: column;
     gap: 10px;
     max-height: calc(100vh - 70px);
+    max-height: calc(100dvh - 70px);
     overflow-y: auto;
     padding-top: 8px;
     border-top: 1px solid var(--line);
@@ -779,7 +781,7 @@ body:has(.staff) {
   }
 
   .staff .table-wrap tbody tr:hover td:first-child {
-    background: #1a2135;
+    background: var(--surface-hover);
   }
 
   .staff .row > .field {
@@ -831,8 +833,8 @@ body:has(.staff) {
   }
 }
 
-/* сенсорные экраны: цели касания не меньше 40 px */
-@media (pointer: coarse), (max-width: 900px) {
+/* сенсорные экраны без мыши: цели касания не меньше 44 px (малые кнопки 40 px) */
+@media (any-pointer: coarse) and (hover: none) {
   .staff button,
   .staff input,
   .staff select,
@@ -891,5 +893,16 @@ body:has(.staff) {
     border: 0;
     box-shadow: none;
     padding: 0;
+  }
+
+  .staff .table-wrap,
+  .staff .table-wrap th,
+  .staff .table-wrap td,
+  .staff .table-wrap th:first-child,
+  .staff .table-wrap td:first-child {
+    position: static;
+    background: #fff;
+    color: #000;
+    box-shadow: none;
   }
 }
