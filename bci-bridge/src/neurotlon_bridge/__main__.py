@@ -59,6 +59,7 @@ def main(
 ) -> int:
     args = build_parser().parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    logging.getLogger(__name__).info("bridge started: %s", " ".join(sys.argv[1:]))
     factory = backend_factory or default_backend_factory
     if args.scan:
         return _scan(args, factory)
