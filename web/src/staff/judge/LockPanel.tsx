@@ -18,7 +18,6 @@ function blockersOf(error: unknown): Blockers | null {
 
 interface Props {
   api: StaffApi
-  /** Фиксировать вопреки блокировкам могут только админ и суперпользователь. */
   /** Невыполненные пункты чек-листа: показываются в окне подтверждения. */
   warnings?: string[]
   /** Вызывается после успешной фиксации (обновить счётчики). */
@@ -27,7 +26,7 @@ interface Props {
   onOpen?: () => void
 }
 
-/** «Зафиксировать итоги» с двойным подтверждением: после этого результаты правит только админ (решение 22). */
+/** «Зафиксировать итоги» с двойным подтверждением: после этого результаты правит только админ. */
 export function LockPanel({ api, warnings = [], onLocked, onOpen }: Props) {
   const action = useAction()
   const [step, setStep] = useState<0 | 1 | 2>(0)

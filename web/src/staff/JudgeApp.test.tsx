@@ -97,7 +97,7 @@ describe('запросы на исправление и правка', () => {
   }
 
   function setup(role = 'admin') {
-    const server = createFakeServer(role, 'judy')
+    const server = createFakeServer(role, 'boss')
     const row = stored()
     let open = [correction]
     server.routes.set('GET /conflicts', () => json([]))
@@ -246,8 +246,8 @@ describe('запросы на исправление и правка', () => {
     renderJudge(admin.server)
     await openTab('Поиск и правка')
     fireEvent.click(await screen.findByRole('button', { name: 'Найти' }))
-    const adminForm = await screen.findByRole('form', { name: 'Правка 5' })
-    expect(within(adminForm).getByRole('button', { name: 'Сохранить правку' }).matches(':disabled')).toBe(false)
+    const form = await screen.findByRole('form', { name: 'Правка 5' })
+    expect(within(form).getByRole('button', { name: 'Сохранить правку' }).matches(':disabled')).toBe(false)
   })
 
   test('аннулированный результат не правится', async () => {
@@ -491,6 +491,14 @@ describe('фиксация при блокировках', () => {
       within(await screen.findByRole('dialog')).getByRole('button', { name: 'Да, зафиксировать' }),
     )
   }
+
+  test('при блокировках показаны причины и кнопка принудительной фиксации', async () => {
+    renderJudge(blockedServer('admin'))
+    await tryLock()
+    expect(await screen.findByText('Неразрешённых конфликтов: 2')).toBeDefined()
+    expect(screen.getByText('Открытых запросов на исправление: 1')).toBeDefined()
+    expect(screen.getByRole('button', { name: 'Всё равно зафиксировать' })).toBeDefined()
+  })
 
   test('админ может зафиксировать принудительно', async () => {
     const server = blockedServer('admin')
