@@ -146,6 +146,7 @@ class Station(Base):
     discipline: Mapped[str] = mapped_column(ForeignKey("discipline.code"))
     token_hash: Mapped[str] = mapped_column(String, unique=True)
     last_heartbeat_at: Mapped[datetime | None]
+    archived_at: Mapped[datetime | None]
     last_state: Mapped[str | None] = mapped_column(Text)
     queue_length: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 

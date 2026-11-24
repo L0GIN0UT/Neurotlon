@@ -390,6 +390,34 @@ paths:
         "403":
           $ref: "#/components/responses/Problem"
 
+  /stations/{id}:
+    delete:
+      operationId: archiveStation
+      summary: Убрать станцию (архивация, админка)
+      description: |
+        Админ и суперпользователь. Строка остаётся в базе (на неё ссылается журнал аудита):
+        станция пропадает из списка, её токен перестаёт работать (401), имя освобождается.
+        Нельзя, пока станция играет: незавершённая сессия и heartbeat не старше 30 с (409; доступ можно\n        отозвать ротацией токена). Брошенные открытые сессии закрываются.
+      security:
+        - volunteerSession: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Станция архивирована
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "409":
+          $ref: "#/components/responses/Problem"
+
   /disciplines:
     get:
       operationId: listDisciplines
@@ -535,6 +563,76 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Scoreboard"
+
+  /teams:
+    get:
+      operationId: getTeams
+      summary: Команды, состав и дуэли с парами (админ, суперпользователь, судья)
+      description: |
+        Участники каждой команды в порядке игры (`number_in_team`). Пара `k` — k-й игрок
+        команды 1 против k-го игрока команды 2. Категория (с ОВЗ / без) не передаётся.
+      security:
+        - volunteerSession: []
+      responses:
+        "200":
+          description: Команды, участники и дуэли
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamsView"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Problem"
+
+  /teams/assignment:
+    put:
+      operationId: assignTeams
+      summary: Раскладка по командам вручную (админ, суперпользователь)
+      description: |
+        Задаёт весь состав сразу: ровно две команды с номерами 1 и 2. Порядок кодов в команде —
+        порядок игры: пара `k` — k-й игрок команды 1 против k-го игрока команды 2. Пары
+        пересчитываются при каждом сохранении. Команды создаются при первом сохранении
+        («Красные», «Синие»).
+
+        - Размещать можно только пришедших (отмеченных на регистрации) или уже имеющих результат,
+          иначе `422`.
+        - Игрок с неаннулированным результатом, уже стоящий в команде, не перемещается: `409`.
+          Остальных участников можно двигать вокруг него. Аннулированный результат не блокирует.
+          Игрок с результатом, но без команды, сейчас может быть поставлен в любую команду
+          (открытый вопрос, `docs/decisions.md`).
+        - Повтор того же состава ничего не меняет и в журнал аудита не пишется.
+        - Если пара распалась или у неё сменился участник, `pair_id` у результатов этой пары
+          обнуляется. В журнал аудита (`teams.assign`) пишутся состав до и после, пары,
+          `cleared_pair_results` и `cleared_result_ids`.
+        - `409` также возвращается, если база занята параллельной записью (можно повторить) или
+          жеребьёвка была на большее число команд.
+        - Ответ — та же форма, что `GET /teams`.
+      security:
+        - volunteerSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TeamAssignment"
+      responses:
+        "200":
+          description: Команды после раскладки
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamsView"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "409":
+          $ref: "#/components/responses/Problem"
+        "422":
+          $ref: "#/components/responses/Problem"
 
   /teams/{id}:
     patch:
@@ -717,6 +815,115 @@ components:
           type: string
           pattern: "^#[0-9a-fA-F]{6}$"
 
+    TeamLineup:
+      type: object
+      required: [number, members]
+      additionalProperties: false
+      properties:
+        number:
+          type: integer
+          enum: [1, 2]
+        members:
+          type: array
+          maxItems: 99
+          description: Коды в порядке игры; сервер приводит ввод (`7`, `нт07`) к `NT07`.
+          items:
+            type: string
+            maxLength: 8
+
+    TeamAssignment:
+      type: object
+      required: [teams]
+      additionalProperties: false
+      description: Ровно две команды, номера 1 и 2 — каждый по одному разу.
+      properties:
+        teams:
+          type: array
+          minItems: 2
+          maxItems: 2
+          items:
+            $ref: "#/components/schemas/TeamLineup"
+
+    TeamMember:
+      type: object
+      required: [code, display_name, number_in_team]
+      additionalProperties: false
+      properties:
+        code:
+          $ref: "#/components/schemas/ParticipantCode"
+        display_name:
+          type: [string, "null"]
+        number_in_team:
+          type: integer
+          minimum: 1
+
+    TeamWithMembers:
+      type: object
+      required: [id, number, name, color, members]
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+        number:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+        color:
+          type: string
+          pattern: "^#[0-9a-fA-F]{6}$"
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/TeamMember"
+
+    PairView:
+      type: object
+      required: [k, a, b]
+      additionalProperties: false
+      properties:
+        k:
+          type: integer
+          minimum: 1
+          description: Номер пары; k-й игрок команды 1 против k-го игрока команды 2.
+        a:
+          $ref: "#/components/schemas/ParticipantCode"
+        b:
+          $ref: "#/components/schemas/ParticipantCode"
+
+    DuelView:
+      type: object
+      required: [order, team_a, team_b, pairs]
+      additionalProperties: false
+      properties:
+        order:
+          type: integer
+          minimum: 1
+        team_a:
+          type: integer
+          description: Номер команды (не id).
+        team_b:
+          type: integer
+          description: Номер команды (не id).
+        pairs:
+          type: array
+          items:
+            $ref: "#/components/schemas/PairView"
+
+    TeamsView:
+      type: object
+      required: [teams, duels]
+      additionalProperties: false
+      properties:
+        teams:
+          type: array
+          items:
+            $ref: "#/components/schemas/TeamWithMembers"
+        duels:
+          type: array
+          items:
+            $ref: "#/components/schemas/DuelView"
+
     BoardTopEntry:
       type: object
       required: [rank, number, label, points, pending]
@@ -812,7 +1019,7 @@ components:
           oneOf:
             - $ref: "#/components/schemas/Team"
             - type: "null"
-          description: null до жеребьёвки.
+          description: null, пока участник не распределён по команде.
         issues:
           type: array
           items:

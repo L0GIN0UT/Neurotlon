@@ -1,3 +1,7 @@
+// Сейчас в админке не используется: команд две, и составы формируются вручную (TeamsTab).
+// Если команд станет больше, понадобится жеребьёвка: для неё предназначены этот компонент
+// и POST /draw на сервере, поэтому файл оставлен. Для вкладки нужно вернуть её в AdminApp.tsx.
+
 import { useCallback, useState } from 'react'
 import { ApiError } from '../../shared/http.ts'
 import type { DrawProtocol, StaffApi } from '../api.ts'

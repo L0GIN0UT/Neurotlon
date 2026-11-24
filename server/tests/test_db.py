@@ -346,12 +346,22 @@ def test_audit_log_none_stored_as_sql_null(engine: Engine) -> None:
 
 def test_migration_turns_judges_into_admins(url: str) -> None:
     config = _alembic_config(url)
-    command.upgrade(config, "0008")
+    command.upgrade(config, "0009")
     engine = create_engine_from_settings(Settings(database_url=url))
     _insert(engine, "user", login="judy", password_hash="h", role="judge")
     _insert(engine, "user", login="vol", password_hash="h", role="volunteer", discipline="darts")
     _insert(engine, "user", login="root", password_hash="h", role="superuser")
-    _insert(engine, "audit_log", at=NOW, action="a", object_type="t", object_id="1", user_id=1)
+    _insert(engine, "station", name="s", discipline="darts", token_hash="h")
+    _insert(
+        engine,
+        "audit_log",
+        at=NOW,
+        action="a",
+        object_type="t",
+        object_id="1",
+        user_id=1,
+        station_id=1,
+    )
     command.upgrade(config, "head")
     with engine.connect() as conn:
         rows = conn.execute(text('SELECT login, role, discipline FROM "user" ORDER BY id')).all()
@@ -374,6 +384,13 @@ def test_migration_turns_judges_into_admins(url: str) -> None:
     ]
     with pytest.raises(IntegrityError):
         _insert(engine, "user", login="again", password_hash="h", role="judge")
+    command.downgrade(config, "0009")  # one step back and forward again keeps the data
+    command.upgrade(config, "head")
+    with engine.connect() as conn:
+        roles = conn.execute(text('SELECT role FROM "user" ORDER BY id')).scalars().all()
+        audit_rows = conn.execute(text("SELECT COUNT(*) FROM audit_log")).scalar()
+    assert roles == ["admin", "volunteer", "superuser"]
+    assert audit_rows == 2
     engine.dispose()
 
 

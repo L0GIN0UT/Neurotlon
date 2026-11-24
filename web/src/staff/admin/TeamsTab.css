@@ -1,0 +1,273 @@
+.tm-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .tm-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.tm-pool summary {
+  cursor: pointer;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tm-pool-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+@media (max-width: 900px) {
+  .tm-pool-list {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  }
+}
+
+.tm-pool.over,
+.tm-head.over {
+  outline: 1px dashed var(--accent);
+  background: var(--surface-hi);
+}
+
+.tm-count {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 0.9em;
+}
+
+/* Строка шапки и строки пар на одной сетке: команда 1, «против», команда 2. */
+.tm-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 56px minmax(0, 1fr);
+  gap: 6px;
+  align-items: stretch;
+}
+
+.tm-heads {
+  align-items: start;
+  margin-bottom: 10px;
+}
+
+.tm-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  border-radius: 10px;
+  padding: 4px;
+  min-width: 0;
+}
+
+.tm-head h3 {
+  margin: 0;
+}
+
+.tm-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.staff .tm-title .row {
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+
+.staff input.tm-name-input {
+  padding: 6px 8px;
+  min-width: 0;
+  width: 100%;
+  font-weight: 600;
+}
+
+.staff input.tm-color[type='color'] {
+  flex: none;
+  min-width: 0;
+  min-height: 0;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 2px solid var(--border);
+  border-radius: 50%;
+  overflow: hidden;
+  background: none;
+}
+
+.staff input.tm-color::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.staff input.tm-color::-webkit-color-swatch {
+  border: 0;
+  border-radius: 50%;
+}
+
+.tm-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.tm-vs {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  color: var(--muted);
+  font-size: 0.75em;
+}
+
+.tm-warn {
+  color: var(--warn);
+  display: inline-flex;
+}
+
+.tm-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 0.85em;
+  opacity: 0.7;
+}
+
+.tm-card {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-height: 48px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 6px 8px;
+  background: var(--surface-hi);
+  cursor: grab;
+  min-width: 0;
+}
+
+.tm-card.locked {
+  cursor: default;
+  border-style: dashed;
+}
+
+.tm-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.tm-name {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+  font-size: 0.9em;
+}
+
+.tm-card.locked svg {
+  color: var(--warn);
+}
+
+.tm-actions {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.staff .tm-icon,
+.staff .tm-mini {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  min-height: 32px;
+  height: 32px;
+}
+
+.staff .tm-icon {
+  width: 32px;
+  flex: none;
+}
+
+.staff .tm-icon svg {
+  flex: none;
+}
+
+.staff .tm-mini {
+  min-width: 36px;
+  font-size: 0.85em;
+}
+
+/* Мышь: кнопки видны при наведении и фокусе; сенсорный экран: всегда. */
+.tm-actions:not(.always) {
+  opacity: 0;
+}
+
+.tm-card:hover .tm-actions,
+.tm-card:focus-within .tm-actions {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .tm-actions:not(.always) {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 520px) {
+  .tm-row {
+    grid-template-columns: minmax(0, 1fr) 28px minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .tm-vs {
+    font-size: 0.6em;
+  }
+
+  .tm-card {
+    padding: 4px;
+  }
+
+  .tm-actions {
+    margin-left: 0;
+    gap: 2px;
+  }
+
+  .tm-head .tm-count {
+    display: none;
+  }
+
+  .staff input.tm-color[type='color'] {
+    width: 28px;
+    height: 28px;
+  }
+}
+
+.tm-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.staff .tm-actions button[aria-disabled='true'] {
+  opacity: 0.6;
+  cursor: progress;
+}
