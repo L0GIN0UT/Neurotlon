@@ -10,12 +10,15 @@ import json
 import logging
 import os
 import subprocess
+import sys
 import threading
 import tomllib
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
+
+from .proc import _create_kill_on_close_job
 
 log = logging.getLogger(__name__)
 
@@ -163,7 +166,7 @@ class Popener(Protocol):
 def _popen(args: Sequence[str]) -> subprocess.Popen[str]:
     # stdin обязательно DEVNULL: Electron даёт ядру канал, на котором ядро ждёт закрытия окна
     # (чтение в потоке). Унаследовавший его мост на Windows зависал бы при старте Python.
-    return subprocess.Popen(
+    process = subprocess.Popen(
         list(args),
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
@@ -174,6 +177,11 @@ def _popen(args: Sequence[str]) -> subprocess.Popen[str]:
         env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
+    # Job Object «убить при закрытии»: ядро упало или убито — мост умирает вместе с ним, а не
+    # остаётся сиротой на порту. Ручку job не закрываем: её закроет система при выходе ядра.
+    if _create_kill_on_close_job(process) is None and sys.platform == "win32":
+        log.warning("job object unavailable, the bridge may outlive the launcher")
+    return process
 
 
 @dataclass(frozen=True)

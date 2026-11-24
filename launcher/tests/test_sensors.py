@@ -1,6 +1,8 @@
 import json
 import subprocess
+import sys
 import threading
+import time
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any
@@ -380,3 +382,55 @@ def test_children_never_inherit_stdin(monkeypatch: pytest.MonkeyPatch) -> None:
     sensors._popen(["bridge.exe"])
     sensors._run(["bridge.exe", "--scan"], timeout=1.0)
     assert [kwargs["stdin"] for kwargs in seen] == [subprocess.DEVNULL, subprocess.DEVNULL]
+
+
+def test_popen_puts_the_bridge_into_a_kill_on_close_job(monkeypatch: pytest.MonkeyPatch) -> None:
+    jobbed: list[object] = []
+    fake = object()
+    monkeypatch.setattr(subprocess, "Popen", lambda args, **kwargs: fake)
+
+    def fake_job(process: object) -> int:
+        jobbed.append(process)
+        return 1
+
+    monkeypatch.setattr(sensors, "_create_kill_on_close_job", fake_job)
+    assert sensors._popen(["bridge.exe"]) is fake
+    assert jobbed == [fake]
+
+
+def test_bridge_dies_with_the_launcher(tmp_path: Path) -> None:
+    """Ядро убито без штатной остановки: мост в Job Object не остаётся сиротой."""
+    if sys.platform != "win32":
+        pytest.skip("Job Object is Windows-only")
+    script = (
+        "import sys, time\n"
+        "from neurotlon_launcher import sensors\n"
+        "p = sensors._popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+        "print(p.pid, flush=True)\n"
+        "time.sleep(60)\n"
+    )
+    core = subprocess.Popen(
+        [sys.executable, "-c", script], stdout=subprocess.PIPE, text=True, cwd=tmp_path
+    )
+    assert core.stdout is not None
+    bridge_pid = int(core.stdout.readline())
+    assert pid_alive(bridge_pid)
+    core.kill()
+    core.wait()
+    assert wait_dead(bridge_pid)
+
+
+def pid_alive(pid: int) -> bool:
+    out = subprocess.run(
+        ["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True, check=False
+    )
+    return str(pid) in out.stdout
+
+
+def wait_dead(pid: int, timeout: float = 10.0) -> bool:
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        if not pid_alive(pid):
+            return True
+        time.sleep(0.1)
+    return False

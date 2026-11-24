@@ -18,7 +18,7 @@ import sys
 from collections.abc import Sequence
 from ctypes import wintypes
 from pathlib import Path
-from typing import IO
+from typing import IO, Any
 
 log = logging.getLogger(__name__)
 
@@ -65,7 +65,7 @@ class _ExtendedLimits(ctypes.Structure):
     )
 
 
-def _create_kill_on_close_job(process: subprocess.Popen[bytes]) -> int | None:
+def _create_kill_on_close_job(process: subprocess.Popen[Any]) -> int | None:
     """Job Object с процессом внутри или `None`, если не вышло."""
     if sys.platform != "win32":
         return None
