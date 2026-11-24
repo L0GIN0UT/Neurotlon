@@ -20,5 +20,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    with op.batch_alter_table("station") as batch:
-        batch.drop_column("archived_at")
+    # Native DROP COLUMN: a batch rebuild drops `station`, which audit_log and
+    # game_session reference.
+    op.execute("ALTER TABLE station DROP COLUMN archived_at")

@@ -259,26 +259,45 @@ def archive_station(station_id: int, db: Db, now: Now, actor: StationManager) ->
     """The audit log references stations, so a station is archived, never deleted.
 
     The unique name is freed by renaming and the token is replaced by an unknown one.
+    The archive is written first and the sessions are checked afterwards in the same
+    transaction, so a session cannot slip in between the check and the write.
     """
     station = _get_active_station(db, station_id)
-    open_session = db.scalar(
-        select(GameSession.session_id)
-        .where(GameSession.station_id == station.id, GameSession.closed_at.is_(None))
-        .limit(1)
-    )
-    if open_session is not None:
-        raise conflict("station has an unfinished session")
-    after = {"name": station.name, "discipline": station.discipline}
+    old_name = station.name
     station.archived_at = now
-    station.name = f"{station.name} [удалена {station.id}]"
+    station.name = f"{old_name} [удалена {station.id} {int(now.timestamp())}]"
     station.token_hash = hash_token(new_token())
+    try:
+        db.flush()
+    except IntegrityError:  # an active station already has the archive name
+        db.rollback()
+        raise conflict("archive name is taken, rename the other station") from None
+    open_sessions = list(
+        db.scalars(
+            select(GameSession).where(
+                GameSession.station_id == station.id, GameSession.closed_at.is_(None)
+            )
+        )
+    )
+    if open_sessions and _is_online(station, now):
+        db.rollback()
+        raise conflict(
+            "Station is playing; rotate its token to cut access, or retry when it is idle"
+        )
+    for session in open_sessions:  # abandoned: the station stopped sending heartbeats
+        session.closed_at = now
     write_audit(
         db,
         action="station.archive",
         object_type="station",
         object_id=station.id,
         user_id=actor.id,
-        after=after,
+        before={"name": old_name},
+        after={
+            "name": station.name,
+            "archived_at": now.isoformat(),
+            "closed_sessions": len(open_sessions),
+        },
     )
     db.commit()
     return Response(status_code=204)
