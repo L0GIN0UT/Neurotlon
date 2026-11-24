@@ -142,12 +142,16 @@ function isInside(file, roots) {
   return roots.some((root) => key.startsWith(trimSep(winKey(root)) + WIN.sep))
 }
 
-/** Процессы из вывода `ConvertTo-Json` (один объект или массив) → [{pid, path}]. */
+/**
+ * Процессы из вывода `ConvertTo-Json` (один объект или массив) → [{pid, path, created}].
+ * `created` — время создания строкой (FileTime): по нему перед убийством убеждаемся, что
+ * под этим pid всё ещё тот же процесс, а не новый с переиспользованным номером.
+ */
 function parseProcessList(text) {
   try {
-    const data = JSON.parse(String(text).replace(/^\uFEFF/, '').trim() || '[]')
+    const data = JSON.parse(String(text).trim() || '[]')
     return (Array.isArray(data) ? data : [data])
-      .map((item) => ({ pid: item?.ProcessId, path: item?.ExecutablePath }))
+      .map((item) => ({ pid: item?.ProcessId, path: item?.ExecutablePath, created: String(item?.Created ?? '') }))
       .filter((item) => Number.isInteger(item.pid) && typeof item.path === 'string' && item.path)
   } catch {
     return []
@@ -156,30 +160,50 @@ function parseProcessList(text) {
 
 /** Процессы нашей установки: путь к .exe внутри `roots`, кроме `exclude` (свой pid). */
 function selectOrphans(processes, roots, exclude = []) {
-  return processes.filter((p) => !exclude.includes(p.pid) && isInside(p.path, roots)).map((p) => p.pid)
+  return processes.filter((p) => !exclude.includes(p.pid) && isInside(p.path, roots))
 }
 
+/** PowerShell: процессы с путём к .exe из СВОЕГО сеанса Windows (чужих пользователей не трогаем). */
+const LIST_PROCESSES_SCRIPT =
+  '[Console]::OutputEncoding = [Text.Encoding]::UTF8; ' +
+  '$s = (Get-Process -Id $PID).SessionId; ' +
+  'Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and $_.SessionId -eq $s } | ' +
+  'Select-Object ProcessId, ExecutablePath, @{ n = "Created"; e = { [string]$_.CreationDate.ToFileTimeUtc() } } | ' +
+  'ConvertTo-Json -Compress'
+
+/** PowerShell: завершает процесс (без потомков), только если pid и время создания совпали; оба из окружения. */
+const KILL_VERIFIED_SCRIPT =
+  '$p = Get-CimInstance Win32_Process -Filter ("ProcessId = " + [int]$env:NT_PID); ' +
+  'if ($p -and [string]$p.CreationDate.ToFileTimeUtc() -eq $env:NT_CREATED) { ' +
+  'Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }'
+
 /**
- * Убивает осиротевшие процессы своей установки. `listProcesses` и `killTree` подставляются
- * снаружи (в Windows — PowerShell и taskkill), поэтому логика проверяется без системы.
+ * Убивает осиротевшие процессы своей установки. `listProcesses` и `killVerified(pid, created)`
+ * подставляются снаружи (в Windows — PowerShell), поэтому логика проверяется без системы.
+ * Потомков не трогаем (`/T` тут нельзя: список мог устареть, а pid — достаться чужому процессу).
  */
-async function killOrphans({ listProcesses, killTree, roots, exclude = [], log = () => {} }) {
-  let pids
+async function killOrphans({ listProcesses, killVerified, roots, exclude = [], log = () => {} }) {
+  let orphans
   try {
-    pids = selectOrphans(await listProcesses(), roots, exclude)
+    orphans = selectOrphans(await listProcesses(), roots, exclude)
   } catch (error) {
     log(`не удалось получить список процессов: ${error.message}`)
     return []
   }
-  for (const pid of pids) {
+  for (const { pid, created } of orphans) {
     log(`снос сироты ${pid}`)
     try {
-      await killTree(pid)
+      await killVerified(pid, created)
     } catch (error) {
       log(`не удалось завершить ${pid}: ${error.message}`)
     }
   }
-  return pids
+  return orphans.map((p) => p.pid)
+}
+
+/** Абсолютный путь к системной программе: PATH не используем (в нём может оказаться подмена). */
+function systemExe(systemRoot, ...parts) {
+  return WIN.join(systemRoot || 'C:\\Windows', 'System32', ...parts)
 }
 
 /** Хвост журнала не больше `maxBytes`: старое обрезается по границе строки. */
@@ -229,6 +253,8 @@ module.exports = {
   contentSecurityPolicy,
   createLog,
   isInside,
+  KILL_VERIFIED_SCRIPT,
+  LIST_PROCESSES_SCRIPT,
   killOrphans,
   mimeFor,
   nextAction,
@@ -242,5 +268,6 @@ module.exports = {
   splashScript,
   splitCommand,
   startingDetail,
+  systemExe,
   trimLog,
 }

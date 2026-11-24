@@ -99,12 +99,12 @@ test('selectOrphans picks only processes from our install folders', () => {
     { pid: 5, path: w('C:', 'Program Files', 'Нейротлон Стенд', 'Нейротлон Стенд.exe') },
     { pid: 6, path: w('C:', 'Program Files', 'Нейротлон Стенд', 'resources', 'core', 'neurotlon-launcher.exe') },
   ]
-  assert.deepEqual(lib.selectOrphans(list, ROOTS, [6]), [1, 2])
+  assert.deepEqual(lib.selectOrphans(list, ROOTS, [6]).map((p) => p.pid), [1, 2])
 })
 
 test('parseProcessList accepts one object, an array and garbage', () => {
-  assert.deepEqual(lib.parseProcessList(JSON.stringify({ ProcessId: 7, ExecutablePath: w('C:', 'a.exe') })), [{ pid: 7, path: w('C:', 'a.exe') }])
-  assert.deepEqual(lib.parseProcessList('[{"ProcessId": 1, "ExecutablePath": "x"}, {"ProcessId": 2, "ExecutablePath": null}]'), [{ pid: 1, path: 'x' }])
+  assert.deepEqual(lib.parseProcessList(JSON.stringify({ ProcessId: 7, ExecutablePath: w('C:', 'a.exe') })), [{ pid: 7, path: w('C:', 'a.exe'), created: '' }])
+  assert.deepEqual(lib.parseProcessList('[{"ProcessId": 1, "ExecutablePath": "x"}, {"ProcessId": 2, "ExecutablePath": null}]'), [{ pid: 1, path: 'x', created: '' }])
   assert.deepEqual(lib.parseProcessList('not json'), [])
   assert.deepEqual(lib.parseProcessList(''), [])
 })
@@ -118,7 +118,7 @@ test('killOrphans kills the selected tree and survives errors', async () => {
       { pid: 2, path: w(ROOTS[1], 'b.exe') },
       { pid: 3, path: w('C:', 'x', 'c.exe') },
     ],
-    killTree: async (pid) => {
+    killVerified: async (pid) => {
       if (pid === 1) throw new Error('denied')
       killed.push(pid)
     },
@@ -132,7 +132,7 @@ test('killOrphans kills the selected tree and survives errors', async () => {
     listProcesses: async () => {
       throw new Error('no powershell')
     },
-    killTree: async () => {},
+    killVerified: async () => {},
     roots: ROOTS,
   })
   assert.deepEqual(failing, [])
@@ -175,4 +175,30 @@ test('createLog appends lines and keeps the file under the limit', () => {
   } finally {
     fs.rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test('parseProcessList keeps the creation time as a string', () => {
+  const [item] = lib.parseProcessList(JSON.stringify({ ProcessId: 3, ExecutablePath: 'x', Created: '133800000000000001' }))
+  assert.equal(item.created, '133800000000000001')
+})
+
+test('killOrphans passes the creation time so a reused pid is not killed blindly', async () => {
+  const seen = []
+  await lib.killOrphans({
+    listProcesses: async () => [{ pid: 9, path: w(ROOTS[0], 'a.exe'), created: '42' }],
+    killVerified: async (pid, created) => seen.push([pid, created]),
+    roots: ROOTS,
+  })
+  assert.deepEqual(seen, [[9, '42']])
+})
+
+test('process scripts stay in the current session and use no taskkill tree flag', () => {
+  assert.match(lib.LIST_PROCESSES_SCRIPT, /SessionId -eq \$s/)
+  assert.match(lib.KILL_VERIFIED_SCRIPT, /NT_CREATED/)
+  assert.doesNotMatch(lib.KILL_VERIFIED_SCRIPT, /taskkill/i)
+})
+
+test('systemExe builds absolute System32 paths with a fallback root', () => {
+  assert.equal(lib.systemExe(w('D:', 'Win'), 'taskkill.exe'), w('D:', 'Win', 'System32', 'taskkill.exe'))
+  assert.equal(lib.systemExe(undefined, 'a.exe'), w('C:', 'Windows', 'System32', 'a.exe'))
 })

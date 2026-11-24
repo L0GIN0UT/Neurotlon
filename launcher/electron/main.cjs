@@ -37,6 +37,9 @@ let child = null
 let mainWindow = null
 let splashWindow = null
 let launchId = 0
+let launching = false // идёт запуск: «Повторить» и Ctrl+Alt+S на заставке не действуют
+let lastSetup = false // с каким `--setup` шёл последний запуск: «Повторить» его сохраняет
+let splashKind = 'starting'
 let bundleServed = false
 let quitting = false
 let restarting = false
@@ -61,8 +64,11 @@ function launcherCommand() {
 function killTree(pid) {
   return new Promise((resolve) => {
     if (process.platform === 'win32') {
-      execFile('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, timeout: 10_000 }, () =>
-        resolve(),
+      execFile(
+        lib.systemExe(process.env.SystemRoot, 'taskkill.exe'),
+        ['/PID', String(pid), '/T', '/F'],
+        { windowsHide: true, timeout: 10_000 },
+        () => resolve(),
       )
       return
     }
@@ -75,19 +81,35 @@ function killTree(pid) {
   })
 }
 
-/** Процессы с известным путём к .exe (Windows: Get-CimInstance); на других системах пусто. */
+const powershell = () =>
+  lib.systemExe(process.env.SystemRoot, 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+
+/** Процессы своего сеанса с известным путём к .exe (Windows); на других системах пусто. */
 function listProcesses() {
   if (process.platform !== 'win32') return Promise.resolve([])
-  const script =
-    '[Console]::OutputEncoding = [Text.Encoding]::UTF8; ' +
-    'Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath } | ' +
-    'Select-Object ProcessId, ExecutablePath | ConvertTo-Json -Compress'
   return new Promise((resolve, reject) => {
     execFile(
-      'powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-Command', script],
+      powershell(),
+      ['-NoProfile', '-NonInteractive', '-Command', lib.LIST_PROCESSES_SCRIPT],
       { windowsHide: true, timeout: 20_000, maxBuffer: 32 * 1024 * 1024, encoding: 'utf8' },
       (error, stdout) => (error ? reject(error) : resolve(lib.parseProcessList(stdout))),
+    )
+  })
+}
+
+/** Завершает один процесс, если под этим pid всё ещё тот же процесс (сверка времени создания). */
+function killVerified(pid, created) {
+  if (process.platform !== 'win32') return Promise.resolve()
+  return new Promise((resolve) => {
+    execFile(
+      powershell(),
+      ['-NoProfile', '-NonInteractive', '-Command', lib.KILL_VERIFIED_SCRIPT],
+      {
+        windowsHide: true,
+        timeout: 15_000,
+        env: { ...process.env, NT_PID: String(pid), NT_CREATED: created },
+      },
+      () => resolve(),
     )
   })
 }
@@ -96,10 +118,10 @@ function listProcesses() {
 function killStaleProcesses() {
   if (!app.isPackaged) return Promise.resolve([])
   const roots = ['core', 'bridge', 'games'].map((name) => path.join(process.resourcesPath, name))
-  return lib.killOrphans({ listProcesses, killTree, roots, exclude: [process.pid], log })
+  return lib.killOrphans({ listProcesses, killVerified, roots, exclude: [process.pid], log })
 }
 
-/** Запускает лаунчер и ждёт строку готовности с портом моста. */
+/** Запускает лаунчер: `{ proc, port }`, где `port` — обещание порта из строки готовности. */
 function startLauncher(token, { setup }) {
   const { file, args } = launcherCommand()
   const full = [...args, '--config', configPath, '--ui-token', token]
@@ -109,8 +131,10 @@ function startLauncher(token, { setup }) {
   log(`запуск ядра: ${file} ${full.join(' ').replace(token, '***')}`)
   const proc = spawn(file, full, { stdio: ['pipe', 'pipe', 'inherit'], windowsHide: true })
   child = proc
+  // Закрытый чужой стороной канал (EPIPE) не должен ронять приложение необработанной ошибкой.
+  proc.stdin.on('error', (error) => log(`stdin ядра: ${error.message}`))
   let ready = false
-  return new Promise((resolve, reject) => {
+  const portPromise = new Promise((resolve, reject) => {
     const timer = setTimeout(
       () => reject(new Error(`ядро не ответило за ${lib.READY_TIMEOUT_MS / 1000} с`)),
       lib.READY_TIMEOUT_MS,
@@ -140,6 +164,7 @@ function startLauncher(token, { setup }) {
       }
     })
   })
+  return { proc, port: portPromise }
 }
 
 /** Лаунчер вышел сам: после сохранения настройки (код 75) стартуем заново, при аварии — с паузой. */
@@ -237,8 +262,15 @@ function handleShortcuts(window, onSetup) {
   })
 }
 
+/** «Повторить» и Ctrl+Alt+S на заставке: действуют только на экране ошибки и не во время запуска. */
+function retryLaunch(setup) {
+  if (launching || splashKind !== 'error') return
+  void launch({ setup })
+}
+
 /** Заставка: локальная страница сразу, пока ядро запускается; при сбое — «Повторить» и «Закрыть». */
 function showSplash(state) {
+  splashKind = state.kind
   if (!splashWindow || splashWindow.isDestroyed()) {
     const window = new BrowserWindow({
       ...baseWindowOptions(),
@@ -249,10 +281,11 @@ function showSplash(state) {
     window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     window.webContents.on('will-navigate', (event, url) => {
       event.preventDefault()
-      if (url === `${SCHEME}://action/retry`) void launch({ setup: false })
+      if (url === `${SCHEME}://action/retry`) retryLaunch(lastSetup)
       else if (url === `${SCHEME}://action/close`) app.quit()
     })
-    handleShortcuts(window, null)
+    // В состоянии ошибки Ctrl+Alt+S открывает настройку: так можно поправить то, из-за чего ядро не стартует.
+    handleShortcuts(window, () => retryLaunch(true))
     window.on('closed', () => {
       if (splashWindow === window) splashWindow = null
     })
@@ -303,6 +336,16 @@ function createWindow(port, token) {
  */
 async function launch({ setup }) {
   const id = (launchId += 1)
+  launching = true
+  lastSetup = setup
+  try {
+    await runLaunch(id, setup)
+  } finally {
+    if (id === launchId) launching = false
+  }
+}
+
+async function runLaunch(id, setup) {
   const token = crypto.randomBytes(24).toString('hex')
   let port = null
   for (let attempt = 1; port === null; attempt += 1) {
@@ -314,16 +357,19 @@ async function launch({ setup }) {
     tick()
     const timer = setInterval(tick, 1000)
     let lastError = ''
+    let proc = null
     try {
       await killStaleProcesses()
       if (id !== launchId || quitting) return
-      port = await startLauncher(token, { setup })
+      const started = startLauncher(token, { setup })
+      proc = started.proc
+      port = await started.port
     } catch (error) {
       lastError = error.message
       log(`попытка ${attempt} не удалась: ${lastError}`)
-      const proc = child
+      // Убиваем только свой процесс этой попытки, не общий `child` (он мог стать уже чужим запуском).
       if (proc && proc.exitCode === null) await killTree(proc.pid)
-      if (child === proc) child = null
+      if (proc && child === proc) child = null
     } finally {
       clearInterval(timer)
     }
@@ -366,12 +412,31 @@ ipcMain.handle('pick-file', async (event, kind) => {
   return result.canceled ? null : (result.filePaths[0] ?? null)
 })
 
+/** Необработанная ошибка: в журнал и на заставку (окно создаётся, если его нет), не молча. */
+function reportFatal(error) {
+  log(`необработанная ошибка: ${error?.stack ?? error}`)
+  if (quitting) return
+  try {
+    launchId += 1 // идущий запуск прекращаем: его результат уже не нужен
+    launching = false
+    showSplash({
+      kind: 'error',
+      title: 'Непредвиденная ошибка',
+      detail: `${error?.message ?? error}. Журнал: ${path.join(app.getPath('userData'), 'electron.log')}`,
+    })
+  } catch (inner) {
+    log(`не удалось показать ошибку: ${inner.message}`)
+    app.exit(1)
+  }
+}
+
 async function main() {
   configPath = options.config ?? path.join(app.getPath('userData'), 'launcher.toml')
   fs.mkdirSync(path.dirname(configPath), { recursive: true })
   log = lib.createLog(path.join(app.getPath('userData'), 'electron.log'))
   log(`старт ${app.getVersion()}, упаковано: ${app.isPackaged}, ядро: ${launcherCommand().file}`)
-  process.on('uncaughtException', (error) => log(`необработанная ошибка: ${error.stack ?? error}`))
+  process.on('uncaughtException', reportFatal)
+  process.on('unhandledRejection', reportFatal)
   if (!devUrl && !fs.existsSync(path.join(webDir, 'station.html'))) {
     return fail(`нет собранного интерфейса: ${webDir} (соберите web: npm run build)`)
   }
