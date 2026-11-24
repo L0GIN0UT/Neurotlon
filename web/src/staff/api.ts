@@ -17,6 +17,20 @@ export interface Participant {
   category?: Category | null
 }
 
+/** Матрица QR участника для печати бейджа: строки из 0 и 1, без тихой зоны. */
+export interface QrMatrix {
+  code: string
+  size: number
+  rows: string[]
+}
+
+/** Матрица QR участника для печати бейджа: строки из 0 и 1, без тихой зоны. */
+export interface QrMatrix {
+  code: string
+  size: number
+  rows: string[]
+}
+
 export interface DrawOption {
   m: number
   team_count: number
@@ -167,6 +181,7 @@ export function createStaffApi(options: ApiOptions = {}) {
     me: () => request<Me>('GET', '/auth/me'),
 
     participants: () => request<Participant[]>('GET', '/participants'),
+    participantQr: () => request<QrMatrix[]>('GET', '/participants/qr'),
     generateParticipants: (count: number) =>
       request<{ created: string[]; total: number }>('POST', '/participants/generate', { count }),
     checkIn: (participant: string, category: Category, displayName: string) =>
