@@ -1,0 +1,104 @@
+/* Фото участника: миниатюра в списке и окно загрузки. */
+
+.staff .photo-btn {
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  min-height: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: transparent;
+  border: 2px solid transparent;
+}
+
+.staff .photo-btn:hover,
+.staff .photo-btn:focus-visible {
+  border-color: var(--accent);
+}
+
+.staff .photo-thumb {
+  display: block;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--surface-hi);
+}
+
+.staff .photo-empty {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  background: var(--surface-hi);
+  overflow: hidden;
+}
+
+.staff .photo-thumb .photo-silhouette {
+  width: 70%;
+  height: 70%;
+}
+
+.staff .photo-frame {
+  position: relative;
+  width: min(100%, 270px);
+  aspect-ratio: 3 / 4;
+  margin-inline: auto;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-hi);
+  touch-action: none;
+  cursor: grab;
+}
+
+.staff .photo-frame-empty {
+  position: absolute;
+  inset: 0;
+}
+
+.staff .photo-frame-empty .photo-silhouette {
+  width: 55%;
+  height: 55%;
+}
+
+.staff .photo-source {
+  position: absolute;
+  max-width: none;
+  max-height: none;
+  user-select: none;
+  -webkit-user-drag: none;
+  pointer-events: none;
+}
+
+.staff .photo-current,
+.staff .photo-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+
+.staff .photo-zoom {
+  width: min(100%, 270px);
+  margin-inline: auto;
+}
+
+.staff .photo-hint {
+  margin: 0;
+  text-align: center;
+}
+
+.staff .photo-actions {
+  justify-content: center;
+}
+
+@media (max-width: 600px) {
+  .staff .photo-frame,
+  .staff .photo-zoom {
+    width: 100%;
+  }
+}
