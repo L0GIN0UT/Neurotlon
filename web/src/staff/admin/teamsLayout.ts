@@ -52,14 +52,20 @@ function sameLineup(a: Lineup, b: Lineup): boolean {
   )
 }
 
-function finish(current: Lineup, next: Lineup, locks: Locks): Lineup | null {
+/** Расставляет все области; null, если сервер такую раскладку не примет (дыра перед закреплённым). */
+function settleAll(next: Lineup, locks: Locks): Lineup | null {
   const settled: Lineup = { pool: [], team1: [], team2: [] }
   for (const area of ['pool', 'team1', 'team2'] as const) {
     const list = settle(next[area], area, locks)
     if (list === null) return null
     settled[area] = list
   }
-  return sameLineup(current, settled) ? null : settled
+  return settled
+}
+
+function finish(current: Lineup, next: Lineup, locks: Locks): Lineup | null {
+  const settled = settleAll(next, locks)
+  return settled === null || sameLineup(current, settled) ? null : settled
 }
 
 /** Область и место игрока в раскладке. */
@@ -72,7 +78,35 @@ export function locate(lineup: Lineup, code: string): { area: Area; index: numbe
 }
 
 /**
- * Переносит игрока в область: `position` — место среди показанных карточек (без него — в конец).
+ * Раскладка после переноса игрока в область: `slot` — место среди карточек области без самого игрока
+ * (0 — перед первой, длина списка — в конец). Совпадает с текущей, если ход ничего не меняет.
+ * null — игрок закреплён или сервер такую раскладку не примет.
+ */
+export function dropPreview(
+  lineup: Lineup,
+  locks: Locks,
+  code: string,
+  target: Area,
+  slot?: number,
+): Lineup | null {
+  if (locate(lineup, code) === null || locks.has(code)) return null
+  const next: Lineup = {
+    pool: lineup.pool.filter((c) => c !== code),
+    team1: lineup.team1.filter((c) => c !== code),
+    team2: lineup.team2.filter((c) => c !== code),
+  }
+  const shown = next[target]
+  const at = Math.min(Math.max(slot ?? shown.length, 0), shown.length)
+  // Закреплённые стоят на своих местах: вставка считается среди подвижных карточек.
+  const freeBefore = shown.slice(0, at).filter((c) => !locks.has(c)).length
+  const free = shown.filter((c) => !locks.has(c))
+  free.splice(freeBefore, 0, code)
+  next[target] = free
+  return settleAll(next, locks)
+}
+
+/**
+ * Переносит игрока в область (без места — в конец).
  * Возвращает null, если ход ничего не меняет или сервер его не примет.
  */
 export function moveTo(
@@ -80,23 +114,44 @@ export function moveTo(
   locks: Locks,
   code: string,
   target: Area,
-  position?: number,
+  slot?: number,
 ): Lineup | null {
-  const from = locate(lineup, code)
-  if (from === null || locks.has(code)) return null
-  const next: Lineup = {
-    pool: lineup.pool.filter((c) => c !== code),
-    team1: lineup.team1.filter((c) => c !== code),
-    team2: lineup.team2.filter((c) => c !== code),
+  const next = dropPreview(lineup, locks, code, target, slot)
+  return next === null || sameLineup(lineup, next) ? null : next
+}
+
+/** Какие места вставки в область допустимы: индекс — место, значение — примет ли сервер. */
+export function dropSlots(lineup: Lineup, locks: Locks, code: string, target: Area): boolean[] {
+  const shown = lineup[target].filter((c) => c !== code).length
+  return Array.from({ length: shown + 1 }, (_, slot) => dropPreview(lineup, locks, code, target, slot) !== null)
+}
+
+export interface Rect {
+  left: number
+  right: number
+  top: number
+  bottom: number
+}
+
+/** Область под указателем: первая, чей прямоугольник содержит точку. */
+export function zoneAt(x: number, y: number, zones: Partial<Record<Area, Rect>>): Area | null {
+  for (const area of ['team1', 'team2', 'pool'] as const) {
+    const r = zones[area]
+    if (r !== undefined && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return area
   }
-  const shown = next[target]
-  // Игрок занимает место цели: вниз внутри команды — после неё, вверх и из другой области — перед ней.
-  const at = Math.min(position ?? shown.length, shown.length)
-  const freeBefore = shown.slice(0, at).filter((c) => !locks.has(c)).length
-  const free = shown.filter((c) => !locks.has(c))
-  free.splice(freeBefore, 0, code)
-  next[target] = free
-  return finish(lineup, next, locks)
+  return null
+}
+
+/** Место вставки: сколько карточек (середины по вертикали, сверху вниз) лежит выше указателя. */
+export function slotAt(y: number, mids: readonly number[]): number {
+  return mids.filter((mid) => mid < y).length
+}
+
+/** Шаг автопрокрутки у края окна: отрицательный вверх, положительный вниз, 0 — вдали от краёв. */
+export function edgeScroll(y: number, height: number, edge = 80, max = 22): number {
+  if (y < edge) return -Math.ceil((max * Math.min(edge - y, edge)) / edge)
+  if (y > height - edge) return Math.ceil((max * Math.min(y - (height - edge), edge)) / edge)
+  return 0
 }
 
 /** Сдвиг внутри команды на один шаг среди подвижных игроков (фиксированных перешагивает). */

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { createFakeServer, json, problem } from '../test/fakeServer.ts'
 import type { FakeServer } from '../test/fakeServer.ts'
 import { AdminApp } from './AdminApp.tsx'
-import { BADGES_URL, EXPORT_URL } from './api.ts'
+import { EXPORT_URL } from './api.ts'
 import type { Participant, StationInfo, UserInfo } from './api.ts'
 
 // Второе значение категории нужно только для проверки подсказки «разные категории» у пары.
@@ -213,9 +213,12 @@ describe('участники', () => {
     expect(await screen.findByText('Создано: 2, всего 4')).toBeDefined()
     expect(server.bodies('POST /participants/generate')).toEqual([{ count: 4 }])
 
-    fireEvent.click(screen.getByRole('button', { name: 'Бейджи' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Печать бейджей' }))
     expect(open).toHaveBeenCalledWith('/badges', '_blank', 'noopener')
-    expect(screen.getByRole('link', { name: 'Простой PDF' }).getAttribute('href')).toBe(BADGES_URL)
+    // ссылка на простой PDF переехала на страницу печати
+    expect(screen.queryByRole('link', { name: 'Простой PDF' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Бейдж NT01' }))
+    expect(open).toHaveBeenLastCalledWith('/badges?codes=NT01', '_blank', 'noopener')
     open.mockRestore()
   })
 
@@ -595,14 +598,39 @@ describe('команды', () => {
     })
   })
 
-  const dataTransfer = () => ({ dataTransfer: { setData: () => undefined, effectAllowed: 'move' } })
+  const LOCKED_TITLE = 'У игрока есть результат, место закреплено'
+  // jsdom не считает геометрию: колонки команд стоят слева и справа, пул слева за краем,
+  // карточка занимает 50 px по высоте и ставится по своему месту в области (шаг 60 px).
+  function stubLayout() {
+    const rect = (left: number, top: number, right: number, bottom: number) =>
+      ({ left, top, right, bottom, width: right - left, height: bottom - top, x: left, y: top, toJSON: () => ({}) }) as DOMRect
+    return vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      const el = this as HTMLElement
+      if (el.dataset.zone === 'team1') return rect(0, 0, 400, 1000)
+      if (el.dataset.zone === 'team2') return rect(500, 0, 900, 1000)
+      if (el.dataset.zone === 'pool') return rect(-300, 0, -10, 500)
+      if (el.dataset.card !== undefined) {
+        const left = { team1: 0, team2: 500, pool: -300 }[el.dataset.area as 'team1' | 'team2' | 'pool']
+        const top = Number(el.dataset.index) * 60
+        return rect(left, top, left + 300, top + 50)
+      }
+      return rect(0, 0, 0, 0)
+    })
+  }
+  /** Берёт карточку и ведёт указатель по точкам; отпускание отдельно (`release`). */
+  function grab(code: string, ...path: [number, number][]) {
+    fireEvent.pointerDown(cardOf('', code), { pointerId: 1, button: 0, clientX: 10, clientY: 10 })
+    for (const [clientX, clientY] of path) fireEvent.pointerMove(window, { pointerId: 1, clientX, clientY })
+  }
+  const release = () => fireEvent.pointerUp(window, { pointerId: 1 })
+  afterEach(() => vi.restoreAllMocks())
   // Команды лежат в строках пар, поэтому «колонка команды» — это список пар.
   const column = async (name: string) =>
     name === 'Не распределены'
       ? within(await screen.findByRole('region', { name }))
       : within(await screen.findByRole('list', { name: 'Пары' }))
   const cardOf = (_area: string, code: string) =>
-    screen.getByText(code).closest('[data-card]') as HTMLElement
+    document.querySelector(`[data-card="${code}"]`) as HTMLElement
 
   test('вкладки «Жеребьёвка» нет, есть три области и пары', async () => {
     renderAdmin(server)
@@ -659,17 +687,191 @@ describe('команды', () => {
     expect((await column('Не распределены')).getByText('NT04')).toBeDefined()
   })
 
-  test('перетаскивание переносит игрока на нужное место', async () => {
+  test('перетаскивание из пула: линия вставки перед карточкой, затем полный состав', async () => {
+    stubLayout()
     renderAdmin(server)
     await openTab('Команды')
     await column('Команда 1')
-    fireEvent.dragStart(cardOf('Не распределены', 'NT04'), dataTransfer())
-    fireEvent.drop(cardOf('Команда 1', 'NT01'))
+    // курсор выше середины NT01: игрок встанет перед ней
+    grab('NT04', [100, 20], [100, 10])
+    expect(document.querySelector('.tm-float')?.textContent).toContain('NT04')
+    expect(document.querySelector('.tm-colbox.team1.on')).not.toBeNull()
+    expect(cardOf('', 'NT04').classList.contains('ghost')).toBe(true)
+    expect(cardOf('', 'NT04').classList.contains('line-before')).toBe(true)
+    // пары уже показывают будущий порядок
+    const rows = within(screen.getByRole('list', { name: 'Пары' })).getAllByRole('listitem')
+    expect(within(rows[0] as HTMLElement).getByText('NT04')).toBeDefined()
+    expect(server.count('PUT /teams/assignment')).toBe(0)
+    release()
     await waitFor(() =>
       expect(server.bodies('PUT /teams/assignment')).toEqual([
         { teams: [{ number: 1, members: ['NT04', 'NT01', 'NT02'] }, { number: 2, members: ['NT03'] }] },
       ]),
     )
+    expect(document.querySelector('.tm-float')).toBeNull()
+  })
+
+  test('верх или низ карточки определяет курсор относительно её середины', async () => {
+    members = [[member('NT01', 1), member('NT02', 2), member('NT04', 3)], [member('NT03', 1)]]
+    stubLayout()
+    renderAdmin(server)
+    await openTab('Команды')
+    await column('Команда 1')
+    // ниже середины NT02 (она на втором месте при призраке на первом) и выше середины NT04
+    grab('NT01', [100, 30], [100, 100])
+    release()
+    await waitFor(() => expect(server.count('PUT /teams/assignment')).toBe(1))
+    expect(server.bodies('PUT /teams/assignment')[0]).toEqual({
+      teams: [{ number: 1, members: ['NT02', 'NT01', 'NT04'] }, { number: 2, members: ['NT03'] }],
+    })
+    await waitFor(() => expect(screen.getByRole('status').textContent).toBe('NT01: команда 1, место 2'))
+
+    // ниже всех карточек команды: в конец
+    grab('NT02', [100, 30], [100, 400])
+    release()
+    await waitFor(() => expect(server.count('PUT /teams/assignment')).toBe(2))
+    expect(server.bodies('PUT /teams/assignment')[1]).toEqual({
+      teams: [{ number: 1, members: ['NT01', 'NT04', 'NT02'] }, { number: 2, members: ['NT03'] }],
+    })
+  })
+
+  test('пустая ячейка принимает карточку: игрок встаёт в конец команды', async () => {
+    stubLayout()
+    renderAdmin(server)
+    await openTab('Команды')
+    await column('Команда 1')
+    grab('NT04', [600, 30], [600, 300])
+    expect(document.querySelector('.tm-colbox.team2.on')).not.toBeNull()
+    release()
+    await waitFor(() =>
+      expect(server.bodies('PUT /teams/assignment')).toEqual([
+        { teams: [{ number: 1, members: ['NT01', 'NT02'] }, { number: 2, members: ['NT03', 'NT04'] }] },
+      ]),
+    )
+  })
+
+  test('из команды в пул перетаскивается так же', async () => {
+    stubLayout()
+    renderAdmin(server)
+    await openTab('Команды')
+    await column('Команда 1')
+    grab('NT01', [-100, 30], [-100, 40])
+    release()
+    await waitFor(() =>
+      expect(server.bodies('PUT /teams/assignment')).toEqual([
+        { teams: [{ number: 1, members: ['NT02'] }, { number: 2, members: ['NT03'] }] },
+      ]),
+    )
+  })
+
+  test('Escape отменяет перетаскивание; вне колонок и на своём месте запроса нет', async () => {
+    stubLayout()
+    renderAdmin(server)
+    await openTab('Команды')
+    await column('Команда 1')
+
+    grab('NT04', [100, 10])
+    expect(document.querySelector('.tm-float')).not.toBeNull()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(document.querySelector('.tm-float')).toBeNull()
+    release()
+
+    grab('NT04', [450, 10])
+    expect(document.querySelector('.tm-float')).not.toBeNull()
+    release()
+    expect(document.querySelector('.tm-float')).toBeNull()
+
+    // обратно на то же место: порядок не изменился
+    grab('NT01', [100, 20], [100, 10])
+    release()
+    await act(async () => {})
+    expect(server.count('PUT /teams/assignment')).toBe(0)
+  })
+
+  test('пальцем карточку берут только за ручку, мышью за всю карточку', async () => {
+    stubLayout()
+    renderAdmin(server)
+    await openTab('Команды')
+    await column('Команда 1')
+    const card = cardOf('', 'NT04')
+    fireEvent.pointerDown(card, { pointerId: 2, pointerType: 'touch', button: 0, clientX: 10, clientY: 10 })
+    fireEvent.pointerMove(window, { pointerId: 2, clientX: 100, clientY: 20 })
+    expect(document.querySelector('.tm-float')).toBeNull()
+    fireEvent.pointerUp(window, { pointerId: 2 })
+
+    const grip = card.querySelector('[data-grip]') as Element
+    fireEvent.pointerDown(grip, { pointerId: 3, pointerType: 'touch', button: 0, clientX: 10, clientY: 10 })
+    fireEvent.pointerMove(window, { pointerId: 3, clientX: 100, clientY: 20 })
+    expect(document.querySelector('.tm-float')).not.toBeNull()
+    fireEvent.pointerUp(window, { pointerId: 3 })
+    await waitFor(() => expect(server.count('PUT /teams/assignment')).toBe(1))
+  })
+
+  test('ответ на сохранение применяется, даже если список команд обновился во время запроса', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      let teamsCalls = 0
+      const gate: { releaseTeams?: () => void; releasePut?: () => void } = {}
+      server.routes.set('GET /teams', () => {
+        teamsCalls += 1
+        if (teamsCalls !== 2) return json(payload())
+        // второе чтение (фоновое) завершится позже, чем начнётся сохранение, и вернёт старый состав
+        const stale = payload()
+        return new Promise<Response>((resolve) => {
+          gate.releaseTeams = () => resolve(json(stale))
+        })
+      })
+      server.routes.set('PUT /teams/assignment', (body) => {
+        const lineup = (body as { teams: { members: string[] }[] }).teams
+        return new Promise<Response>((resolve) => {
+          gate.releasePut = () => {
+            members = lineup.map((t) => t.members.map((code, i) => member(code, i + 1)))
+            resolve(json(payload()))
+          }
+        })
+      })
+      renderAdmin(server)
+      await openTab('Команды')
+      await column('Команда 1')
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000)
+      })
+      expect(gate.releaseTeams).toBeDefined()
+      fireEvent.click(within(cardOf('Не распределены', 'NT04')).getByRole('button', { name: 'В команду 1: NT04' }))
+      await waitFor(() => expect(gate.releasePut).toBeDefined())
+      await act(async () => {
+        gate.releaseTeams?.()
+      })
+      await act(async () => {
+        gate.releasePut?.()
+      })
+      // раскладка из ответа на сохранение, а не устаревшее чтение
+      await waitFor(() => expect(screen.getByRole('status').textContent).toBe('NT04: команда 1, место 3'))
+      expect((await column('Команда 1')).getByText('NT04')).toBeDefined()
+      expect((await column('Не распределены')).queryByText('NT04')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('у края окна страница прокручивается сама', async () => {
+    const scroll = vi.spyOn(window, 'scrollBy').mockImplementation(() => undefined)
+    stubLayout()
+    renderAdmin(server)
+    await openTab('Команды')
+    await column('Команда 1')
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      grab('NT04', [100, 20], [100, 4])
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(100)
+      })
+      expect(scroll).toHaveBeenCalled()
+      expect((scroll.mock.calls[0]?.[1] ?? 0) < 0).toBe(true)
+      fireEvent.keyDown(window, { key: 'Escape' })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   test('при ошибке 409 прежний вид возвращается и виден текст ошибки', async () => {
@@ -692,15 +894,32 @@ describe('команды', () => {
     await openTab('Команды')
     await column('Команда 1')
     const locked = cardOf('Команда 1', 'NT01')
-    expect(locked.getAttribute('draggable')).toBe('false')
+    expect(locked.getAttribute('title')).toBe(LOCKED_TITLE)
     expect(within(locked).getByRole('img', { name: /место закреплено/ })).toBeDefined()
     expect(within(locked).queryByRole('button')).toBeNull()
     // NT02 с аннулированным результатом не закреплён, но вверх нельзя: NT01 на месте
     expect((screen.getByRole('button', { name: 'Вверх: NT02' }) as HTMLButtonElement).disabled).toBe(true)
     expect((screen.getByRole('button', { name: 'Убрать из команды: NT02' }) as HTMLButtonElement).disabled).toBe(false)
 
-    fireEvent.dragStart(locked, dataTransfer())
-    fireEvent.drop(cardOf('Команда 2', 'NT03'))
+    stubLayout()
+    grab('NT01', [600, 10], [600, 20])
+    expect(document.querySelector('.tm-float')).toBeNull()
+    release()
+    expect(server.count('PUT /teams/assignment')).toBe(0)
+  })
+
+  test('нельзя бросить игрока туда, где образуется дыра перед закреплённым: колонка приглушена', async () => {
+    results = [{ ...played, id: 2, participant_code: 'NT02' }]
+    stubLayout()
+    renderAdmin(server)
+    await openTab('Команды')
+    await column('Команда 1')
+    grab('NT01', [600, 10], [600, 20])
+    expect(document.querySelector('.tm-float.refused')).not.toBeNull()
+    expect(document.querySelector('.tm-colbox.team2.on.refused')).not.toBeNull()
+    expect(document.querySelector('.line-before, .line-after')).toBeNull()
+    release()
+    expect(document.querySelector('.tm-float')).toBeNull()
     expect(server.count('PUT /teams/assignment')).toBe(0)
   })
 
@@ -722,27 +941,6 @@ describe('команды', () => {
     expect(within(first as HTMLElement).getByRole('img', { name: 'разные категории' })).toBeDefined()
     expect(within(second as HTMLElement).queryByRole('img', { name: 'разные категории' })).toBeNull()
     expect(document.body.textContent?.toLowerCase()).not.toContain('овз')
-  })
-
-  test('бросок на карточку занимает место цели: вниз и вверх внутри команды', async () => {
-    members = [[member('NT01', 1), member('NT02', 2), member('NT04', 3)], [member('NT03', 1)]]
-    renderAdmin(server)
-    await openTab('Команды')
-    await column('Команда 1')
-    fireEvent.dragStart(cardOf('Команда 1', 'NT01'), dataTransfer())
-    fireEvent.drop(cardOf('Команда 1', 'NT04'))
-    await waitFor(() => expect(server.count('PUT /teams/assignment')).toBe(1))
-    expect(server.bodies('PUT /teams/assignment')[0]).toEqual({
-      teams: [{ number: 1, members: ['NT02', 'NT04', 'NT01'] }, { number: 2, members: ['NT03'] }],
-    })
-
-    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('NT01'))
-    fireEvent.dragStart(cardOf('Команда 1', 'NT01'), dataTransfer())
-    fireEvent.drop(cardOf('Команда 1', 'NT02'))
-    await waitFor(() => expect(server.count('PUT /teams/assignment')).toBe(2))
-    expect(server.bodies('PUT /teams/assignment')[1]).toEqual({
-      teams: [{ number: 1, members: ['NT01', 'NT02', 'NT04'] }, { number: 2, members: ['NT03'] }],
-    })
   })
 
   test('после хода фокус остаётся в карточке игрока, ход объявляется', async () => {
@@ -777,8 +975,10 @@ describe('команды', () => {
     expect(other.getAttribute('aria-disabled')).toBe('true')
     expect((other as HTMLButtonElement).disabled).toBe(false)
     fireEvent.click(other)
-    fireEvent.dragStart(cardOf('Команда 1', 'NT02'), dataTransfer())
-    fireEvent.drop(cardOf('Команда 2', 'NT03'))
+    stubLayout()
+    grab('NT02', [600, 20], [600, 30])
+    expect(document.querySelector('.tm-float')).toBeNull()
+    release()
     expect(server.count('PUT /teams/assignment')).toBe(1)
 
     await act(async () => {

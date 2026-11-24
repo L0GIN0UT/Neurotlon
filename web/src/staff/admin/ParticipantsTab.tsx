@@ -3,11 +3,10 @@ import type { FormEvent } from 'react'
 import { DISCIPLINE_NAMES } from '../../shared/messages.ts'
 import { DISCIPLINES } from '../../shared/types.ts'
 import type { Category, DisciplineSettings, Participant, StaffApi, StoredResult } from '../api.ts'
-import { BADGES_URL } from '../api.ts'
 import { formatTime } from '../format.ts'
 import { useAction, useLoader } from '../hooks.ts'
 import { indexResults, scoreCell, SECTIONS } from '../scores.ts'
-import { Dialog, ErrorText } from '../ui.tsx'
+import { Dialog, ErrorText, PrinterIcon } from '../ui.tsx'
 import { PhotoDialog } from './PhotoDialog.tsx'
 import { PhotoThumb } from './PhotoThumb.tsx'
 
@@ -100,11 +99,9 @@ export function ParticipantsTab({ api }: { api: StaffApi }) {
           disabled={everyone.length === 0}
           onClick={() => window.open('/badges', '_blank', 'noopener')}
         >
-          Бейджи
+          <PrinterIcon />
+          Печать бейджей
         </button>
-        <a href={BADGES_URL} target="_blank" rel="noopener noreferrer">
-          Простой PDF
-        </a>
         {notice && <span role="status">{notice}</span>}
       </div>
       <ErrorText error={action.error ?? list.error} />
@@ -234,6 +231,15 @@ export function ParticipantsTab({ api }: { api: StaffApi }) {
                       Отметить
                     </button>
                   )}
+                  <button
+                    type="button"
+                    className="small icon-btn"
+                    aria-label={`Бейдж ${person.code}`}
+                    title={`Бейдж ${person.code}`}
+                    onClick={() => window.open(`/badges?codes=${encodeURIComponent(person.code)}`, '_blank', 'noopener')}
+                  >
+                    <PrinterIcon />
+                  </button>
                   <button
                     type="button"
                     className="small"

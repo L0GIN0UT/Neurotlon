@@ -34,8 +34,15 @@
 
 .tm-pool.over,
 .tm-head.over {
-  outline: 1px dashed var(--accent);
-  background: var(--surface-hi);
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+}
+
+.tm-pool.refused,
+.tm-head.refused {
+  outline: 2px dashed var(--line);
+  background: var(--surface);
 }
 
 .tm-count {
@@ -134,11 +141,138 @@
   background: var(--surface-hi);
   cursor: grab;
   min-width: 0;
+  position: relative;
+  z-index: 1;
+  user-select: none;
 }
 
 .tm-card.locked {
-  cursor: default;
+  cursor: not-allowed;
   border-style: dashed;
+}
+
+/* ручка: пальцем карточку берут только за неё, поэтому touch-action здесь; зона нажатия больше значка */
+.tm-grip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 8px;
+  margin: -10px -4px -10px -6px;
+  color: var(--muted);
+  opacity: 0.8;
+  touch-action: none;
+}
+
+.tm-card:hover .tm-grip {
+  color: var(--text);
+}
+
+/* «призрак»: карточка на будущем месте; линия вставки яркая, цвета акцента */
+.tm-card.ghost {
+  border: 1px dashed var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.tm-card.ghost > * {
+  opacity: 0.45;
+}
+
+.tm-card.ghost.line-before::before,
+.tm-card.ghost.line-after::after {
+  content: '';
+  position: absolute;
+  left: -3px;
+  right: -3px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 10px 1px color-mix(in srgb, var(--accent) 70%, transparent);
+  pointer-events: none;
+}
+
+.tm-card.ghost.line-before::before {
+  top: -5px;
+}
+
+.tm-card.ghost.line-after::after {
+  bottom: -5px;
+}
+
+/* плавающая копия карточки за указателем */
+.tm-float {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  background: var(--surface-hi);
+  color: var(--text);
+  box-shadow: 0 14px 30px rgb(0 0 0 / 45%);
+  rotate: 2deg;
+  cursor: grabbing;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.tm-float.refused {
+  opacity: 0.6;
+  border-color: var(--bad);
+  cursor: not-allowed;
+}
+
+.tm-layout.dragging,
+.tm-layout.dragging * {
+  cursor: grabbing !important;
+}
+
+.tm-layout.dragging .tm-actions {
+  opacity: 0;
+}
+
+/* колонка команды: рамка при наведении; сетка совпадает с .tm-row (две колонки по бокам, 56px между) */
+.tm-grid {
+  position: relative;
+}
+
+.tm-colbox {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: calc((100% - 68px) / 2 + 8px);
+  border: 2px solid transparent;
+  border-radius: 12px;
+  pointer-events: none;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.tm-colbox.team1 {
+  left: -4px;
+}
+
+.tm-colbox.team2 {
+  right: -4px;
+}
+
+.tm-colbox.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.tm-colbox.on.refused {
+  border: 2px dashed var(--line);
+  background: color-mix(in srgb, var(--bad) 6%, transparent);
+}
+
+.tm-empty.hot {
+  border-color: var(--accent);
+  color: var(--text);
+  opacity: 1;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .tm-card-head {
@@ -243,4 +377,18 @@
 .staff .tm-actions button[aria-disabled='true'] {
   opacity: 0.6;
   cursor: progress;
+}
+
+.tm-card.ghost .tm-actions {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tm-float {
+    rotate: none;
+  }
+
+  .tm-colbox {
+    transition: none;
+  }
 }
