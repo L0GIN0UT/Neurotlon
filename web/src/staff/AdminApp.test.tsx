@@ -6,6 +6,9 @@ import { AdminApp } from './AdminApp.tsx'
 import { BADGES_URL } from './api.ts'
 import type { Participant, StationInfo, UserInfo } from './api.ts'
 
+// Второе значение категории нужно только для проверки подсказки «разные категории» у пары.
+const OTHER_CATEGORY = 'ovz' as const
+
 function person(code: string, extra: Partial<Participant> = {}): Participant {
   return {
     code,
@@ -156,7 +159,7 @@ describe('участники', () => {
   })
 
   test('в списке участников категории нет', async () => {
-    people[1] = person('NT02', { checked_in: true, category: 'ovz' })
+    people[1] = person('NT02', { checked_in: true, category: OTHER_CATEGORY })
     renderAdmin(server)
     await screen.findByText('NT02')
     const text = document.body.textContent?.toLowerCase() ?? ''
@@ -286,128 +289,298 @@ describe('станции', () => {
   })
 })
 
-describe('жеребьёвка', () => {
-  const options = [
-    { m: 2, team_count: 2, reserve_general: 1, reserve_ovz: 0, reserve_total: 1 },
-    { m: 3, team_count: 2, reserve_general: 0, reserve_ovz: 0, reserve_total: 0 },
-  ]
-  const protocol = {
-    id: 1,
-    created_at: '2027-01-01T09:00:00Z',
-    seed: 77,
-    m: 2,
-    team_count: 2,
-    teams: [
-      { number: 1, name: 'Альфа', color: '#aa00bb', members: [{ code: 'NT01', number_in_team: 1 }] },
-      { number: 2, name: 'Бета', color: '#00aa11', members: [{ code: 'NT02', number_in_team: 1 }] },
-    ],
-    duels: [{ order: 1, team_a: 1, team_b: 2, pairs: [{ k: 1, a: 'NT01', b: 'NT02' }] }],
-    reserve_ovz: ['NT09'],
-    reserve_general: ['NT10'],
+describe('команды', () => {
+  const played = { session_id: 's', outcome: 'completed', reason: null, comment: null, status: 'confirmed', source: 'station', finished_at: '2027-01-01T10:00:00Z', version: 1, voided: false, discipline: 'darts', section: 'bci', points: 5, wins: null }
+  let server: FakeServer
+  let members: { code: string; display_name: string | null; number_in_team: number }[][]
+  let results: unknown[]
+
+  function payload() {
+    return {
+      teams: [
+        { id: 11, number: 1, name: 'Красные', color: '#e6194b', members: members[0] },
+        { id: 12, number: 2, name: 'Синие', color: '#4363d8', members: members[1] },
+      ],
+      duels: [],
+    }
   }
 
-  test('запуск только после подтверждения, с выбранным m и зерном', async () => {
-    const server = createFakeServer('admin')
-    let done = false
-    server.routes.set('GET /draw/options', () => json(options))
-    server.routes.set('GET /draw', () => (done ? json(protocol) : problem(404, 'not_found')))
-    server.routes.set('POST /draw', () => {
-      done = true
-      return json({ id: 1, seed: 77, m: 2, team_count: 2 })
+  function member(code: string, n: number) {
+    return { code, display_name: null, number_in_team: n }
+  }
+
+  beforeEach(() => {
+    server = createFakeServer('admin')
+    members = [[member('NT01', 1), member('NT02', 2)], [member('NT03', 1)]]
+    results = []
+    server.routes.set('GET /teams', () => json(payload()))
+    server.routes.set('GET /participants', () =>
+      json([
+        person('NT01', { checked_in: true, category: 'general' }),
+        person('NT02', { checked_in: true, category: 'general' }),
+        person('NT03', { checked_in: true, category: OTHER_CATEGORY }),
+        person('NT04', { checked_in: true, category: 'general', display_name: 'Дима' }),
+        person('NT05'),
+      ]),
+    )
+    server.routes.set('GET /results', () => json({ total: results.length, items: results }))
+    server.routes.set('PUT /teams/assignment', (body) => {
+      const lineup = (body as { teams: { members: string[] }[] }).teams
+      members = lineup.map((t) => t.members.map((code, i) => member(code, i + 1)))
+      return json(payload())
+    })
+  })
+
+  const dataTransfer = () => ({ dataTransfer: { setData: () => undefined, effectAllowed: 'move' } })
+  // Команды лежат в строках пар, поэтому «колонка команды» — это список пар.
+  const column = async (name: string) =>
+    name === 'Не распределены'
+      ? within(await screen.findByRole('region', { name }))
+      : within(await screen.findByRole('list', { name: 'Пары' }))
+  const cardOf = (_area: string, code: string) =>
+    screen.getByText(code).closest('[data-card]') as HTMLElement
+
+  test('вкладки «Жеребьёвка» нет, есть три области и пары', async () => {
+    renderAdmin(server)
+    expect(await screen.findByRole('tab', { name: 'Команды' })).toBeDefined()
+    expect(screen.queryByRole('tab', { name: 'Жеребьёвка' })).toBeNull()
+    await openTab('Команды')
+
+    const pool = await column('Не распределены')
+    expect(pool.getByText('NT04')).toBeDefined()
+    expect(pool.getByText('Дима')).toBeDefined()
+    expect(pool.queryByText('NT05')).toBeNull()
+    expect((await column('Команда 1')).getByText('NT02')).toBeDefined()
+    expect((await column('Команда 2')).getByText('NT03')).toBeDefined()
+
+    const rows = within(screen.getByRole('list', { name: 'Пары' })).getAllByRole('listitem')
+    expect(rows).toHaveLength(2)
+    expect(within(rows[0] as HTMLElement).getByText('NT01')).toBeDefined()
+    expect(within(rows[0] as HTMLElement).getByText('NT03')).toBeDefined()
+    expect(within(rows[0] as HTMLElement).getByText('против')).toBeDefined()
+    expect(within(rows[1] as HTMLElement).getByText('NT02')).toBeDefined()
+    expect(within(rows[1] as HTMLElement).getByText('без пары')).toBeDefined()
+    expect(document.body.textContent).not.toContain('Протокол жеребьёвки')
+  })
+
+  test('кнопки двигают игрока и отправляют полный состав', async () => {
+    renderAdmin(server)
+    await openTab('Команды')
+    await column('Команда 1')
+
+    fireEvent.click(within(cardOf('Не распределены', 'NT04')).getByRole('button', { name: 'В команду 2: NT04' }))
+    await waitFor(() =>
+      expect(server.bodies('PUT /teams/assignment')).toEqual([
+        { teams: [{ number: 1, members: ['NT01', 'NT02'] }, { number: 2, members: ['NT03', 'NT04'] }] },
+      ]),
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Вверх: NT02' }))
+    await waitFor(() => expect(server.count('PUT /teams/assignment')).toBe(2))
+    expect(server.bodies('PUT /teams/assignment')[1]).toEqual({
+      teams: [{ number: 1, members: ['NT02', 'NT01'] }, { number: 2, members: ['NT03', 'NT04'] }],
+    })
+
+    fireEvent.click(await screen.findByRole('button', { name: 'В другую команду: NT01' }))
+    await waitFor(() => expect(server.count('PUT /teams/assignment')).toBe(3))
+    expect(server.bodies('PUT /teams/assignment')[2]).toEqual({
+      teams: [{ number: 1, members: ['NT02'] }, { number: 2, members: ['NT03', 'NT04', 'NT01'] }],
+    })
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Убрать из команды: NT04' }))
+    await waitFor(() => expect(server.count('PUT /teams/assignment')).toBe(4))
+    expect(server.bodies('PUT /teams/assignment')[3]).toEqual({
+      teams: [{ number: 1, members: ['NT02'] }, { number: 2, members: ['NT03', 'NT01'] }],
+    })
+    expect((await column('Не распределены')).getByText('NT04')).toBeDefined()
+  })
+
+  test('перетаскивание переносит игрока на нужное место', async () => {
+    renderAdmin(server)
+    await openTab('Команды')
+    await column('Команда 1')
+    fireEvent.dragStart(cardOf('Не распределены', 'NT04'), dataTransfer())
+    fireEvent.drop(cardOf('Команда 1', 'NT01'))
+    await waitFor(() =>
+      expect(server.bodies('PUT /teams/assignment')).toEqual([
+        { teams: [{ number: 1, members: ['NT04', 'NT01', 'NT02'] }, { number: 2, members: ['NT03'] }] },
+      ]),
+    )
+  })
+
+  test('при ошибке 409 прежний вид возвращается и виден текст ошибки', async () => {
+    server.routes.set('PUT /teams/assignment', () => problem(409, 'conflict'))
+    renderAdmin(server)
+    await openTab('Команды')
+    await column('Команда 1')
+    fireEvent.click(within(cardOf('Не распределены', 'NT04')).getByRole('button', { name: 'В команду 1: NT04' }))
+    expect(await screen.findByText('Действие уже недоступно')).toBeDefined()
+    expect((await column('Не распределены')).getByText('NT04')).toBeDefined()
+    expect((await column('Команда 1')).queryByText('NT04')).toBeNull()
+  })
+
+  test('игрок с результатом закреплён, остальных можно двигать вокруг него', async () => {
+    results = [
+      { ...played, id: 1, participant_code: 'NT01' },
+      { ...played, id: 2, participant_code: 'NT02', voided: true },
+    ]
+    renderAdmin(server)
+    await openTab('Команды')
+    await column('Команда 1')
+    const locked = cardOf('Команда 1', 'NT01')
+    expect(locked.getAttribute('draggable')).toBe('false')
+    expect(within(locked).getByRole('img', { name: /место закреплено/ })).toBeDefined()
+    expect(within(locked).queryByRole('button')).toBeNull()
+    // NT02 с аннулированным результатом не закреплён, но вверх нельзя: NT01 на месте
+    expect((screen.getByRole('button', { name: 'Вверх: NT02' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: 'Убрать из команды: NT02' }) as HTMLButtonElement).disabled).toBe(false)
+
+    fireEvent.dragStart(locked, dataTransfer())
+    fireEvent.drop(cardOf('Команда 2', 'NT03'))
+    expect(server.count('PUT /teams/assignment')).toBe(0)
+  })
+
+  test('нельзя оставить дыру перед закреплённым игроком', async () => {
+    results = [{ ...played, id: 2, participant_code: 'NT02' }]
+    renderAdmin(server)
+    await openTab('Команды')
+    await column('Команда 1')
+    for (const label of ['Убрать из команды', 'В другую команду', 'Вниз']) {
+      expect((screen.getByRole('button', { name: `${label}: NT01` }) as HTMLButtonElement).disabled).toBe(true)
+    }
+  })
+
+  test('в паре из разных категорий есть подсказка', async () => {
+    renderAdmin(server)
+    await openTab('Команды')
+    const pairs = within(await screen.findByRole('list', { name: 'Пары' }))
+    const [first, second] = pairs.getAllByRole('listitem') as HTMLElement[]
+    expect(within(first as HTMLElement).getByRole('img', { name: 'разные категории' })).toBeDefined()
+    expect(within(second as HTMLElement).queryByRole('img', { name: 'разные категории' })).toBeNull()
+    expect(document.body.textContent?.toLowerCase()).not.toContain('овз')
+  })
+
+  test('бросок на карточку занимает место цели: вниз и вверх внутри команды', async () => {
+    members = [[member('NT01', 1), member('NT02', 2), member('NT04', 3)], [member('NT03', 1)]]
+    renderAdmin(server)
+    await openTab('Команды')
+    await column('Команда 1')
+    fireEvent.dragStart(cardOf('Команда 1', 'NT01'), dataTransfer())
+    fireEvent.drop(cardOf('Команда 1', 'NT04'))
+    await waitFor(() => expect(server.count('PUT /teams/assignment')).toBe(1))
+    expect(server.bodies('PUT /teams/assignment')[0]).toEqual({
+      teams: [{ number: 1, members: ['NT02', 'NT04', 'NT01'] }, { number: 2, members: ['NT03'] }],
+    })
+
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('NT01'))
+    fireEvent.dragStart(cardOf('Команда 1', 'NT01'), dataTransfer())
+    fireEvent.drop(cardOf('Команда 1', 'NT02'))
+    await waitFor(() => expect(server.count('PUT /teams/assignment')).toBe(2))
+    expect(server.bodies('PUT /teams/assignment')[1]).toEqual({
+      teams: [{ number: 1, members: ['NT01', 'NT02', 'NT04'] }, { number: 2, members: ['NT03'] }],
+    })
+  })
+
+  test('после хода фокус остаётся в карточке игрока, ход объявляется', async () => {
+    renderAdmin(server)
+    await openTab('Команды')
+    await column('Команда 1')
+    const down = screen.getByRole('button', { name: 'Вниз: NT01' })
+    down.focus()
+    fireEvent.click(down)
+    await waitFor(() => expect(screen.getByRole('status').textContent).toBe('NT01: команда 1, место 2'))
+    const active = document.activeElement as HTMLElement
+    expect(active.closest('[data-card]')?.getAttribute('data-card')).toBe('NT01')
+    expect(active.tagName).toBe('BUTTON')
+  })
+
+  test('пока идёт запрос, клики и перетаскивание игнорируются', async () => {
+    const gate: { release?: () => void } = {}
+    server.routes.set('PUT /teams/assignment', (body) => {
+      const lineup = (body as { teams: { members: string[] }[] }).teams
+      return new Promise<Response>((resolve) => {
+        gate.release = () => {
+          members = lineup.map((t) => t.members.map((code, i) => member(code, i + 1)))
+          resolve(json(payload()))
+        }
+      })
     })
     renderAdmin(server)
-    await openTab('Жеребьёвка')
+    await openTab('Команды')
+    await column('Команда 1')
+    fireEvent.click(screen.getByRole('button', { name: 'Вниз: NT01' }))
+    const other = await screen.findByRole('button', { name: 'В другую команду: NT02' })
+    expect(other.getAttribute('aria-disabled')).toBe('true')
+    expect((other as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.click(other)
+    fireEvent.dragStart(cardOf('Команда 1', 'NT02'), dataTransfer())
+    fireEvent.drop(cardOf('Команда 2', 'NT03'))
+    expect(server.count('PUT /teams/assignment')).toBe(1)
 
-    const run = await screen.findByRole('button', { name: 'Провести жеребьёвку' })
-    expect((run as HTMLButtonElement).disabled).toBe(true)
-    fireEvent.click(await screen.findByLabelText('m = 2'))
-    fireEvent.change(screen.getByLabelText(/Зерно/), { target: { value: '77' } })
-    fireEvent.click(run)
-
-    const dialog = await screen.findByRole('dialog', { name: 'Провести жеребьёвку?' })
-    expect(server.count('POST /draw')).toBe(0)
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Да, провести' }))
-
-    expect(await screen.findByLabelText('Протокол жеребьёвки')).toBeDefined()
-    expect(server.bodies('POST /draw')).toEqual([{ m: 2, seed: 77 }])
+    await act(async () => {
+      gate.release?.()
+    })
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'В другую команду: NT02' }).getAttribute('aria-disabled')).toBeNull(),
+    )
+    expect(server.count('PUT /teams/assignment')).toBe(1)
   })
 
-  test('отмена подтверждения ничего не запускает; без зерна оно не отправляется', async () => {
-    const server = createFakeServer('admin')
-    server.routes.set('GET /draw/options', () => json(options))
-    server.routes.set('GET /draw', () => problem(404, 'not_found'))
-    server.routes.set('POST /draw', () => json({ id: 1, seed: 5, m: 3, team_count: 2 }))
+  test('после 409 данные перечитываются: доска и замки обновляются', async () => {
+    server.routes.set('PUT /teams/assignment', () => {
+      results = [{ ...played, id: 1, participant_code: 'NT01' }]
+      return problem(409, 'conflict')
+    })
     renderAdmin(server)
-    await openTab('Жеребьёвка')
-    fireEvent.click(await screen.findByLabelText('m = 3'))
-    fireEvent.click(screen.getByRole('button', { name: 'Провести жеребьёвку' }))
-    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Отмена' }))
-    expect(screen.queryByRole('dialog')).toBeNull()
-    expect(server.count('POST /draw')).toBe(0)
+    await openTab('Команды')
+    await column('Команда 1')
+    expect(within(cardOf('Команда 1', 'NT01')).queryByRole('img', { name: /закреплено/ })).toBeNull()
+    const before: Record<string, number> = {}
+    for (const key of ['GET /results', 'GET /participants', 'GET /teams']) before[key] = server.count(key)
+    fireEvent.click(within(cardOf('Не распределены', 'NT04')).getByRole('button', { name: 'В команду 1: NT04' }))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Провести жеребьёвку' }))
-    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Да, провести' }))
-    await waitFor(() => expect(server.bodies('POST /draw')).toEqual([{ m: 3 }]))
+    expect(await screen.findByText('Действие уже недоступно')).toBeDefined()
+    await waitFor(() =>
+      expect(within(cardOf('Команда 1', 'NT01')).getByRole('img', { name: /закреплено/ })).toBeDefined(),
+    )
+    for (const key of ['GET /results', 'GET /participants', 'GET /teams']) {
+      expect(server.count(key)).toBe((before[key] ?? 0) + 1)
+    }
+    expect((await column('Не распределены')).getByText('NT04')).toBeDefined()
   })
 
-  test('зерно должно быть целым числом', async () => {
-    const server = createFakeServer('admin')
-    server.routes.set('GET /draw/options', () => json(options))
-    server.routes.set('GET /draw', () => problem(404, 'not_found'))
-    renderAdmin(server)
-    await openTab('Жеребьёвка')
-    fireEvent.click(await screen.findByLabelText('m = 2'))
-    fireEvent.change(screen.getByLabelText(/Зерно/), { target: { value: 'abc' } })
-    expect(screen.getByText('Зерно — целое число')).toBeDefined()
-    expect((screen.getByRole('button', { name: 'Провести жеребьёвку' }) as HTMLButtonElement).disabled).toBe(true)
-  })
-
-  test('протокол: составы, пары, резерв по категориям и печать', async () => {
-    const server = createFakeServer('admin')
-    server.routes.set('GET /draw/options', () => json([]))
-    server.routes.set('GET /draw', () => json(protocol))
-    const print = vi.spyOn(window, 'print').mockImplementation(() => undefined)
-    renderAdmin(server)
-    await openTab('Жеребьёвка')
-    const article = await screen.findByLabelText('Протокол жеребьёвки')
-    expect(within(article).getByText('77')).toBeDefined()
-    expect(within(article).getByText('Дуэль 1: Альфа — Бета')).toBeDefined()
-    expect(within(article).getByText('Пара 1: NT01 и NT02')).toBeDefined()
-    expect(within(article).getByText('С ОВЗ: NT09')).toBeDefined()
-    expect(within(article).getByText('Без ОВЗ: NT10')).toBeDefined()
-    expect(screen.getByText(/Жеребьёвка уже проведена/)).toBeDefined()
-
-    fireEvent.click(within(article).getByRole('button', { name: 'Печать протокола' }))
-    expect(print).toHaveBeenCalledTimes(1)
-    print.mockRestore()
+  test('раз в 15 секунд вкладка сама подтягивает чужие изменения', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      renderAdmin(server)
+      await openTab('Команды')
+      await column('Команда 1')
+      expect((await column('Не распределены')).queryByText('NT09')).toBeNull()
+      server.routes.set('GET /participants', () =>
+        json([person('NT01', { checked_in: true }), person('NT02', { checked_in: true }), person('NT03', { checked_in: true }), person('NT09', { checked_in: true })]),
+      )
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000)
+      })
+      expect((await column('Не распределены')).getByText('NT09')).toBeDefined()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 
 describe('названия и цвета команд', () => {
-  const protocol = {
-    id: 1,
-    created_at: '2027-01-01T09:00:00Z',
-    seed: 1,
-    m: 1,
-    team_count: 2,
-    teams: [
-      { number: 1, name: 'Красные', color: '#e6194b', members: [] },
-      { number: 2, name: 'Синие', color: '#4363d8', members: [] },
-    ],
-    duels: [],
-    reserve_ovz: [],
-    reserve_general: [],
-  }
-
   function setup() {
     const server = createFakeServer('admin')
     const teams = [
       { id: 11, number: 1, name: 'Красные', color: '#e6194b' },
       { id: 12, number: 2, name: 'Синие', color: '#4363d8' },
     ]
-    server.routes.set('GET /draw/options', () => json([]))
-    server.routes.set('GET /draw', () => json(protocol))
-    server.routes.set('GET /teams', () => json({ teams, duels: [] }))
+    server.routes.set('GET /participants', () => json([]))
+    server.routes.set('GET /results', () => json({ total: 0, items: [] }))
+    server.routes.set('GET /teams', () =>
+      json({ teams: teams.map((t) => ({ ...t, members: [] })), duels: [] }),
+    )
     server.routes.set('PATCH /teams/*', (body, url) => {
       const id = Number(url.pathname.split('/').at(-1))
       const team = teams.find((t) => t.id === id)
@@ -417,18 +590,17 @@ describe('названия и цвета команд', () => {
     return server
   }
 
-  test('админ переименовывает команду и выбирает цвет', async () => {
+  test('название и цвет сохраняются по потере фокуса', async () => {
     const server = setup()
     renderAdmin(server)
-    await openTab('Жеребьёвка')
+    await openTab('Команды')
     const name = await screen.findByLabelText('Название команды 1')
-    const save = screen.getByRole('button', { name: 'Сохранить команду 1' }) as HTMLButtonElement
-    expect(save.disabled).toBe(true)
+    fireEvent.blur(name)
+    expect(server.count('PATCH /teams/*')).toBe(0)
 
     fireEvent.change(name, { target: { value: '  Огонь  ' } })
     fireEvent.change(screen.getByLabelText('Цвет команды 1'), { target: { value: '#ff8800' } })
-    expect(save.disabled).toBe(false)
-    fireEvent.click(save)
+    fireEvent.blur(name)
 
     await waitFor(() =>
       expect(server.bodies('PATCH /teams/*')).toEqual([{ name: 'Огонь', color: '#ff8800' }]),
@@ -439,36 +611,72 @@ describe('названия и цвета команд', () => {
     )
   })
 
+  test('Enter сохраняет название', async () => {
+    const server = setup()
+    renderAdmin(server)
+    await openTab('Команды')
+    const name = await screen.findByLabelText('Название команды 2')
+    fireEvent.change(name, { target: { value: 'Волны' } })
+    fireEvent.keyDown(name, { key: 'Enter' })
+    await waitFor(() =>
+      expect(server.bodies('PATCH /teams/*')).toEqual([{ name: 'Волны', color: '#4363d8' }]),
+    )
+  })
+
+  test('Enter и следующий blur шлют один запрос', async () => {
+    const server = setup()
+    renderAdmin(server)
+    await openTab('Команды')
+    const name = await screen.findByLabelText('Название команды 1')
+    fireEvent.change(name, { target: { value: 'Огонь' } })
+    fireEvent.keyDown(name, { key: 'Enter' })
+    fireEvent.blur(name)
+    await waitFor(() => expect(server.count('PATCH /teams/*')).toBe(1))
+    await waitFor(() => expect((screen.getByLabelText('Название команды 1') as HTMLInputElement).value).toBe('Огонь'))
+    fireEvent.blur(screen.getByLabelText('Название команды 1'))
+    expect(server.count('PATCH /teams/*')).toBe(1)
+  })
+
+  test('пустое название по Enter показывает сообщение, запрос не уходит', async () => {
+    const server = setup()
+    renderAdmin(server)
+    await openTab('Команды')
+    const name = await screen.findByLabelText('Название команды 1')
+    fireEvent.change(name, { target: { value: '   ' } })
+    fireEvent.keyDown(name, { key: 'Enter' })
+    expect(await screen.findByText(/от 1 до 24 символов/)).toBeDefined()
+    expect(server.count('PATCH /teams/*')).toBe(0)
+  })
+
   test('цвет выбирается нативным полем color', async () => {
     renderAdmin(setup())
-    await openTab('Жеребьёвка')
+    await openTab('Команды')
     const color = (await screen.findByLabelText('Цвет команды 2')) as HTMLInputElement
     expect(color.type).toBe('color')
     expect(color.value).toBe('#4363d8')
   })
 
-  test('пустое название нельзя сохранить, длина ограничена 24', async () => {
+  test('пустое название не сохраняется, длина ограничена 24', async () => {
     const server = setup()
     renderAdmin(server)
-    await openTab('Жеребьёвка')
+    await openTab('Команды')
     const name = (await screen.findByLabelText('Название команды 1')) as HTMLInputElement
-    const save = screen.getByRole('button', { name: 'Сохранить команду 1' }) as HTMLButtonElement
     fireEvent.change(name, { target: { value: '   ' } })
-    expect(save.disabled).toBe(true)
-    fireEvent.change(name, { target: { value: 'Ф' } })
-    expect(save.disabled).toBe(false)
+    fireEvent.blur(name)
     expect(name.maxLength).toBe(24)
     expect(server.count('PATCH /teams/*')).toBe(0)
   })
 
-  test('ошибка сервера показывается, введённое остаётся', async () => {
+  test('ошибка сервера показывается под шапкой, введённое остаётся', async () => {
     const server = setup()
     server.routes.set('PATCH /teams/*', () => problem(422, 'invalid_request'))
     renderAdmin(server)
-    await openTab('Жеребьёвка')
-    fireEvent.change(await screen.findByLabelText('Название команды 1'), { target: { value: 'Новая' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Сохранить команду 1' }))
+    await openTab('Команды')
+    const name = await screen.findByLabelText('Название команды 1')
+    fireEvent.change(name, { target: { value: 'Новая' } })
+    fireEvent.blur(name)
     await waitFor(() => expect(server.count('PATCH /teams/*')).toBe(1))
+    expect(await screen.findByRole('alert')).toBeDefined()
     expect((screen.getByLabelText('Название команды 1') as HTMLInputElement).value).toBe('Новая')
   })
 })
