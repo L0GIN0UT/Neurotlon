@@ -68,7 +68,7 @@ export function AdminApp({ fetchFn }: { fetchFn?: typeof fetch }) {
           {tab === 'teams' && <TeamsTab api={api} />}
           {tab === 'stations' && <StationsTab api={api} />}
           {tab === 'disciplines' && <DisciplinesTab api={api} />}
-          {tab === 'users' && me.role === 'superuser' && <UsersTab api={api} />}
+          {tab === 'users' && me.role === 'superuser' && <UsersTab api={api} meLogin={me.login} />}
           {tab === 'export' && <ExportLink />}
         </>
       )}

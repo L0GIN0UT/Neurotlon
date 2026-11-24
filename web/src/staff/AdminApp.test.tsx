@@ -750,53 +750,206 @@ describe('дисциплины', () => {
 })
 
 describe('пользователи (суперпользователь)', () => {
-  test('создание волонтёра, отключение и сброс пароля', async () => {
+  const ROOT: UserInfo = { id: 1, login: 'root', role: 'superuser', discipline: null, is_active: true }
+  const dart1: UserInfo = { id: 2, login: 'dart1', role: 'volunteer', discipline: 'pong', is_active: true }
+
+  function setup(extra: UserInfo[] = []) {
     const server = createFakeServer('superuser', 'root')
-    const users: UserInfo[] = [{ id: 1, login: 'root', role: 'superuser', discipline: null, is_active: true }]
+    const users: UserInfo[] = [ROOT, ...extra]
     server.routes.set('GET /users', () => json(users))
     server.routes.set('POST /users', (body) => {
       const b = body as { login: string; role: string; discipline?: string }
       users.push({
-        id: 2,
+        id: users.length + 1,
         login: b.login,
         role: b.role as UserInfo['role'],
         discipline: (b.discipline as UserInfo['discipline']) ?? null,
         is_active: true,
       })
-      return json(users[1], 201)
+      return json(users[users.length - 1], 201)
     })
-    server.routes.set('PATCH /users/*', () => json(users[1]))
+    server.routes.set('PATCH /users/*', (body) => {
+      const patch = body as { is_active?: boolean }
+      const target = users.find((u) => u.login === 'dart1')
+      if (target && patch.is_active !== undefined) target.is_active = patch.is_active
+      return json(target ?? ROOT)
+    })
     server.routes.set('POST /users/*/revoke-sessions', () => new Response(null, { status: 204 }))
     renderAdmin(server)
-    await openTab('Пользователи')
+    return server
+  }
 
-    fireEvent.change(await screen.findByLabelText('Логин'), { target: { value: 'dart1' } })
-    fireEvent.change(screen.getByLabelText(/Пароль \(от 8/), { target: { value: 'longenough' } })
-    fireEvent.change(screen.getByLabelText('Секция волонтёра'), { target: { value: 'pong' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Создать аккаунт' }))
+  test('суперпользователь скрыт в списке и не входит в счётчик', async () => {
+    setup([{ ...dart1 }])
+    await openTab('Пользователи')
+    expect(await screen.findByText('Пользователей: 1, активных: 1')).toBeDefined()
+    expect(screen.queryByRole('button', { name: 'Действия root' })).toBeNull()
+    expect(screen.queryByText('Суперпользователь')).toBeNull()
+  })
+
+  test('счётчик не показывается до загрузки списка', async () => {
+    const server = createFakeServer('superuser', 'root')
+    server.routes.set('GET /users', () => new Promise<Response>(() => undefined))
+    renderAdmin(server)
+    await openTab('Пользователи')
+    await screen.findByRole('button', { name: 'Добавить пользователя' })
+    expect(screen.queryByText(/Пользователей:/)).toBeNull()
+  })
+
+  test('создание волонтёра через окно, пароль можно показать', async () => {
+    const server = setup()
+    await openTab('Пользователи')
+    expect(await screen.findByText('Пользователей: 0, активных: 0')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Добавить пользователя' }))
+    const create = await screen.findByRole('dialog', { name: 'Новый пользователь' })
+    fireEvent.change(within(create).getByLabelText('Логин'), { target: { value: 'dart1' } })
+    const pass = within(create).getByLabelText(/Пароль \(от 8/) as HTMLInputElement
+    fireEvent.change(pass, { target: { value: 'longenough' } })
+    expect(pass.type).toBe('password')
+    fireEvent.click(within(create).getByRole('button', { name: 'Показать' }))
+    expect(pass.type).toBe('text')
+    fireEvent.change(within(create).getByLabelText('Секция волонтёра'), { target: { value: 'pong' } })
+    fireEvent.click(within(create).getByRole('button', { name: 'Создать аккаунт' }))
     expect(await screen.findByText('Аккаунт «dart1» создан')).toBeDefined()
+    expect(screen.queryByRole('dialog')).toBeNull()
     expect(server.bodies('POST /users')).toEqual([
       { login: 'dart1', password: 'longenough', role: 'volunteer', discipline: 'pong' },
     ])
+    expect(await screen.findByText('Пользователей: 1, активных: 1')).toBeDefined()
+  })
 
+  test('отключение просит подтверждение, включение нет', async () => {
+    const server = setup([{ ...dart1 }])
+    await openTab('Пользователи')
     fireEvent.click(await screen.findByRole('button', { name: 'Отключить dart1' }))
+    expect(server.count('PATCH /users/*')).toBe(0)
+    fireEvent.click(
+      within(await screen.findByRole('dialog', { name: 'Отключить аккаунт?' })).getByRole('button', {
+        name: 'Отключить',
+      }),
+    )
     await waitFor(() => expect(server.bodies('PATCH /users/*')).toEqual([{ is_active: false }]))
+    expect(await screen.findByText('Отключён')).toBeDefined()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Сбросить пароль dart1' }))
-    const dialog = await screen.findByRole('dialog', { name: 'Новый пароль dart1' })
+    fireEvent.click(screen.getByRole('button', { name: 'Включить dart1' }))
+    await waitFor(() => expect(server.bodies('PATCH /users/*')).toContainEqual({ is_active: true }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(await screen.findByText('Активен')).toBeDefined()
+  })
+
+  test('кнопка блокируется на время запроса', async () => {
+    const server = setup([{ ...dart1 }])
+    let release: () => void = () => undefined
+    server.routes.set(
+      'PATCH /users/*',
+      () => new Promise<Response>((resolve) => (release = () => resolve(json(dart1)))),
+    )
+    await openTab('Пользователи')
+    fireEvent.click(await screen.findByRole('button', { name: 'Отключить dart1' }))
+    fireEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Отключить' }),
+    )
+    const button = () => screen.getByRole('button', { name: 'Отключить dart1' }) as HTMLButtonElement
+    await waitFor(() => expect(button().disabled).toBe(true))
+    release()
+    await waitFor(() => expect(button().disabled).toBe(false))
+  })
+
+  test('себя отключить нельзя: кнопки нет', async () => {
+    const server = createFakeServer('superuser', 'boss')
+    server.routes.set('GET /users', () =>
+      json([{ id: 3, login: 'boss', role: 'admin', discipline: null, is_active: true }, dart1]),
+    )
+    renderAdmin(server)
+    await openTab('Пользователи')
+    await screen.findByRole('button', { name: 'Отключить dart1' })
+    expect(screen.queryByRole('button', { name: 'Отключить boss' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Действия boss' })).toBeDefined()
+  })
+
+  test('меню: стрелки, Escape и клик вне', async () => {
+    setup([{ ...dart1 }])
+    await openTab('Пользователи')
+    const more = await screen.findByRole('button', { name: 'Действия dart1' })
+    expect(more.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(more)
+    expect(more.getAttribute('aria-expanded')).toBe('true')
+
+    const items = within(screen.getByRole('menu')).getAllByRole('menuitem')
+    const [first, second] = [items[0]!, items[1]!]
+    expect(document.activeElement).toBe(first)
+    fireEvent.keyDown(first, { key: 'ArrowDown' })
+    expect(document.activeElement).toBe(second)
+    fireEvent.keyDown(second, { key: 'ArrowDown' })
+    expect(document.activeElement).toBe(first)
+    fireEvent.keyDown(first, { key: 'ArrowUp' })
+    expect(document.activeElement).toBe(second)
+    fireEvent.keyDown(second, { key: 'Home' })
+    expect(document.activeElement).toBe(first)
+    fireEvent.keyDown(first, { key: 'End' })
+    expect(document.activeElement).toBe(second)
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(document.activeElement).toBe(more)
+
+    fireEvent.click(more)
+    fireEvent.pointerDown(document.body)
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  test('меню закрывается, когда фокус ушёл из него', async () => {
+    setup([{ ...dart1 }])
+    await openTab('Пользователи')
+    fireEvent.click(await screen.findByRole('button', { name: 'Действия dart1' }))
+    const outside = screen.getByRole('button', { name: 'Добавить пользователя' })
+    fireEvent.blur(within(screen.getByRole('menu')).getAllByRole('menuitem')[0]!, { relatedTarget: outside })
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  test('смена пароля: окно открывается чистым, Escape возвращает фокус на «…»', async () => {
+    const server = setup([{ ...dart1 }])
+    await openTab('Пользователи')
+    const more = await screen.findByRole('button', { name: 'Действия dart1' })
+
+    fireEvent.click(more)
+    fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Сменить пароль' }))
+    let dialog = await screen.findByRole('dialog', { name: 'Новый пароль dart1' })
     fireEvent.change(within(dialog).getByLabelText('Новый пароль'), { target: { value: 'another-pass' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Показать' }))
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.activeElement).toBe(more)
+
+    fireEvent.click(more)
+    fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Сменить пароль' }))
+    dialog = await screen.findByRole('dialog', { name: 'Новый пароль dart1' })
+    const field = within(dialog).getByLabelText('Новый пароль') as HTMLInputElement
+    expect(field.value).toBe('')
+    expect(field.type).toBe('password')
+    fireEvent.change(field, { target: { value: 'another-pass' } })
     fireEvent.click(within(dialog).getByRole('button', { name: 'Сменить пароль' }))
     await waitFor(() =>
       expect(server.bodies('PATCH /users/*')).toContainEqual({ password: 'another-pass' }),
     )
+    expect(await screen.findByText('Пароль «dart1» изменён, сессии завершены')).toBeDefined()
+  })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Завершить сессии dart1' }))
+  test('завершение сессий через подтверждение, сообщение сбрасывается при новом действии', async () => {
+    const server = setup([{ ...dart1 }])
+    await openTab('Пользователи')
+    fireEvent.click(await screen.findByRole('button', { name: 'Действия dart1' }))
+    fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Завершить сессии' }))
     fireEvent.click(
       within(await screen.findByRole('dialog', { name: 'Завершить сессии?' })).getByRole('button', {
         name: 'Завершить сессии',
       }),
     )
     await waitFor(() => expect(server.count('POST /users/*/revoke-sessions')).toBe(1))
+    expect(await screen.findByText('Сессии «dart1» завершены')).toBeDefined()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Добавить пользователя' }))
+    expect(screen.queryByText('Сессии «dart1» завершены')).toBeNull()
   })
 })
 

@@ -1,5 +1,54 @@
-import type { ReactNode } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
+import type { KeyboardEvent, ReactNode, RefObject } from 'react'
 import { errorText } from '../shared/messages.ts'
+
+const FOCUSABLE =
+  'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
+
+/**
+ * Поведение модального окна: автофокус, Escape, захват Tab, возврат фокуса.
+ * Элемент-открыватель запоминается при первом рендере, до автофокуса внутри окна.
+ */
+function useModal(onClose: () => void): {
+  ref: RefObject<HTMLDivElement | null>
+  onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void
+} {
+  const ref = useRef<HTMLDivElement>(null)
+  const [opener] = useState(() => document.activeElement)
+
+  useEffect(() => {
+    const root = ref.current
+    if (root && !root.contains(document.activeElement)) {
+      root.querySelector<HTMLElement>(FOCUSABLE)?.focus()
+    }
+    return () => {
+      if (opener instanceof HTMLElement && opener.isConnected) opener.focus()
+    }
+  }, [opener])
+
+  function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === 'Escape') {
+      event.stopPropagation()
+      onClose()
+      return
+    }
+    if (event.key !== 'Tab' || !ref.current) return
+    const items = Array.from(ref.current.querySelectorAll<HTMLElement>(FOCUSABLE))
+    const first = items[0]
+    const last = items[items.length - 1]
+    if (!first || !last) return
+    const active = document.activeElement
+    if (event.shiftKey && (active === first || !ref.current.contains(active))) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && (active === last || !ref.current.contains(active))) {
+      event.preventDefault()
+      first.focus()
+    }
+  }
+
+  return { ref, onKeyDown }
+}
 
 interface DialogProps {
   title: string
@@ -9,10 +58,19 @@ interface DialogProps {
 
 /** Модальное окно без нативного <dialog>: одинаково работает в браузерах и в тестах. */
 export function Dialog({ title, children, onClose }: DialogProps) {
+  const { ref, onKeyDown } = useModal(onClose)
+  const titleId = useId()
   return (
     <div className="backdrop no-print">
-      <div role="dialog" aria-modal="true" aria-label={title} className="dialog stack">
-        <h2>{title}</h2>
+      <div
+        ref={ref}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="dialog stack"
+        onKeyDown={onKeyDown}
+      >
+        <h2 id={titleId}>{title}</h2>
         {children}
         <button type="button" className="ghost" onClick={onClose}>
           Закрыть
@@ -32,10 +90,19 @@ interface ConfirmProps {
 }
 
 export function ConfirmDialog({ title, message, confirmLabel, busy, onConfirm, onCancel }: ConfirmProps) {
+  const { ref, onKeyDown } = useModal(onCancel)
+  const titleId = useId()
   return (
     <div className="backdrop no-print">
-      <div role="dialog" aria-modal="true" aria-label={title} className="dialog stack">
-        <h2>{title}</h2>
+      <div
+        ref={ref}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="dialog stack"
+        onKeyDown={onKeyDown}
+      >
+        <h2 id={titleId}>{title}</h2>
         <div>{message}</div>
         <div className="row">
           <button type="button" className="primary" disabled={busy} onClick={onConfirm}>
