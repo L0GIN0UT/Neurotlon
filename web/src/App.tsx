@@ -27,7 +27,12 @@ export function App() {
       <ul>
         {ROUTES.map((route) => (
           <li key={route.path}>
-            <a href={route.path}>{route.label}</a>
+            <a
+              href={route.path}
+              {...(route.path === '/board' ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+            >
+              {route.label}
+            </a>
           </li>
         ))}
       </ul>
