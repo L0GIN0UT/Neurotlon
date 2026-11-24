@@ -171,7 +171,7 @@ def test_taskkill_fallback_when_job_is_unavailable(
 ) -> None:
     if sys.platform != "win32":
         pytest.skip("taskkill fallback is Windows-only")
-    monkeypatch.setattr(proc, "_create_kill_on_close_job", lambda process: None)
+    monkeypatch.setattr(proc, "create_kill_on_close_job", lambda process: None)
     now = [0.0]
     game = timeout_game(tmp_path, now)
     req = request()
