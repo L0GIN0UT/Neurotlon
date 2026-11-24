@@ -99,38 +99,40 @@ export function UsersTab({ api }: { api: StaffApi }) {
       {notice && <p role="status">{notice}</p>}
       <ErrorText error={action.error ?? list.error} />
 
-      <table className="card">
-        <thead>
-          <tr>
-            <th>Логин</th>
-            <th>Роль</th>
-            <th>Секция</th>
-            <th>Состояние</th>
-            <th>Действия</th>
-          </tr>
-        </thead>
-        <tbody>
-          {(list.data ?? []).map((user) => (
-            <tr key={user.id}>
-              <td>{user.login}</td>
-              <td>{ROLE_NAMES[user.role]}</td>
-              <td>{user.discipline ? DISCIPLINE_NAMES[user.discipline] : '—'}</td>
-              <td>{user.is_active ? 'активен' : 'отключён'}</td>
-              <td className="actions">
-                <button type="button" onClick={() => void toggle(user)}>
-                  {user.is_active ? `Отключить ${user.login}` : `Включить ${user.login}`}
-                </button>
-                <button type="button" onClick={() => setResetting(user)}>
-                  Сбросить пароль {user.login}
-                </button>
-                <button type="button" onClick={() => setRevoking(user)}>
-                  Завершить сессии {user.login}
-                </button>
-              </td>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Логин</th>
+              <th>Роль</th>
+              <th>Секция</th>
+              <th>Состояние</th>
+              <th>Действия</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {(list.data ?? []).map((user) => (
+              <tr key={user.id}>
+                <td>{user.login}</td>
+                <td>{ROLE_NAMES[user.role]}</td>
+                <td>{user.discipline ? DISCIPLINE_NAMES[user.discipline] : '—'}</td>
+                <td>{user.is_active ? 'активен' : 'отключён'}</td>
+                <td className="actions">
+                  <button type="button" onClick={() => void toggle(user)}>
+                    {user.is_active ? `Отключить ${user.login}` : `Включить ${user.login}`}
+                  </button>
+                  <button type="button" onClick={() => setResetting(user)}>
+                    Сбросить пароль {user.login}
+                  </button>
+                  <button type="button" onClick={() => setRevoking(user)}>
+                    Завершить сессии {user.login}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       {resetting && (
         <ResetPassword
