@@ -9,11 +9,234 @@
   flex-direction: column;
   align-items: center;
   gap: 16px;
-  padding: 8px 0 32px;
+  padding: 0 0 32px;
+  min-width: 0;
 }
 
-.badges-root .code-picker label {
-  min-width: 5.5rem;
+/* ---------- панель параметров (не печатается), в стиле админки ---------- */
+
+.badges-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.badges-root .bp-panel {
+  position: sticky;
+  top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+}
+
+.badges-root .bp-panel h2 {
+  margin: 0;
+}
+
+.badges-root .bp-back {
+  align-self: flex-start;
+  min-height: 36px;
+  border-radius: 10px;
+  padding: 5px 14px;
+}
+
+.badges-root .bp-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.badges-root .bp-block h3 {
+  margin: 0;
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.badges-root .bp-segment {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border-radius: 10px;
+  background: #0b0f1a;
+  border: 1px solid var(--line);
+}
+
+.staff .bp-segment button {
+  min-height: 44px;
+  padding: 4px 6px;
+  border-color: transparent;
+  background: transparent;
+  font-size: 0.88rem;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.staff .bp-segment button.on {
+  background: var(--accent);
+  color: #06112b;
+}
+
+.badges-root .bp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.badges-root .bp-count {
+  margin: 0;
+}
+
+.badges-root .bp-people {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 280px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.badges-root .bp-people li + li {
+  border-top: 1px solid var(--line);
+}
+
+.badges-root .bp-people label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.badges-root .bp-people label:hover {
+  background: var(--surface-hover);
+}
+
+.badges-root .bp-people .photo-thumb {
+  width: 30px;
+  height: 30px;
+  flex: none;
+}
+
+.badges-root .bp-code {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.badges-root .bp-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+/* тумблер вместо флажка */
+.badges-root .bp-switch {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.staff .bp-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 44px;
+  height: 26px;
+  margin: 0;
+  cursor: pointer;
+}
+
+.badges-root .bp-track {
+  position: relative;
+  flex: none;
+  width: 44px;
+  height: 26px;
+  border-radius: 13px;
+  background: var(--surface-hi);
+  border: 1px solid var(--border);
+  transition: background 0.15s;
+}
+
+.badges-root .bp-track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--text);
+  transition: transform 0.15s;
+}
+
+.badges-root .bp-switch input:checked + .bp-track {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.badges-root .bp-switch input:checked + .bp-track::after {
+  transform: translateX(18px);
+  background: #06112b;
+}
+
+.badges-root .bp-switch input:focus-visible + .bp-track {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.badges-root .bp-print {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.staff .bp-print-btn {
+  min-height: 56px;
+  border-radius: 1.6rem;
+  font-size: 1.1rem;
+}
+
+.badges-root .bp-print .hint {
+  margin: 0;
+  text-align: center;
+}
+
+.badges-root .bp-help summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.badges-root .bp-help p {
+  margin: 8px 0 0;
+  color: var(--muted);
+}
+
+.badges-root .bp-small {
+  font-size: 0.8rem;
+}
+
+@media (max-width: 900px) {
+  .badges-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .badges-root .bp-panel {
+    position: static;
+    max-height: none;
+  }
 }
 
 /* ---------- масштаб: на экране под ширину окна, в печати натуральный ---------- */
@@ -69,23 +292,26 @@
   box-sizing: border-box;
 }
 
+/* верхний блок: слева номер и имя, справа логотип; ниже в одном ряду фото и QR, их верх и низ совпадают */
 .badge-top {
   display: grid;
   grid-template-columns: 36mm 45mm;
+  grid-template-rows: auto auto;
   justify-content: space-between;
+  row-gap: 1.5mm;
   flex: none;
 }
 
-.badge-left {
+.badge-head {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 2mm;
+  gap: 0.8mm;
+  min-width: 0;
 }
 
 .photo {
-  width: 36mm;
-  height: 46mm;
+  flex: 1 1 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -95,6 +321,17 @@
   border: 0.4mm solid var(--border);
   border-radius: 3mm;
   background: linear-gradient(180deg, var(--surface-hi), var(--surface));
+}
+
+.photo-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
 }
 
 .silhouette {
@@ -114,21 +351,36 @@
   color: var(--muted);
 }
 
+.photo .photo-fail {
+  color: #ffb4b2;
+}
+
 .badge-code {
-  font-size: 12mm;
+  font-size: 7mm;
   font-weight: 800;
   line-height: 1;
   letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
-.badge-right {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1.5mm;
+/* имя на табло: до двух строк, длинное мельче (размер задаёт компонент) */
+.badge-name {
+  width: 100%;
+  height: 6.6mm;
+  flex: none;
+  font-weight: 700;
+  line-height: 1.12;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  color: var(--text);
 }
 
 .badge-logo {
+  justify-self: center;
+  align-self: center;
   width: 40mm;
   height: auto;
   display: block;
@@ -136,6 +388,7 @@
 
 /* рамка сканирования: угловые скобки цветом акцента снаружи белой плитки, в тихую зону не заходят */
 .qr-frame {
+  justify-self: center;
   position: relative;
   padding: 1.5mm;
 }
@@ -259,6 +512,15 @@
   border-bottom: 0.25mm dashed var(--muted);
 }
 
+/* без блока партнёров его место забирает таблица результатов: строки растягиваются */
+.id-badge.no-partners .results {
+  flex: 1 1 auto;
+}
+
+.id-badge.no-partners .results tbody tr {
+  height: auto;
+}
+
 /* ---------- партнёры ---------- */
 
 .partners {
@@ -319,6 +581,10 @@
 /* ---------- печать ---------- */
 
 @media print {
+  .badges-layout {
+    display: block;
+  }
+
   .badges-root .badge-list {
     display: block;
     padding: 0;
@@ -341,14 +607,5 @@
   /* в типографии бейдж занимает страницу целиком (вылет под обрез), углы режет станок */
   .badges-root.mode-press .id-badge {
     border-radius: 0;
-  }
-
-  /* места под спонсоров можно не печатать, место остаётся */
-  .badges-root.sponsors-off .sponsor-slot {
-    border-color: transparent;
-  }
-
-  .badges-root.sponsors-off .partners-label {
-    visibility: hidden;
   }
 }

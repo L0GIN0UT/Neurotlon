@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { DragEvent, ReactNode, RefObject } from 'react'
+import type { PointerEvent as ReactPointerEvent, ReactNode, RefObject } from 'react'
+import { LayoutGroup, MotionConfig, motion } from 'motion/react'
 import { errorText } from '../../shared/messages.ts'
 import type { Category, Participant, StaffApi, TeamInfo, TeamsPayload } from '../api.ts'
 import { useAction, useLoader } from '../hooks.ts'
 import { ErrorText } from '../ui.tsx'
 import { TeamTitle } from './TeamTitle.tsx'
-import { assignmentBody, locate, moveTo, pairsOf, step } from './teamsLayout.ts'
+import { TEAM_AREAS, assignmentBody, dropPreview, locate, moveTo, pairsOf, step } from './teamsLayout.ts'
 import type { Area, Lineup, Lock, Locks } from './teamsLayout.ts'
+import { useCardDrag } from './useCardDrag.ts'
+import type { DropTarget } from './useCardDrag.ts'
 import './TeamsTab.css'
 
 /** Как часто вкладка перечитывает данные, если сейчас нет запроса и перетаскивания. */
@@ -22,6 +25,10 @@ interface Board {
   lineup: Lineup
   locks: Locks
   people: ReadonlyMap<string, Person>
+  /** Во время перетаскивания: чья карточка «призрак» на будущем месте и с какой стороны линия вставки. */
+  drag?: { code: string; line: 'before' | 'after' } | null
+  /** Область, над которой сейчас указатель: колонка подсвечивается. */
+  hot?: Area | null
 }
 
 /** Что сделал человек: по нему возвращается фокус и объявляется результат. */
@@ -29,6 +36,8 @@ interface Moved {
   code: string
   /** Подпись кнопки, на которую вернуть фокус; у перетаскивания её нет. */
   label: string | null
+  /** Ход закончился неудачей: фокус возвращается без ожидания показа нового состава. */
+  settled?: boolean
 }
 
 function lineupOf(teams: TeamsPayload, participants: Participant[]): Lineup {
@@ -81,6 +90,20 @@ function Icon({ children, label }: { children: ReactNode; label?: string }) {
   )
 }
 
+const LOCKED_TITLE = 'У игрока есть результат, место закреплено'
+
+/** Ручка «гриф»: шесть точек. Тянуть можно за всю карточку, ручка только подсказывает. */
+function Grip() {
+  return (
+    // data-grip: пальцем карточку берут только за ручку, остальная карточка прокручивает страницу
+    <span className="tm-grip" data-grip="">
+      <svg viewBox="0 0 10 16" width="10" height="16" fill="currentColor" aria-hidden="true">
+        {[3, 8, 13].flatMap((y) => [2.5, 7.5].map((x) => <circle key={`${x}-${y}`} cx={x} cy={y} r="1.3" />))}
+      </svg>
+    </span>
+  )
+}
+
 const ICONS = {
   up: <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" />,
   down: <path d="M8 3v10M3.5 8.5 8 13l4.5-4.5" />,
@@ -91,9 +114,7 @@ const ICONS = {
 interface Handlers {
   onMove: (code: string, target: Area, label: string) => void
   onStep: (code: string, direction: -1 | 1, label: string) => void
-  onDragStart: (code: string) => void
-  onDragEnd: () => void
-  onDropAt: (area: Area, position?: number) => void
+  onGrab: (event: ReactPointerEvent<HTMLElement>, code: string) => void
 }
 
 /** Во время запроса кнопка не отключается (иначе пропадёт фокус), а только помечается и не реагирует. */
@@ -151,30 +172,24 @@ function PlayerCard({
   const name = board.people.get(code)?.name
   const other: Area = area === 'team1' ? 'team2' : 'team1'
   const to = (target: Area) => moveTo(lineup, locks, code, target) !== null
+  const ghost = board.drag?.code === code ? board.drag.line : null
 
   return (
-    <div
-      className={`tm-card${locked ? ' locked' : ''}`}
+    <motion.div
+      layout="position"
+      layoutId={`tm-${code}`}
+      transition={{ duration: 0.16, ease: 'easeOut' }}
+      className={`tm-card${locked ? ' locked' : ''}${ghost ? ` ghost line-${ghost}` : ''}`}
       data-card={code}
+      data-area={area}
+      data-index={index}
+      title={locked ? LOCKED_TITLE : undefined}
       tabIndex={-1}
-      draggable={!locked}
-      onDragStart={(e: DragEvent) => {
-        if (busy) {
-          e.preventDefault()
-          return
-        }
-        e.dataTransfer.setData('text/plain', code)
-        e.dataTransfer.effectAllowed = 'move'
-        handlers.onDragStart(code)
-      }}
-      onDragEnd={handlers.onDragEnd}
-      onDragOver={(e) => e.preventDefault()}
-      onDrop={(e) => {
-        e.preventDefault()
-        e.stopPropagation()
-        handlers.onDropAt(area, index)
+      onPointerDown={(e) => {
+        if (!locked && !busy) handlers.onGrab(e, code)
       }}
     >
+      {!locked && <Grip />}
       <div className="tm-card-head">
         <strong>{code}</strong>
         {locked && (
@@ -253,7 +268,7 @@ function PlayerCard({
           </CardButton>
         </div>
       )}
-    </div>
+    </motion.div>
   )
 }
 
@@ -287,17 +302,7 @@ function Cell({
     )
   }
   return (
-    <div
-      className="tm-empty"
-      onDragOver={(e) => e.preventDefault()}
-      onDrop={(e) => {
-        e.preventDefault()
-        e.stopPropagation()
-        handlers.onDropAt(area)
-      }}
-    >
-      без пары
-    </div>
+    <div className={`tm-empty${board.hot === area ? ' hot' : ''}`}>без пары</div>
   )
 }
 
@@ -307,33 +312,18 @@ function TeamHead({
   count,
   api,
   onSaved,
-  handlers,
   over,
-  setOver,
 }: {
   area: 'team1' | 'team2'
   team: TeamInfo | undefined
   count: number
   api: StaffApi
   onSaved: (team: TeamInfo) => void
-  handlers: Handlers
-  over: Area | null
-  setOver: (area: Area | null) => void
+  over: boolean
 }) {
   const number = area === 'team1' ? 1 : 2
   return (
-    <div
-      className={`tm-head${over === area ? ' over' : ''}`}
-      onDragOver={(e) => {
-        e.preventDefault()
-        setOver(area)
-      }}
-      onDragLeave={() => setOver(null)}
-      onDrop={(e) => {
-        e.preventDefault()
-        handlers.onDropAt(area)
-      }}
-    >
+    <div className={`tm-head${over ? ' over' : ''}`}>
       {team ? <TeamTitle team={team} api={api} onSaved={onSaved} /> : <h3>Команда {number}</h3>}
       <span className="tm-count" title="Игроков в команде">
         {count}
@@ -361,8 +351,6 @@ function TeamsBoard({
   onTeamSaved: (team: TeamInfo) => void
 }) {
   const [pending, setPending] = useState<Lineup | null>(null)
-  const [dragging, setDragging] = useState<string | null>(null)
-  const [over, setOver] = useState<Area | null>(null)
   const [announce, setAnnounce] = useState('')
   const [poolOpen, setPoolOpen] = useState(
     () => typeof window.matchMedia !== 'function' || window.matchMedia('(min-width: 900px)').matches,
@@ -372,13 +360,46 @@ function TeamsBoard({
   const focus = useRef<Moved | null>(null)
   const root = useRef<HTMLDivElement>(null)
   const busy = action.busy
-  const board: Board = { ...server, lineup: pending ?? server.lineup }
-  const { locks } = board
+  const base: Lineup = pending ?? server.lineup
+  const { locks } = server
+
+  const { drag, begin } = useCardDrag(root, {
+    canStart: (code) => !inflight.current && !locks.has(code),
+    onActiveChange: (active) => {
+      idleRef.current = !active && !inflight.current
+    },
+    onDrop: (code, target) => dropAt(code, target),
+  })
+  // Раскладка «как будет после отпускания»: карточки уже сдвинуты, пары видны сразу.
+  const target = drag?.target ?? null
+  const preview =
+    drag !== null && target !== null ? dropPreview(base, locks, drag.code, target.area, target.slot) : null
+  const refused = drag !== null && target !== null && preview === null
+  const shown = preview ?? base
+  const dragArea = drag !== null && preview !== null ? locate(preview, drag.code) : null
+  const board: Board = {
+    ...server,
+    lineup: shown,
+    drag:
+      drag !== null && dragArea !== null
+        ? {
+            code: drag.code,
+            line:
+              dragArea.area !== 'pool' && dragArea.index > 0 && dragArea.index === shown[dragArea.area].length - 1
+                ? 'after'
+                : 'before',
+          }
+        : null,
+    hot: target?.area ?? null,
+  }
 
   // После хода возвращаем фокус на ту же кнопку на новом месте карточки (или на ближайшую рабочую).
   useEffect(() => {
     const moved = focus.current
     if (moved === null || root.current === null) return
+    // Эффект от более раннего обновления данных мог запоздать и сработать до показа хода:
+    // ждём коммита с новым составом (pending), иначе фокус «съестся» до перемещения карточки.
+    if (pending === null && !moved.settled) return
     const card = root.current.querySelector<HTMLElement>(`[data-card="${moved.code}"]`)
     if (card === null) return
     focus.current = null
@@ -397,10 +418,10 @@ function TeamsBoard({
     setPending(next)
     const saved = await action.run(() => api.assignTeams(assignmentBody(next)))
     inflight.current = false
-    idleRef.current = dragging === null
+    idleRef.current = true
     if (saved === undefined) {
       // Данные могли устареть (чужие правки, новый результат): перечитываем всё.
-      focus.current = moved
+      focus.current = { ...moved, settled: true }
       onFailed()
     } else {
       setAnnounce(announcement(next, moved.code))
@@ -409,32 +430,14 @@ function TeamsBoard({
     setPending(null)
   }
 
-  function endDrag() {
-    setDragging(null)
-    setOver(null)
-    idleRef.current = !inflight.current
-  }
-
-  function dropAt(area: Area, position?: number) {
-    const code = dragging
-    endDrag()
-    if (code !== null) {
-      void apply(moveTo(board.lineup, locks, code, area, position), { code, label: null })
-    }
+  function dropAt(code: string, at: DropTarget) {
+    void apply(moveTo(base, locks, code, at.area, at.slot), { code, label: null })
   }
 
   const handlers: Handlers = {
-    onMove: (code, target, label) =>
-      void apply(moveTo(board.lineup, locks, code, target), { code, label }),
-    onStep: (code, direction, label) =>
-      void apply(step(board.lineup, locks, code, direction), { code, label }),
-    onDragStart: (code) => {
-      if (inflight.current) return
-      setDragging(code)
-      idleRef.current = false
-    },
-    onDragEnd: endDrag,
-    onDropAt: dropAt,
+    onMove: (code, area, label) => void apply(moveTo(base, locks, code, area), { code, label }),
+    onStep: (code, direction, label) => void apply(step(base, locks, code, direction), { code, label }),
+    onGrab: begin,
   }
 
   const rows = pairsOf(board.lineup)
@@ -447,92 +450,111 @@ function TeamsBoard({
       <p className="tm-sr" role="status" aria-live="polite">
         {announce}
       </p>
-      <div className="tm-layout" aria-busy={busy} ref={root}>
-        <section
-          className={`tm-pool card${over === 'pool' ? ' over' : ''}`}
-          aria-label="Не распределены"
-          onDragOver={(e) => {
-            e.preventDefault()
-            setOver('pool')
-          }}
-          onDragLeave={() => setOver(null)}
-          onDrop={(e) => {
-            e.preventDefault()
-            dropAt('pool')
-          }}
-        >
-          <details open={poolOpen} onToggle={(e) => setPoolOpen(e.currentTarget.open)}>
-            <summary>
-              Не распределены <span className="tm-count">{pool.length}</span>
-            </summary>
-            <div className="tm-pool-list">
-              {pool.map((code, index) => (
-                <PlayerCard
-                  key={code}
-                  code={code}
-                  area="pool"
-                  index={index}
-                  board={board}
-                  busy={busy}
-                  handlers={handlers}
+      <MotionConfig reducedMotion="user">
+      <LayoutGroup id="teams">
+        <div className={`tm-layout${drag ? ' dragging' : ''}`} aria-busy={busy} ref={root}>
+          <section
+            className={`tm-pool card${board.hot === 'pool' ? (refused ? ' over refused' : ' over') : ''}`}
+            aria-label="Не распределены"
+            data-zone="pool"
+          >
+            <details open={poolOpen} onToggle={(e) => setPoolOpen(e.currentTarget.open)}>
+              <summary>
+                Не распределены <span className="tm-count">{pool.length}</span>
+              </summary>
+              <div className="tm-pool-list">
+                {pool.map((code, index) => (
+                  <PlayerCard
+                    key={code}
+                    code={code}
+                    area="pool"
+                    index={index}
+                    board={board}
+                    busy={busy}
+                    handlers={handlers}
+                  />
+                ))}
+                {pool.length === 0 && <p className="muted">Пусто</p>}
+              </div>
+            </details>
+          </section>
+
+          <section className="tm-teams card" aria-label="Команды">
+            <div className="tm-grid">
+              {TEAM_AREAS.map((area) => (
+                <i
+                  key={area}
+                  className={`tm-colbox ${area}${board.hot === area ? (refused ? ' on refused' : ' on') : ''}`}
+                  data-zone={area}
+                  aria-hidden="true"
                 />
               ))}
-              {pool.length === 0 && <p className="muted">Пусто</p>}
-            </div>
-          </details>
-        </section>
-
-        <section className="tm-teams card" aria-label="Команды">
-          <div className="tm-row tm-heads">
-            <TeamHead
-              area="team1"
-              team={teamOf(1)}
-              count={board.lineup.team1.length}
-              api={api}
-              onSaved={onTeamSaved}
-              handlers={handlers}
-              over={over}
-              setOver={setOver}
-            />
-            <span />
-            <TeamHead
-              area="team2"
-              team={teamOf(2)}
-              count={board.lineup.team2.length}
-              api={api}
-              onSaved={onTeamSaved}
-              handlers={handlers}
-              over={over}
-              setOver={setOver}
-            />
-          </div>
-          <ol className="tm-rows" aria-label="Пары">
-            {rows.map((row, i) => {
-              const a = row.a === null ? undefined : board.people.get(row.a)
-              const b = row.b === null ? undefined : board.people.get(row.b)
-              const mixed = Boolean(a?.category && b?.category && a.category !== b.category)
-              return (
-                <li key={row.k} className="tm-row" value={row.k}>
-                  <Cell code={row.a} area="team1" index={i} board={board} busy={busy} handlers={handlers} />
-                  <span className="tm-vs">
-                    против
-                    {mixed && (
-                      <span className="tm-warn">
-                        <Icon label="разные категории">
-                          <path d="M8 2 14.5 13.5h-13z" />
-                          <path d="M8 6.5v3.2M8 11.6v.1" />
-                        </Icon>
+              <div className="tm-row tm-heads">
+                <TeamHead
+                  area="team1"
+                  team={teamOf(1)}
+                  count={board.lineup.team1.length}
+                  api={api}
+                  onSaved={onTeamSaved}
+                  over={board.hot === 'team1'}
+                />
+                <span />
+                <TeamHead
+                  area="team2"
+                  team={teamOf(2)}
+                  count={board.lineup.team2.length}
+                  api={api}
+                  onSaved={onTeamSaved}
+                  over={board.hot === 'team2'}
+                />
+              </div>
+              <ol className="tm-rows" aria-label="Пары">
+                {rows.map((row, i) => {
+                  const a = row.a === null ? undefined : board.people.get(row.a)
+                  const b = row.b === null ? undefined : board.people.get(row.b)
+                  const mixed = Boolean(a?.category && b?.category && a.category !== b.category)
+                  return (
+                    <li key={row.k} className="tm-row" value={row.k}>
+                      <Cell code={row.a} area="team1" index={i} board={board} busy={busy} handlers={handlers} />
+                      <span className="tm-vs">
+                        против
+                        {mixed && (
+                          <span className="tm-warn">
+                            <Icon label="разные категории">
+                              <path d="M8 2 14.5 13.5h-13z" />
+                              <path d="M8 6.5v3.2M8 11.6v.1" />
+                            </Icon>
+                          </span>
+                        )}
                       </span>
-                    )}
-                  </span>
-                  <Cell code={row.b} area="team2" index={i} board={board} busy={busy} handlers={handlers} />
-                </li>
-              )
-            })}
-          </ol>
-          {rows.length === 0 && <p className="muted">Перетащите игроков в команды или нажмите →1 и →2.</p>}
-        </section>
-      </div>
+                      <Cell code={row.b} area="team2" index={i} board={board} busy={busy} handlers={handlers} />
+                    </li>
+                  )
+                })}
+              </ol>
+            </div>
+            {rows.length === 0 && <p className="muted">Перетащите игроков в команды или нажмите →1 и →2.</p>}
+          </section>
+        </div>
+      </LayoutGroup>
+      </MotionConfig>
+      {drag !== null && (
+        <div
+          className={`tm-float${refused ? ' refused' : ''}`}
+          aria-hidden="true"
+          style={{
+            width: drag.width,
+            height: drag.height,
+            transform: `translate3d(${drag.x - drag.offsetX}px, ${drag.y - drag.offsetY}px, 0)`,
+          }}
+        >
+          <Grip />
+          <strong>{drag.code}</strong>
+          {server.people.get(drag.code)?.name && (
+            <span className="tm-name">{server.people.get(drag.code)?.name}</span>
+          )}
+        </div>
+      )}
     </>
   )
 }
@@ -563,6 +585,12 @@ export function TeamsTab({ api }: { api: StaffApi }) {
   }, [reloadAll])
 
   const current = override !== null && override.base === teams.data ? override.teams : teams.data
+  // Ответ на сохранение приходит позже: привязываем его к самым свежим данным, а не к тем, что были при клике
+  // (иначе фоновое обновление, закончившееся во время запроса, отбросило бы ответ и показало устаревший состав).
+  const latest = useRef({ data: teams.data, current })
+  useEffect(() => {
+    latest.current = { data: teams.data, current }
+  })
 
   const board = useMemo(() => {
     if (!current || !participants.data || !results.data) return null
@@ -583,14 +611,16 @@ export function TeamsTab({ api }: { api: StaffApi }) {
           teams={current.teams}
           board={board}
           idleRef={idleRef}
-          onAssigned={(saved) => setOverride({ base: teams.data, teams: saved })}
+          onAssigned={(saved) => setOverride({ base: latest.current.data, teams: saved })}
           onFailed={reloadAll}
-          onTeamSaved={(saved) =>
+          onTeamSaved={(saved) => {
+            const { data, current: shown } = latest.current
+            if (!shown) return
             setOverride({
-              base: teams.data,
-              teams: { teams: current.teams.map((t) => (t.id === saved.id ? { ...t, ...saved } : t)) },
+              base: data,
+              teams: { teams: shown.teams.map((t) => (t.id === saved.id ? { ...t, ...saved } : t)) },
             })
-          }
+          }}
         />
       )}
     </section>

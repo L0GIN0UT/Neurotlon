@@ -1,21 +1,31 @@
-import { useEffect, useMemo, useState } from 'react'
-import type { CSSProperties, ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { CSSProperties, ReactNode, RefObject } from 'react'
 import { errorText } from '../shared/messages.ts'
 import { PageHead, StaffShell } from '../staff/StaffShell.tsx'
-import type { QrMatrix, StaffApi } from '../staff/api.ts'
+import { BADGES_URL, photoUrl } from '../staff/api.ts'
+import type { Participant, QrMatrix, StaffApi } from '../staff/api.ts'
+import { PhotoThumb } from '../staff/admin/PhotoThumb.tsx'
+import '../staff/admin/PhotoDialog.css'
 import { useLoader } from '../staff/hooks.ts'
+import { PrinterIcon } from '../staff/ui.tsx'
 import { Badge } from './Badge.tsx'
+import type { BadgePhoto, PhotoReport, PhotoState } from './Badge.tsx'
 import { parseCodes } from './codes.ts'
 import './badges.css'
 
 type Mode = 'press' | 'a4' | 'a3'
-type Scope = 'all' | 'selected'
 
 /** Листы с метками реза: сколько бейджей в строке и в столбце. */
-const SHEETS: Record<'a4' | 'a3', { label: string; cols: number; rows: number }> = {
-  a4: { label: 'A4 по 4 (2×2)', cols: 2, rows: 2 },
-  a3: { label: 'A3 по 8 (4×2, альбомная)', cols: 4, rows: 2 },
+const SHEETS: Record<'a4' | 'a3', { cols: number; rows: number }> = {
+  a4: { cols: 2, rows: 2 },
+  a3: { cols: 4, rows: 2 },
 }
+
+const MODES: { id: Mode; label: string; hint: string }[] = [
+  { id: 'a4', label: 'A4 по 4', hint: 'Лист A4, 2×2, метки реза' },
+  { id: 'a3', label: 'A3 по 8', hint: 'Лист A3 альбомный, 4×2, метки реза' },
+  { id: 'press', label: 'Для типографии 95×135', hint: 'Один бейдж на страницу' },
+]
 
 /** Правило страницы зависит от режима: два разных `@page` в одном документе не смешиваем. */
 const PAGE_RULES: Record<Mode, string> = {
@@ -30,19 +40,25 @@ const BADGE_H_MM = 135
 const MARK_MM = 2.5
 const MM_PX = 96 / 25.4
 
-/** Масштаб предпросмотра: натуральный размер, а на узком окне уменьшается до ширины окна. */
-function usePreviewScale(widthMm: number): number {
+/** Масштаб предпросмотра: натуральный размер, а в узкой колонке уменьшается до её ширины. */
+function usePreviewScale(widthMm: number, host: RefObject<HTMLElement | null>): number {
   const [scale, setScale] = useState(1)
   useEffect(() => {
+    const element = host.current
     function update() {
-      const available = window.innerWidth - 64
+      const available = (element?.clientWidth ?? 0) - 8
       const next = available > 0 ? Math.min(1, available / (widthMm * MM_PX)) : 1
       setScale(Number.isFinite(next) && next > 0 ? next : 1)
     }
     update()
     window.addEventListener('resize', update)
-    return () => window.removeEventListener('resize', update)
-  }, [widthMm])
+    const observer = typeof ResizeObserver === 'function' && element ? new ResizeObserver(update) : null
+    if (observer && element) observer.observe(element)
+    return () => {
+      window.removeEventListener('resize', update)
+      observer?.disconnect()
+    }
+  }, [widthMm, host])
   return scale
 }
 
@@ -62,18 +78,38 @@ function chunk<T>(items: T[], size: number): T[][] {
   return out
 }
 
-function Sheets({ mode, badges }: { mode: Mode; badges: QrMatrix[] }) {
+/** Всё, что нужно одному бейджу. */
+interface Entry {
+  matrix: QrMatrix
+  name: string | null
+  photo: BadgePhoto | null
+}
+
+function Sheets({
+  mode,
+  entries,
+  sponsors,
+  onPhoto,
+  host,
+}: {
+  mode: Mode
+  entries: Entry[]
+  sponsors: boolean
+  onPhoto: PhotoReport
+  host: RefObject<HTMLElement | null>
+}) {
   const { cols, rows } = SHEETS[mode === 'a3' ? 'a3' : 'a4']
   const sheetW = cols * (BADGE_W_MM + 2 * MARK_MM)
   const sheetH = rows * (BADGE_H_MM + 2 * MARK_MM)
-  const scale = usePreviewScale(mode === 'press' ? BADGE_W_MM : sheetW)
+  const scale = usePreviewScale(mode === 'press' ? BADGE_W_MM : sheetW, host)
+  const badge = (e: Entry) => <Badge matrix={e.matrix} name={e.name} photo={e.photo} sponsors={sponsors} onPhoto={onPhoto} />
   if (mode === 'press') {
     return (
       <>
-        {badges.map((b) => (
-          <div key={b.code} className="page">
+        {entries.map((e) => (
+          <div key={e.matrix.code} className="page">
             <Scaled w={BADGE_W_MM} h={BADGE_H_MM} scale={scale}>
-              <Badge matrix={b} />
+              {badge(e)}
             </Scaled>
           </div>
         ))}
@@ -82,16 +118,13 @@ function Sheets({ mode, badges }: { mode: Mode; badges: QrMatrix[] }) {
   }
   return (
     <>
-      {chunk(badges, cols * rows).map((group) => (
-        <div key={group[0]?.code} className="page">
+      {chunk(entries, cols * rows).map((group) => (
+        <div key={group[0]?.matrix.code} className="page">
           <Scaled w={sheetW} h={sheetH} scale={scale}>
-            <div
-              className="a4-sheet"
-              style={{ '--cols': cols, '--rows': rows } as CSSProperties}
-            >
-              {group.map((b) => (
-                <div key={b.code} className="cut-cell">
-                  <Badge matrix={b} />
+            <div className="a4-sheet" style={{ '--cols': cols, '--rows': rows } as CSSProperties}>
+              {group.map((e) => (
+                <div key={e.matrix.code} className="cut-cell">
+                  {badge(e)}
                 </div>
               ))}
             </div>
@@ -106,128 +139,192 @@ function BadgesPage({ api }: { api: StaffApi }) {
   const list = useLoader(() => api.participants())
   const qr = useLoader(() => api.participantQr())
   const [mode, setMode] = useState<Mode>('a4')
-  // Лист, к которому возвращает кнопка «На листе», после переключения на типографию.
-  const [sheet, setSheet] = useState<'a4' | 'a3'>('a4')
   const [sponsors, setSponsors] = useState(true)
+  const [search, setSearch] = useState('')
   const initial = useMemo(() => parseCodes(window.location.search), [])
-  const [scope, setScope] = useState<Scope>(initial.length > 0 ? 'selected' : 'all')
-  const [picked, setPicked] = useState<Set<string>>(() => new Set(initial))
+  // null: выбор не менялся, печатаются все (или коды из ?codes=)
+  const [picked, setPicked] = useState<Set<string> | null>(null)
+  const host = useRef<HTMLDivElement>(null)
 
-  const allCodes = useMemo(() => (list.data ?? []).map((p) => p.code), [list.data])
-  const matrices = qr.data
-  const shown = useMemo(() => {
-    const byCode = new Map((matrices ?? []).map((m) => [m.code, m]))
-    const codes = scope === 'all' ? allCodes : allCodes.filter((c) => picked.has(c))
-    return codes.flatMap((c) => byCode.get(c) ?? [])
-  }, [matrices, allCodes, picked, scope])
+  const people: Participant[] = useMemo(() => list.data ?? [], [list.data])
+  const allCodes = useMemo(() => people.map((p) => p.code), [people])
+  const selected = useMemo(
+    () => picked ?? (initial.length > 0 ? new Set(initial) : new Set(allCodes)),
+    [picked, initial, allCodes],
+  )
+  const byCode = useMemo(() => new Map(people.map((p) => [p.code, p])), [people])
+
+  const printable = useMemo(() => {
+    const matrices = new Map((qr.data ?? []).map((m) => [m.code, m]))
+    return allCodes.filter((c) => selected.has(c)).flatMap((c) => matrices.get(c) ?? [])
+  }, [qr.data, allCodes, selected])
+
+  const urls = useMemo(
+    () =>
+      printable.flatMap((m) => {
+        const person = byCode.get(m.code)
+        return person?.has_photo ? [photoUrl(m.code, person.photo_version)] : []
+      }),
+    [printable, byCode],
+  )
+  // Исход загрузки каждого настоящего <img> бейджа; загруженная картинка потом не «портится» ошибкой.
+  const [photoStates, setPhotoStates] = useState<ReadonlyMap<string, PhotoState>>(() => new Map())
+  const reportPhoto = useCallback<PhotoReport>((url, ok) => {
+    setPhotoStates((prev) => {
+      const current = prev.get(url)
+      if (current === 'ok' || (!ok && current === 'error')) return prev
+      return new Map(prev).set(url, ok ? 'ok' : 'error')
+    })
+  }, [])
+  const pending = urls.filter((url) => !photoStates.has(url)).length
+  const entries: Entry[] = printable.map((matrix) => {
+    const person = byCode.get(matrix.code)
+    const url = person?.has_photo ? photoUrl(matrix.code, person.photo_version) : null
+    return {
+      matrix,
+      name: person?.display_name ?? null,
+      photo: url === null ? null : { url, state: photoStates.get(url) ?? 'pending' },
+    }
+  })
 
   function toggle(code: string) {
-    setPicked((prev) => {
-      const next = new Set(prev)
-      if (next.has(code)) next.delete(code)
-      else next.add(code)
-      return next
-    })
+    const next = new Set(selected)
+    if (next.has(code)) next.delete(code)
+    else next.add(code)
+    setPicked(next)
   }
 
+  const needle = search.trim().toLowerCase()
+  const visible = people.filter(
+    (p) => needle === '' || p.code.toLowerCase().includes(needle) || (p.display_name ?? '').toLowerCase().includes(needle),
+  )
+  const waiting = pending > 0
   const error = list.error ?? qr.error
   return (
-    <div className={`badges-root mode-${mode}${sponsors ? '' : ' sponsors-off'}`}>
+    <div className={`badges-root mode-${mode}`}>
       <style>{PAGE_RULES[mode]}</style>
-      <div className="no-print stack">
-        <PageHead
-          title="Бейджи"
-          hint="Бейдж без команды и имени: место под фото, код, QR, таблица результатов и места для партнёров."
-        />
-        <div className="card stack">
-          <div className="row">
-            <a href="/admin">← Участники</a>
-            <div className="row" role="group" aria-label="Режим печати">
-              <button
-                type="button"
-                className={mode !== 'press' ? 'primary' : ''}
-                aria-pressed={mode !== 'press'}
-                onClick={() => setMode(sheet)}
-              >
-                На листе с метками реза
-              </button>
-              <button
-                type="button"
-                className={mode === 'press' ? 'primary' : ''}
-                aria-pressed={mode === 'press'}
-                onClick={() => setMode('press')}
-              >
-                Для типографии (95×135 мм, один бейдж на страницу)
-              </button>
-              {mode !== 'press' && (
-                <label className="field">
-                  Сколько на листе
-                  <select
-                    value={mode}
-                    onChange={(e) => {
-                      const next = e.target.value === 'a3' ? 'a3' : 'a4'
-                      setSheet(next)
-                      setMode(next)
-                    }}
-                  >
-                    {Object.entries(SHEETS).map(([id, s]) => (
-                      <option key={id} value={id}>
-                        {s.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-            </div>
-          </div>
-          <div className="row" role="group" aria-label="Кого печатать">
-            <label>
-              <input type="radio" name="scope" checked={scope === 'all'} onChange={() => setScope('all')} /> Все
-            </label>
-            <label>
-              <input
-                type="radio"
-                name="scope"
-                checked={scope === 'selected'}
-                onChange={() => setScope('selected')}
-              />{' '}
-              Отмеченные
-            </label>
-            <label>
-              <input type="checkbox" checked={sponsors} onChange={(e) => setSponsors(e.target.checked)} /> Показывать
-              места под спонсоров
-            </label>
-            <button
-              type="button"
-              className="primary"
-              disabled={shown.length === 0}
-              onClick={() => window.print()}
-            >
-              Печать / Сохранить в PDF
-            </button>
-            <span className="hint">К печати: {shown.length}</span>
-          </div>
-          {scope === 'selected' && (
-            <div className="row code-picker" role="group" aria-label="Коды участников">
-              {allCodes.map((code) => (
-                <label key={code}>
-                  <input type="checkbox" checked={picked.has(code)} onChange={() => toggle(code)} /> {code}
-                </label>
+      <div className="no-print">
+        <PageHead title="Печать бейджей" hint="Номер, имя на табло, фото, QR, таблица результатов и места под спонсоров." />
+      </div>
+      <div className="badges-layout">
+        <aside className="no-print bp-panel card" aria-label="Параметры">
+          <a className="button bp-back" href="/admin">
+            ← Участники
+          </a>
+          <h2>Параметры</h2>
+
+          <section className="bp-block" aria-labelledby="bp-size">
+            <h3 id="bp-size">Размер листа</h3>
+            <div className="bp-segment" role="group" aria-label="Размер листа">
+              {MODES.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={mode === item.id ? 'on' : ''}
+                  aria-pressed={mode === item.id}
+                  title={item.hint}
+                  onClick={() => setMode(item.id)}
+                >
+                  {item.label}
+                </button>
               ))}
             </div>
-          )}
-          <p className="hint">
-            В окне печати выберите принтер «Сохранить как PDF», поля «Нет», включите «Фоновая графика».
-          </p>
+          </section>
+
+          <section className="bp-block" aria-labelledby="bp-who">
+            <h3 id="bp-who">Кого печатать</h3>
+            <label className="field">
+              Поиск
+              <input
+                type="search"
+                value={search}
+                placeholder="ID или имя на табло"
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </label>
+            <div className="bp-actions">
+              <button type="button" className="small" onClick={() => setPicked(new Set(allCodes))}>
+                Выбрать всех
+              </button>
+              <button
+                type="button"
+                className="small"
+                onClick={() => setPicked(new Set(people.filter((p) => p.checked_in).map((p) => p.code)))}
+              >
+                Только пришедших
+              </button>
+              <button type="button" className="small ghost" onClick={() => setPicked(new Set())}>
+                Снять выбор
+              </button>
+            </div>
+            <p className="hint bp-count" role="status">
+              Выбрано {selected.size} из {people.length}
+            </p>
+            <ul className="bp-people" role="group" aria-label="Коды участников">
+              {visible.map((p) => (
+                <li key={p.code}>
+                  <label>
+                    <input type="checkbox" checked={selected.has(p.code)} onChange={() => toggle(p.code)} />
+                    <PhotoThumb person={p} />
+                    <span className="bp-code">{p.code}</span>
+                    <span className="bp-name">{p.display_name ?? ''}</span>
+                  </label>
+                </li>
+              ))}
+              {visible.length === 0 && <li className="hint">Никого не найдено.</li>}
+            </ul>
+          </section>
+
+          <section className="bp-block" aria-labelledby="bp-look">
+            <h3 id="bp-look">Оформление</h3>
+            <label className="bp-switch">
+              <input
+                type="checkbox"
+                role="switch"
+                checked={sponsors}
+                onChange={(e) => setSponsors(e.target.checked)}
+              />
+              <span className="bp-track" aria-hidden="true" />
+              Места под спонсоров
+            </label>
+          </section>
+
+          <div className="bp-print">
+            <button
+              type="button"
+              className="primary bp-print-btn"
+              disabled={printable.length === 0 || waiting}
+              onClick={() => window.print()}
+            >
+              <PrinterIcon />
+              Печать / Сохранить в PDF
+            </button>
+            {waiting ? (
+              <p className="hint" role="status">
+                Загрузка фото… ({urls.length - pending} из {urls.length})
+              </p>
+            ) : (
+              <p className="hint">К печати: {printable.length}</p>
+            )}
+            <details className="bp-help">
+              <summary>Как сохранить в PDF</summary>
+              <p>В окне печати выберите принтер «Сохранить как PDF», поля «Нет», включите «Фоновая графика».</p>
+              <p className="bp-small">
+                <a href={BADGES_URL} target="_blank" rel="noopener noreferrer">
+                  Простой PDF без фото
+                </a>
+              </p>
+            </details>
+          </div>
           {error != null && (
             <p role="alert" className="error">
               {errorText(error)}
             </p>
           )}
+        </aside>
+        <div className="badge-list" ref={host}>
+          <Sheets mode={mode} entries={entries} sponsors={sponsors} onPhoto={reportPhoto} host={host} />
         </div>
-      </div>
-      <div className="badge-list">
-        <Sheets mode={mode} badges={shown} />
       </div>
     </div>
   )

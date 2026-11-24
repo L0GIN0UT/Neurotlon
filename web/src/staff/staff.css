@@ -878,3 +878,14 @@ body:has(.staff) {
     box-shadow: none;
   }
 }
+
+/* компактная кнопка с одной иконкой (например, «Бейдж» в строке участника) */
+.staff button.icon-btn {
+  min-width: 32px;
+  padding: 3px 7px;
+}
+
+.staff button.icon-btn svg {
+  width: 17px;
+  height: 17px;
+}

@@ -5,6 +5,7 @@ import { DISCIPLINE_NAMES } from '../shared/messages.ts'
 import { DISCIPLINES } from '../shared/types.ts'
 import type { CSSProperties } from 'react'
 import type { QrMatrix } from '../staff/api.ts'
+import { nameSizeMm } from './nameSize.ts'
 import { qrPath, QUIET_MODULES, tileSideMm } from './qr.ts'
 
 function QrTile({ matrix }: { matrix: QrMatrix }) {
@@ -41,28 +42,80 @@ function Silhouette() {
   )
 }
 
+export type PhotoState = 'pending' | 'ok' | 'error'
+
+/** Сообщение страницы о том, загрузилась ли картинка: по нему «Печать» ждёт реальные `<img>`. */
+export type PhotoReport = (url: string, ok: boolean) => void
+
+export interface BadgePhoto {
+  url: string
+  state: PhotoState
+}
+
+function PhotoFrame({ photo, onPhoto }: { photo: BadgePhoto | null; onPhoto?: PhotoReport }) {
+  if (photo !== null && photo.state !== 'error') {
+    return (
+      <div className="photo">
+        <img
+          className="photo-img"
+          src={photo.url}
+          alt=""
+          onLoad={() => onPhoto?.(photo.url, true)}
+          onError={() => onPhoto?.(photo.url, false)}
+        />
+      </div>
+    )
+  }
+  return (
+    <div className="photo">
+      <Silhouette />
+      {photo !== null ? (
+        <span className="photo-fail" title="Фото не загрузилось">
+          ! фото
+        </span>
+      ) : (
+        <span>нет фото</span>
+      )}
+    </div>
+  )
+}
+
 const SPONSOR_SLOTS = [0, 1, 2]
 const SECTION_HEAD = [
   { id: 'bci', label: 'BCI' },
   { id: 'physical', label: 'Реальная' },
 ]
 
-/** Бейдж 95×135 мм. Команды, ФИО и категории на нём нет. */
-export function Badge({ matrix }: { matrix: QrMatrix }) {
+/** Бейдж 95×135 мм: номер, имя на табло, фото, QR. Команды, ФИО и категории на нём нет. */
+export function Badge({
+  matrix,
+  name,
+  photo,
+  sponsors,
+  onPhoto,
+}: {
+  matrix: QrMatrix
+  name: string | null
+  photo: BadgePhoto | null
+  /** Показывать блок «Партнёры»; без него место забирает таблица результатов. */
+  sponsors: boolean
+  onPhoto?: PhotoReport
+}) {
+  const shownName = name?.trim() ?? ''
   return (
-    <article className="id-badge" aria-label={`Бейдж ${matrix.code}`}>
+    <article className={`id-badge${sponsors ? '' : ' no-partners'}`} aria-label={`Бейдж ${matrix.code}`}>
       <div className="badge-top">
-        <div className="badge-left">
-          <div className="photo">
-            <Silhouette />
-            <span>нет фото</span>
-          </div>
+        <div className={`badge-head${shownName ? ' has-name' : ''}`}>
           <div className="badge-code">{matrix.code}</div>
+          {shownName && (
+            <div className="badge-name" style={{ fontSize: `${nameSizeMm(shownName)}mm` }}>
+              {shownName}
+            </div>
+          )}
         </div>
-        <div className="badge-right">
-          <img className="badge-logo" src={logo} alt="Нейротлон" />
-          <QrTile matrix={matrix} />
-        </div>
+        <img className="badge-logo" src={logo} alt="Нейротлон" />
+        <PhotoFrame photo={photo} onPhoto={onPhoto} />
+        <QrTile matrix={matrix} />
       </div>
 
       <table className="results">
@@ -92,14 +145,16 @@ export function Badge({ matrix }: { matrix: QrMatrix }) {
         </tbody>
       </table>
 
-      <div className="partners">
-        <span className="partners-label">Партнёры</span>
-        <div className="partners-slots">
-          {SPONSOR_SLOTS.map((slot) => (
-            <div key={slot} className="sponsor-slot" />
-          ))}
+      {sponsors && (
+        <div className="partners">
+          <span className="partners-label">Партнёры</span>
+          <div className="partners-slots">
+            {SPONSOR_SLOTS.map((slot) => (
+              <div key={slot} className="sponsor-slot" />
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </article>
   )
 }
