@@ -193,8 +193,9 @@ describe('участники', () => {
     expect(await screen.findByText('Создано: 2, всего 4')).toBeDefined()
     expect(server.bodies('POST /participants/generate')).toEqual([{ count: 4 }])
 
-    fireEvent.click(screen.getByRole('button', { name: 'Печать бейджей' }))
-    expect(open).toHaveBeenCalledWith(BADGES_URL, '_blank')
+    fireEvent.click(screen.getByRole('button', { name: 'Бейджи' }))
+    expect(open).toHaveBeenCalledWith('/badges', '_blank', 'noopener')
+    expect(screen.getByRole('link', { name: 'Простой PDF' }).getAttribute('href')).toBe(BADGES_URL)
     open.mockRestore()
   })
 
