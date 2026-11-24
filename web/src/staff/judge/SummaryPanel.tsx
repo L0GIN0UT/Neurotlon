@@ -104,7 +104,14 @@ function Tile({ label, value, tone }: TileProps) {
   return (
     <div className={`summary-tile ${tone ?? ''}`}>
       <dt>{label}</dt>
-      <dd>{value ?? '…'}</dd>
+      <dd>
+        {value ?? (
+          <>
+            <span aria-hidden="true">…</span>
+            <span className="sr">загрузка</span>
+          </>
+        )}
+      </dd>
     </div>
   )
 }
@@ -116,7 +123,8 @@ export function SummaryPanel({ api, canForce, onNavigate }: Props) {
   return (
     <>
       <ErrorText error={loader.error} />
-      <dl className="summary-tiles" aria-label="Сводка">
+      {loader.error !== null && <p className="hint">Данные могли устареть</p>}
+      <dl className="summary-tiles" aria-label="Сводка" aria-busy={totals === undefined}>
         <Tile label="Всего результатов" value={totals?.total} />
         <Tile label="Подтверждено" value={totals?.confirmed} tone="good" />
         <Tile label="Зафиксировано" value={totals?.locked} />
@@ -172,8 +180,11 @@ export function SummaryPanel({ api, canForce, onNavigate }: Props) {
         <LockPanel
           api={api}
           canForce={canForce}
-          warnings={totals ? unreadyItems(totals) : []}
+          warnings={
+            totals && loader.error === null ? unreadyItems(totals) : ['Не удалось проверить готовность']
+          }
           onLocked={loader.reload}
+          onOpen={loader.reload}
         />
         <ExportLink />
       </div>

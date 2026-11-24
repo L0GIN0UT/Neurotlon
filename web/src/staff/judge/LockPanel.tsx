@@ -24,10 +24,12 @@ interface Props {
   warnings?: string[]
   /** Вызывается после успешной фиксации (обновить счётчики). */
   onLocked?: () => void
+  /** Вызывается при открытии окна подтверждения (обновить чек-лист). */
+  onOpen?: () => void
 }
 
 /** «Зафиксировать итоги» с двойным подтверждением: после этого судья уже не правит (решение 22). */
-export function LockPanel({ api, canForce, warnings = [], onLocked }: Props) {
+export function LockPanel({ api, canForce, warnings = [], onLocked, onOpen }: Props) {
   const action = useAction()
   const [step, setStep] = useState<0 | 1 | 2>(0)
   const [locked, setLocked] = useState<number | null>(null)
@@ -96,7 +98,10 @@ export function LockPanel({ api, canForce, warnings = [], onLocked }: Props) {
             : 'Новых результатов для фиксации нет'}
         </p>
       )}
-      <button type="button" className="primary push" onClick={() => setStep(1)}>
+      <button type="button" className="primary push" onClick={() => {
+          onOpen?.()
+          setStep(1)
+        }}>
         Зафиксировать итоги
       </button>
       {step === 1 && (

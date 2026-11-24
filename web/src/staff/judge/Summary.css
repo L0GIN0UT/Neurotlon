@@ -90,7 +90,7 @@
   background: transparent;
 }
 
-.staff .summary-actions {
+.staff .card.summary-actions {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
   gap: 16px;
@@ -98,7 +98,7 @@
   margin-top: 16px;
 }
 
-.staff .summary-action {
+.staff .card.summary-action {
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -106,21 +106,21 @@
   margin: 0;
 }
 
-.staff .summary-action .push {
+.staff .card.summary-action .push {
   margin-top: auto;
 }
 
-.staff .summary-action .head {
+.staff .card.summary-action .head {
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
-.staff .summary-action .head h2 {
+.staff .card.summary-action .head h2 {
   margin: 0;
 }
 
-.staff .summary-action .icon {
+.staff .card.summary-action .icon {
   flex: none;
   width: 40px;
   height: 40px;
@@ -130,21 +130,30 @@
   background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
-.staff .summary-action.lock .icon {
+.staff .card.summary-action.lock .icon {
   color: var(--warn);
   background: color-mix(in srgb, var(--warn) 14%, transparent);
 }
 
-.staff .summary-action p {
+.staff .card.summary-action p {
   margin: 0;
 }
 
-.staff .summary-action .irreversible {
+.staff .card.summary-action .irreversible {
   color: var(--warn);
   font-weight: 600;
 }
 
-.staff .summary-action ul {
+.staff .card.summary-action ul {
   margin: 0;
   padding-left: 20px;
+}
+
+.staff .summary-tile .sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }

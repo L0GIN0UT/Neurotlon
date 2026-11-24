@@ -326,7 +326,8 @@ describe('панель итогов', () => {
   function summaryServer() {
     const server = createFakeServer('judge', 'judy')
     server.routes.set('GET /conflicts', () => json([conflict]))
-    server.routes.set('GET /corrections', () => json(
+    server.routes.set('GET /corrections', () =>
+      json(
         [1, 2].map((id) => ({
           id,
           session_id: `sess-${id}`,
@@ -336,7 +337,8 @@ describe('панель итогов', () => {
           status: 'open',
           resolved_at: null,
         })),
-      ))
+      ),
+    )
     server.routes.set('GET /results', () =>
       json({
         total: 5,
@@ -410,6 +412,60 @@ describe('панель итогов', () => {
     fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Да, зафиксировать' }))
     expect(await screen.findByText('Зафиксировано результатов: 2')).toBeDefined()
     expect(server.count('POST /results/lock')).toBe(1)
+  })
+})
+
+describe('панель итогов: данные недоступны или устарели', () => {
+  test('ошибка загрузки: пометка у плиток и предупреждение в окне подтверждения', async () => {
+    const server = createFakeServer('judge', 'judy')
+    server.routes.set('GET /conflicts', () => json([]))
+    server.routes.set('GET /corrections', () => json([]))
+    server.routes.set('GET /results', () => problem(500, 'internal'))
+    renderJudge(server)
+    await openTab('Итоги')
+    expect(await screen.findByText('Данные могли устареть')).toBeDefined()
+    expect(screen.getByRole('alert')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Зафиксировать итоги' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Зафиксировать итоги?' })
+    expect(within(dialog).getByText('Не удалось проверить готовность')).toBeDefined()
+  })
+
+  test('окно, открытое до ответа сервера, тоже предупреждает', async () => {
+    const server = createFakeServer('judge', 'judy')
+    server.routes.set('GET /conflicts', () => json([]))
+    server.routes.set('GET /corrections', () => json([]))
+    server.routes.set('GET /results', () => new Promise<Response>(() => {}))
+    renderJudge(server)
+    await openTab('Итоги')
+    fireEvent.click(await screen.findByRole('button', { name: 'Зафиксировать итоги' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Зафиксировать итоги?' })
+    expect(within(dialog).getByText('Не удалось проверить готовность')).toBeDefined()
+  })
+
+  test('открытие окна перезагружает счётчики', async () => {
+    const server = createFakeServer('judge', 'judy')
+    let conflicts: unknown[] = []
+    server.routes.set('GET /conflicts', () => json(conflicts))
+    server.routes.set('GET /corrections', () => json([]))
+    server.routes.set('GET /results', () => json({ total: 1, items: [stored()] }))
+    renderJudge(server)
+    await openTab('Итоги')
+    await screen.findByText('Нет конфликтов результатов')
+    conflicts = [conflict]
+    fireEvent.click(screen.getByRole('button', { name: 'Зафиксировать итоги' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Зафиксировать итоги?' })
+    expect(await within(dialog).findByText('Неразрешённых конфликтов: 1')).toBeDefined()
+  })
+
+  test('пока данных нет, список плиток помечен занятым', async () => {
+    const server = createFakeServer('judge', 'judy')
+    server.routes.set('GET /conflicts', () => json([]))
+    server.routes.set('GET /corrections', () => json([]))
+    server.routes.set('GET /results', () => new Promise<Response>(() => {}))
+    renderJudge(server)
+    await openTab('Итоги')
+    const list = await screen.findByLabelText('Сводка')
+    expect(list.getAttribute('aria-busy')).toBe('true')
   })
 })
 
