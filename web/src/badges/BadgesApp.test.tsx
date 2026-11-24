@@ -60,14 +60,20 @@ describe('страница бейджей', () => {
     render(<BadgesApp fetchFn={serve(['NT01', 'NT02', 'NT03', 'NT04', 'NT05']).fetchFn} />)
     await screen.findAllByRole('article')
     const root = document.querySelector('.badges-root') as HTMLElement
-    expect(root.classList.contains('mode-press')).toBe(true)
-    expect(root.querySelector('style')?.textContent).toContain('size: 95mm 135mm')
-    fireEvent.click(screen.getByRole('button', { name: /На A4 по 4/ }))
+    // по умолчанию лист A4
     expect(root.classList.contains('mode-a4')).toBe(true)
     expect(root.querySelector('style')?.textContent).toContain('size: A4')
     // 5 бейджей: два листа A4 (4 + 1)
     expect(root.querySelectorAll('.a4-sheet')).toHaveLength(2)
     expect(root.querySelectorAll('.cut-cell')).toHaveLength(5)
+    fireEvent.change(screen.getByLabelText('Сколько на листе'), { target: { value: 'a3' } })
+    expect(root.classList.contains('mode-a3')).toBe(true)
+    expect(root.querySelector('style')?.textContent).toContain('A3 landscape')
+    expect(root.querySelectorAll('.a4-sheet')).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: /Для типографии/ }))
+    expect(root.classList.contains('mode-press')).toBe(true)
+    expect(root.querySelector('style')?.textContent).toContain('size: 95mm 135mm')
+    expect(root.querySelectorAll('.id-badge')).toHaveLength(5)
   })
 
   test('?codes= предвыбирает коды', async () => {

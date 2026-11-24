@@ -8,25 +8,26 @@ import { Badge } from './Badge.tsx'
 import { parseCodes } from './codes.ts'
 import './badges.css'
 
-type Mode = 'press' | 'a4'
+type Mode = 'press' | 'a4' | 'a3'
 type Scope = 'all' | 'selected'
 
-const MODES: { id: Mode; label: string }[] = [
-  { id: 'press', label: 'Для типографии (95×135 мм, один бейдж на страницу)' },
-  { id: 'a4', label: 'На A4 по 4 (с метками реза)' },
-]
+/** Листы с метками реза: сколько бейджей в строке и в столбце. */
+const SHEETS: Record<'a4' | 'a3', { label: string; cols: number; rows: number }> = {
+  a4: { label: 'A4 по 4 (2×2)', cols: 2, rows: 2 },
+  a3: { label: 'A3 по 8 (4×2, альбомная)', cols: 4, rows: 2 },
+}
 
 /** Правило страницы зависит от режима: два разных `@page` в одном документе не смешиваем. */
 const PAGE_RULES: Record<Mode, string> = {
   press: '@page { size: 95mm 135mm; margin: 0 }',
   a4: '@page { size: A4; margin: 5mm }',
+  a3: '@page { size: A3 landscape; margin: 5mm }',
 }
 
 const BADGE_W_MM = 95
 const BADGE_H_MM = 135
 /** Поле для меток реза вокруг бейджа в режиме A4. */
 const MARK_MM = 2.5
-const A4_PER_SHEET = 4
 const MM_PX = 96 / 25.4
 
 /** Масштаб предпросмотра: натуральный размер, а на узком окне уменьшается до ширины окна. */
@@ -62,8 +63,9 @@ function chunk<T>(items: T[], size: number): T[][] {
 }
 
 function Sheets({ mode, badges }: { mode: Mode; badges: QrMatrix[] }) {
-  const sheetW = 2 * (BADGE_W_MM + 2 * MARK_MM)
-  const sheetH = 2 * (BADGE_H_MM + 2 * MARK_MM)
+  const { cols, rows } = SHEETS[mode === 'a3' ? 'a3' : 'a4']
+  const sheetW = cols * (BADGE_W_MM + 2 * MARK_MM)
+  const sheetH = rows * (BADGE_H_MM + 2 * MARK_MM)
   const scale = usePreviewScale(mode === 'press' ? BADGE_W_MM : sheetW)
   if (mode === 'press') {
     return (
@@ -80,10 +82,13 @@ function Sheets({ mode, badges }: { mode: Mode; badges: QrMatrix[] }) {
   }
   return (
     <>
-      {chunk(badges, A4_PER_SHEET).map((group) => (
+      {chunk(badges, cols * rows).map((group) => (
         <div key={group[0]?.code} className="page">
           <Scaled w={sheetW} h={sheetH} scale={scale}>
-            <div className="a4-sheet">
+            <div
+              className="a4-sheet"
+              style={{ '--cols': cols, '--rows': rows } as CSSProperties}
+            >
               {group.map((b) => (
                 <div key={b.code} className="cut-cell">
                   <Badge matrix={b} />
@@ -100,7 +105,9 @@ function Sheets({ mode, badges }: { mode: Mode; badges: QrMatrix[] }) {
 function BadgesPage({ api }: { api: StaffApi }) {
   const list = useLoader(() => api.participants())
   const qr = useLoader(() => api.participantQr())
-  const [mode, setMode] = useState<Mode>('press')
+  const [mode, setMode] = useState<Mode>('a4')
+  // Лист, к которому возвращает кнопка «На листе», после переключения на типографию.
+  const [sheet, setSheet] = useState<'a4' | 'a3'>('a4')
   const [sponsors, setSponsors] = useState(true)
   const initial = useMemo(() => parseCodes(window.location.search), [])
   const [scope, setScope] = useState<Scope>(initial.length > 0 ? 'selected' : 'all')
@@ -136,17 +143,41 @@ function BadgesPage({ api }: { api: StaffApi }) {
           <div className="row">
             <a href="/admin">← Участники</a>
             <div className="row" role="group" aria-label="Режим печати">
-              {MODES.map((m) => (
-                <button
-                  key={m.id}
-                  type="button"
-                  className={mode === m.id ? 'primary' : ''}
-                  aria-pressed={mode === m.id}
-                  onClick={() => setMode(m.id)}
-                >
-                  {m.label}
-                </button>
-              ))}
+              <button
+                type="button"
+                className={mode !== 'press' ? 'primary' : ''}
+                aria-pressed={mode !== 'press'}
+                onClick={() => setMode(sheet)}
+              >
+                На листе с метками реза
+              </button>
+              <button
+                type="button"
+                className={mode === 'press' ? 'primary' : ''}
+                aria-pressed={mode === 'press'}
+                onClick={() => setMode('press')}
+              >
+                Для типографии (95×135 мм, один бейдж на страницу)
+              </button>
+              {mode !== 'press' && (
+                <label className="field">
+                  Сколько на листе
+                  <select
+                    value={mode}
+                    onChange={(e) => {
+                      const next = e.target.value === 'a3' ? 'a3' : 'a4'
+                      setSheet(next)
+                      setMode(next)
+                    }}
+                  >
+                    {Object.entries(SHEETS).map(([id, s]) => (
+                      <option key={id} value={id}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
             </div>
           </div>
           <div className="row" role="group" aria-label="Кого печатать">

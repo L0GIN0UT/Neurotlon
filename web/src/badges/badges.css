@@ -292,10 +292,10 @@
 
 .a4-sheet {
   display: grid;
-  grid-template-columns: repeat(2, 100mm);
+  grid-template-columns: repeat(var(--cols), 100mm);
   grid-auto-rows: 140mm;
-  width: 200mm;
-  height: 280mm;
+  width: calc(var(--cols) * 100mm);
+  height: calc(var(--rows) * 140mm);
   background: #fff;
 }
 
