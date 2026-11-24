@@ -20,10 +20,16 @@ interface Props {
   api: StaffApi
   /** Фиксировать вопреки блокировкам могут только админ и суперпользователь. */
   canForce: boolean
+  /** Невыполненные пункты чек-листа: показываются в окне подтверждения. */
+  warnings?: string[]
+  /** Вызывается после успешной фиксации (обновить счётчики). */
+  onLocked?: () => void
+  /** Вызывается при открытии окна подтверждения (обновить чек-лист). */
+  onOpen?: () => void
 }
 
 /** «Зафиксировать итоги» с двойным подтверждением: после этого судья уже не правит (решение 22). */
-export function LockPanel({ api, canForce }: Props) {
+export function LockPanel({ api, canForce, warnings = [], onLocked, onOpen }: Props) {
   const action = useAction()
   const [step, setStep] = useState<0 | 1 | 2>(0)
   const [locked, setLocked] = useState<number | null>(null)
@@ -36,18 +42,35 @@ export function LockPanel({ api, canForce }: Props) {
     if (result) {
       setLocked(result.locked)
       setForced(force)
+      onLocked?.()
     }
   }
 
   const shown = blockersOf(action.error)
 
   return (
-    <section className="card stack">
-      <h2>Итоги</h2>
+    <section className="card summary-action lock">
+      <div className="head">
+        <svg
+          className="icon"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <rect x="5" y="11" width="14" height="9" rx="2" />
+          <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+        </svg>
+        <h2>Зафиксировать итоги</h2>
+      </div>
       <p>
-        Подтверждённые результаты станут заблокированными. После этого их правит только админ.
-        Действие нельзя отменить.
+        Все подтверждённые результаты станут заблокированными: после этого судья их уже не
+        правит, только админ.
       </p>
+      <p className="irreversible">Это действие нельзя отменить.</p>
       {shown ? (
         <div className="warning stack" role="alert">
           <strong>Фиксация остановлена:</strong>
@@ -75,13 +98,30 @@ export function LockPanel({ api, canForce }: Props) {
             : 'Новых результатов для фиксации нет'}
         </p>
       )}
-      <button type="button" className="primary" onClick={() => setStep(1)}>
+      <button type="button" className="primary push" onClick={() => {
+          onOpen?.()
+          setStep(1)
+        }}>
         Зафиксировать итоги
       </button>
       {step === 1 && (
         <ConfirmDialog
           title="Зафиксировать итоги?"
-          message="Все подтверждённые результаты будут заблокированы."
+          message={
+            <>
+              <p>Все подтверждённые результаты будут заблокированы.</p>
+              {warnings.length > 0 && (
+                <div className="warning stack">
+                  <strong>Не всё готово:</strong>
+                  <ul>
+                    {warnings.map((w) => (
+                      <li key={w}>{w}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </>
+          }
           confirmLabel="Продолжить"
           onConfirm={() => setStep(2)}
           onCancel={() => setStep(0)}

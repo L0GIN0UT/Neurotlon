@@ -275,6 +275,8 @@ describe('фиксация итогов', () => {
   function setup() {
     const server = createFakeServer('judge', 'judy')
     server.routes.set('GET /conflicts', () => json([]))
+    server.routes.set('GET /results', () => json({ total: 1, items: [stored()] }))
+    server.routes.set('GET /corrections', () => json([]))
     server.routes.set('POST /results/lock', () => json({ locked: 12 }))
     return server
   }
@@ -320,10 +322,159 @@ describe('фиксация итогов', () => {
   })
 })
 
+describe('панель итогов', () => {
+  function summaryServer() {
+    const server = createFakeServer('judge', 'judy')
+    server.routes.set('GET /conflicts', () => json([conflict]))
+    server.routes.set('GET /corrections', () =>
+      json(
+        [1, 2].map((id) => ({
+          id,
+          session_id: `sess-${id}`,
+          participant_codes: ['NT01'],
+          comment: 'проверьте',
+          created_at: '2027-01-01T09:05:00Z',
+          status: 'open',
+          resolved_at: null,
+        })),
+      ),
+    )
+    server.routes.set('GET /results', () =>
+      json({
+        total: 5,
+        items: [
+          stored({ id: 1 }),
+          stored({ id: 2 }),
+          stored({ id: 3, status: 'locked' }),
+          stored({ id: 4, status: 'entered' }),
+          stored({ id: 5, voided: true }),
+        ],
+      }),
+    )
+    server.routes.set('POST /results/lock', () => json({ locked: 2 }))
+    return server
+  }
+
+  function tile(label: string) {
+    return screen.getByText(label).closest('div') as HTMLElement
+  }
+
+  test('плитки считают неаннулированные результаты по статусам', async () => {
+    renderJudge(summaryServer())
+    await openTab('Итоги')
+    await waitFor(() => expect(within(tile('Всего результатов')).getByText('4')).toBeDefined())
+    expect(within(tile('Подтверждено')).getByText('2')).toBeDefined()
+    expect(within(tile('Зафиксировано')).getByText('1')).toBeDefined()
+    expect(within(tile('Конфликтов')).getByText('1')).toBeDefined()
+    expect(within(tile('Открытых запросов на исправление')).getByText('2')).toBeDefined()
+  })
+
+  test('чек-лист показывает конфликты и ведёт на вкладки', async () => {
+    renderJudge(summaryServer())
+    await openTab('Итоги')
+    expect(await screen.findByText('Есть конфликты результатов: 1')).toBeDefined()
+    expect(screen.getByText('Есть открытые запросы на исправление: 2')).toBeDefined()
+    expect(screen.getByText('Есть что фиксировать (подтверждённых результатов: 2)')).toBeDefined()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Перейти к запросам' }))
+    expect(await screen.findByRole('heading', { name: 'Запросы на исправление' })).toBeDefined()
+    expect(screen.getByRole('tab', { name: 'Запросы на исправление' }).getAttribute('aria-selected')).toBe('true')
+
+    await openTab('Итоги')
+    fireEvent.click(await screen.findByRole('button', { name: 'Перейти к конфликтам' }))
+    expect(await screen.findByRole('heading', { name: 'Конфликты результатов' })).toBeDefined()
+  })
+
+  test('при готовности все пункты выполнены, ссылок нет, в окне нет предупреждения', async () => {
+    const server = createFakeServer('judge', 'judy')
+    server.routes.set('GET /conflicts', () => json([]))
+    server.routes.set('GET /corrections', () => json([]))
+    server.routes.set('GET /results', () => json({ total: 1, items: [stored()] }))
+    renderJudge(server)
+    await openTab('Итоги')
+    expect(await screen.findByText('Нет конфликтов результатов')).toBeDefined()
+    expect(screen.getByText('Нет открытых запросов на исправление')).toBeDefined()
+    expect(screen.queryByRole('button', { name: /Перейти/ })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Зафиксировать итоги' }))
+    expect(within(await screen.findByRole('dialog')).queryByText('Не всё готово:')).toBeNull()
+  })
+
+  test('при невыполненных пунктах окно подтверждения предупреждает, но фиксация доступна', async () => {
+    const server = summaryServer()
+    renderJudge(server)
+    await openTab('Итоги')
+    await screen.findByText('Есть конфликты результатов: 1')
+    fireEvent.click(screen.getByRole('button', { name: 'Зафиксировать итоги' }))
+    const first = await screen.findByRole('dialog', { name: 'Зафиксировать итоги?' })
+    expect(within(first).getByText('Неразрешённых конфликтов: 1')).toBeDefined()
+    expect(within(first).getByText('Открытых запросов на исправление: 2')).toBeDefined()
+    fireEvent.click(within(first).getByRole('button', { name: 'Продолжить' }))
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Да, зафиксировать' }))
+    expect(await screen.findByText('Зафиксировано результатов: 2')).toBeDefined()
+    expect(server.count('POST /results/lock')).toBe(1)
+  })
+})
+
+describe('панель итогов: данные недоступны или устарели', () => {
+  test('ошибка загрузки: пометка у плиток и предупреждение в окне подтверждения', async () => {
+    const server = createFakeServer('judge', 'judy')
+    server.routes.set('GET /conflicts', () => json([]))
+    server.routes.set('GET /corrections', () => json([]))
+    server.routes.set('GET /results', () => problem(500, 'internal'))
+    renderJudge(server)
+    await openTab('Итоги')
+    expect(await screen.findByText('Данные могли устареть')).toBeDefined()
+    expect(screen.getByRole('alert')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Зафиксировать итоги' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Зафиксировать итоги?' })
+    expect(within(dialog).getByText('Не удалось проверить готовность')).toBeDefined()
+  })
+
+  test('окно, открытое до ответа сервера, тоже предупреждает', async () => {
+    const server = createFakeServer('judge', 'judy')
+    server.routes.set('GET /conflicts', () => json([]))
+    server.routes.set('GET /corrections', () => json([]))
+    server.routes.set('GET /results', () => new Promise<Response>(() => {}))
+    renderJudge(server)
+    await openTab('Итоги')
+    fireEvent.click(await screen.findByRole('button', { name: 'Зафиксировать итоги' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Зафиксировать итоги?' })
+    expect(within(dialog).getByText('Не удалось проверить готовность')).toBeDefined()
+  })
+
+  test('открытие окна перезагружает счётчики', async () => {
+    const server = createFakeServer('judge', 'judy')
+    let conflicts: unknown[] = []
+    server.routes.set('GET /conflicts', () => json(conflicts))
+    server.routes.set('GET /corrections', () => json([]))
+    server.routes.set('GET /results', () => json({ total: 1, items: [stored()] }))
+    renderJudge(server)
+    await openTab('Итоги')
+    await screen.findByText('Нет конфликтов результатов')
+    conflicts = [conflict]
+    fireEvent.click(screen.getByRole('button', { name: 'Зафиксировать итоги' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Зафиксировать итоги?' })
+    expect(await within(dialog).findByText('Неразрешённых конфликтов: 1')).toBeDefined()
+  })
+
+  test('пока данных нет, список плиток помечен занятым', async () => {
+    const server = createFakeServer('judge', 'judy')
+    server.routes.set('GET /conflicts', () => json([]))
+    server.routes.set('GET /corrections', () => json([]))
+    server.routes.set('GET /results', () => new Promise<Response>(() => {}))
+    renderJudge(server)
+    await openTab('Итоги')
+    const list = await screen.findByLabelText('Сводка')
+    expect(list.getAttribute('aria-busy')).toBe('true')
+  })
+})
+
 describe('фиксация при блокировках', () => {
   function blockedServer(role: string) {
     const server = createFakeServer(role, 'who')
     server.routes.set('GET /conflicts', () => json([]))
+    server.routes.set('GET /results', () => json({ total: 0, items: [] }))
+    server.routes.set('GET /corrections', () => json([]))
     server.routes.set('POST /results/lock', (body) =>
       (body as { force?: boolean } | undefined)?.force
         ? json({ locked: 5 })
