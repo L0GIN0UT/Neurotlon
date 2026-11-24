@@ -28,7 +28,7 @@ paths:
       summary: Настройки дисциплины для станции или волонтёра
       description: |
         Читается перед каждой сессией и кэшируется на случай потери связи.
-        Меняют админ и судья; новое значение действует со следующей сессии.
+        Меняют админ и суперпользователь; новое значение действует со следующей сессии.
       responses:
         "200":
           description: Настройки
@@ -108,7 +108,7 @@ paths:
         Одна сессия — один запрос со всеми её участниками: на понге оба игрока
         одного матча приходят вместе. Результат из офлайн-буфера с прошедшими
         проверками всё равно принимается; найденные проблемы сервер помечает в
-        `warnings`, разбирает судья.
+        `warnings`, разбирает админ.
       requestBody:
         required: true
         content:
@@ -180,7 +180,7 @@ paths:
           $ref: "#/components/responses/Problem"
     get:
       operationId: listResults
-      summary: Поиск результатов (судья, админ, суперпользователь)
+      summary: Поиск результатов (админ, суперпользователь)
       security:
         - volunteerSession: []
       parameters:
@@ -266,7 +266,7 @@ paths:
   /corrections:
     post:
       operationId: createCorrection
-      summary: Запрос судье на исправление результата
+      summary: Запрос админу на исправление результата
       description: |
         Для результата, который нельзя отменить (прошло больше 30 с). Только
         волонтёр, записавший эту сессию.
@@ -393,8 +393,8 @@ paths:
   /disciplines:
     get:
       operationId: listDisciplines
-      summary: Настройки дисциплин (админка, судья)
-      description: Админ, судья, суперпользователь. Меняются через `PATCH /disciplines/{code}`.
+      summary: Настройки дисциплин (админка)
+      description: Админ, суперпользователь. Меняются через `PATCH /disciplines/{code}`.
       security:
         - volunteerSession: []
       responses:
@@ -441,7 +441,7 @@ paths:
         Повтор безопасен (`locked: 0`). В аудит пишутся `ids` заблокированных результатов. Если есть неразрешённые конфликты или
         открытые запросы на исправление — `409 conflict` с числами `conflicts` и
         `open_corrections`. `{"force": true}` фиксирует всё равно, только админ и
-        суперпользователь (судье `403`); `force` и числа пишутся в аудит.
+        суперпользователь; `force` и числа пишутся в аудит.
       security:
         - volunteerSession: []
       requestBody:
@@ -476,7 +476,7 @@ paths:
   /results/{id}:
     patch:
       operationId: correctResult
-      summary: Исправление результата судьёй или админом
+      summary: Исправление результата админом
       description: |
         Судья, админ и суперпользователь правят `confirmed`; `locked` — только
         админ и суперпользователь. Проверки как при приёме результата; смена
@@ -579,7 +579,7 @@ paths:
       operationId: exportXlsx
       summary: Сводная таблица в XLSX
       description: |
-        Админ, суперпользователь, судья. Листы «Итоги» и «Участники»; считается
+        Админ, суперпользователь. Листы «Итоги» и «Участники»; считается
         тем же кодом, что и табло. Категории в файле нет.
       security:
         - volunteerSession: []
@@ -739,7 +739,7 @@ components:
           description: Очки игрока в этой дисциплине, физическая + BCI.
         pending:
           type: boolean
-          description: Секция в этой дисциплине в конфликте, нужно решение судьи.
+          description: Секция в этой дисциплине в конфликте, нужно решение админа.
 
     BoardTeam:
       type: object
@@ -1084,7 +1084,7 @@ components:
           type: string
         role:
           type: string
-          enum: [superuser, admin, judge, volunteer]
+          enum: [superuser, admin, volunteer]
         discipline:
           oneOf:
             - $ref: "#/components/schemas/Discipline"
