@@ -19,17 +19,25 @@ export function stateName(state: string): string {
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
-/** Строка под статусом «В сети»: «сигнал 12 с назад» / «сигнал 3 мин назад». */
+/** Сервер отдаёт время в UTC, иногда без смещения: без `Z` браузер принял бы его за местное. */
+export function parseServerTime(iso: string): Date {
+  return new Date(/(Z|[+-]\d{2}:?\d{2})$/i.test(iso) ? iso : `${iso}Z`)
+}
+
+const ONLINE_WINDOW_S = 30
+
+/** Строка под статусом «В сети». При расхождении часов (больше окна или из будущего) — «только что». */
 export function onlineAgo(iso: string | null, now: number): string | null {
   if (!iso) return null
-  const seconds = Math.max(0, Math.floor((now - new Date(iso).getTime()) / 1000))
-  return seconds < 60 ? `сигнал ${seconds} с назад` : `сигнал ${Math.floor(seconds / 60)} мин назад`
+  const seconds = Math.floor((now - parseServerTime(iso).getTime()) / 1000)
+  if (seconds < 0 || seconds > ONLINE_WINDOW_S) return 'сигнал только что'
+  return `сигнал ${seconds} с назад`
 }
 
 /** Строка под статусом «Не в сети»: время, а если сигнал был не сегодня, то и дата. */
 export function lastSeen(iso: string | null, now: number): string {
   if (!iso) return 'ещё ни разу не подключалась'
-  const at = new Date(iso)
+  const at = parseServerTime(iso)
   const time = `${pad(at.getHours())}:${pad(at.getMinutes())}`
   if (at.toDateString() === new Date(now).toDateString()) return `последний сигнал в ${time}`
   return `последний сигнал ${pad(at.getDate())}.${pad(at.getMonth() + 1)} в ${time}`

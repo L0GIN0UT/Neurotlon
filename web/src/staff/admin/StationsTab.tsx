@@ -25,7 +25,8 @@ function useNow(): number {
 
 export function StationsTab({ api }: { api: StaffApi }) {
   const list = useLoader(() => api.stations(), STATIONS_REFRESH_MS)
-  const action = useAction()
+  const creation = useAction()
+  const rotation = useAction()
   const removal = useAction()
   const now = useNow()
   const [name, setName] = useState('')
@@ -36,7 +37,7 @@ export function StationsTab({ api }: { api: StaffApi }) {
 
   async function create(event: FormEvent) {
     event.preventDefault()
-    const station = await action.run(() => api.createStation(name.trim(), discipline))
+    const station = await creation.run(() => api.createStation(name.trim(), discipline))
     if (station) {
       setIssued(station)
       setName('')
@@ -45,9 +46,11 @@ export function StationsTab({ api }: { api: StaffApi }) {
   }
 
   async function rotate(id: number) {
-    const station = await action.run(() => api.rotateStationToken(id))
-    setRotating(null)
-    if (station) setIssued(station)
+    const station = await rotation.run(() => api.rotateStationToken(id))
+    if (station) {
+      setRotating(null)
+      setIssued(station)
+    }
   }
 
   async function remove(id: number) {
@@ -57,8 +60,14 @@ export function StationsTab({ api }: { api: StaffApi }) {
     })
     if (done) {
       setDeleting(null)
+      setIssued((current) => (current?.id === id ? null : current))
       list.reload()
     }
+  }
+
+  function cancelRotate() {
+    rotation.clear()
+    setRotating(null)
   }
 
   function cancelDelete() {
@@ -89,11 +98,11 @@ export function StationsTab({ api }: { api: StaffApi }) {
             ))}
           </select>
         </label>
-        <button type="submit" className="primary" disabled={action.busy || name.trim() === ''}>
+        <button type="submit" className="primary" disabled={creation.busy || name.trim() === ''}>
           Создать станцию
         </button>
       </form>
-      <ErrorText error={action.error ?? list.error} />
+      <ErrorText error={creation.error ?? list.error} />
 
       {issued && <TokenPanel station={issued} onDone={() => setIssued(null)} />}
 
@@ -113,11 +122,16 @@ export function StationsTab({ api }: { api: StaffApi }) {
       {rotatingStation && (
         <ConfirmDialog
           title="Выдать новый токен?"
-          message={`Старый токен станции «${rotatingStation.name}» перестанет работать. Лаунчер придётся перенастроить.`}
+          message={
+            <>
+              <p>{`Старый токен станции «${rotatingStation.name}» перестанет работать. Лаунчер придётся перенастроить.`}</p>
+              <ErrorText error={rotation.error} />
+            </>
+          }
           confirmLabel="Выдать новый токен"
-          busy={action.busy}
+          busy={rotation.busy}
           onConfirm={() => void rotate(rotatingStation.id)}
-          onCancel={() => setRotating(null)}
+          onCancel={cancelRotate}
         />
       )}
       {deletingStation && (
