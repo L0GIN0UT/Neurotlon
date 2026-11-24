@@ -18,7 +18,7 @@ from neurotlon_server.models import Station
 from .conftest import PASSWORD, FakeClock, login_as, make_user
 
 LOGIN = "/api/v1/auth/login"
-NEW_USER = {"login": "judy", "password": "password-1", "role": "judge"}
+NEW_USER = {"login": "ann", "password": "password-1", "role": "admin"}
 
 
 @pytest.fixture
@@ -152,7 +152,7 @@ def test_cross_site_cookie_requests_are_rejected(root: TestClient) -> None:
         assert response.json()["code"] == "forbidden"
     ok = root.post("/api/v1/users", json=NEW_USER, headers={"Sec-Fetch-Site": "same-origin"})
     assert ok.status_code == 201
-    other = {**NEW_USER, "login": "judy2"}
+    other = {**NEW_USER, "login": "ann2"}
     assert (
         root.post("/api/v1/users", json=other, headers={"Sec-Fetch-Site": "none"}).status_code
         == 201

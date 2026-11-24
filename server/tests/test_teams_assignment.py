@@ -190,11 +190,6 @@ def test_a_voided_result_does_not_lock_the_player(admin: TestClient, db: Session
     assert put(admin, [], ["NT02"]).status_code == 200  # type: ignore[attr-defined]
 
 
-def test_judge_cannot_assign(app: FastAPI, db: Session) -> None:
-    make_user(db, "jd", role="judge")
-    assert put(login_as(app, "jd"), [], []).status_code == 403  # type: ignore[attr-defined]
-
-
 def test_a_player_without_a_team_who_has_a_result_does_not_block(
     admin: TestClient, db: Session
 ) -> None:

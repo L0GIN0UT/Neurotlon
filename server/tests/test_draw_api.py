@@ -105,19 +105,15 @@ def test_options_empty(admin: TestClient) -> None:
 
 
 def test_roles(app: FastAPI, db: Session, admin: TestClient) -> None:
-    make_user(db, "judge", role="judge")
     make_user(db, "vol", role="volunteer", discipline="darts")
     anon = TestClient(app, base_url="https://testserver")
-    judge = login_as(app, "judge")
     vol = login_as(app, "vol")
     assert anon.get(f"{API}/teams").status_code == 401
     assert anon.get(f"{API}/draw/options").status_code == 401
-    for c in (judge, vol):
-        assert c.get(f"{API}/draw/options").status_code == 403
-        assert c.get(f"{API}/draw").status_code == 403
-        assert c.post(f"{API}/draw", json={"m": 1}).status_code == 403
+    assert vol.get(f"{API}/draw/options").status_code == 403
+    assert vol.get(f"{API}/draw").status_code == 403
+    assert vol.post(f"{API}/draw", json={"m": 1}).status_code == 403
     assert vol.get(f"{API}/teams").status_code == 403
-    assert judge.get(f"{API}/teams").status_code == 200
     assert admin.get(f"{API}/teams").status_code == 200
 
 
@@ -294,10 +290,8 @@ def test_patch_team_role_matrix(app: FastAPI, root: TestClient, db: Session) -> 
     team_id = drawn_team_id(root, db)
     body = {"name": "Team", "color": "#112233"}
     url = f"{API}/teams/{team_id}"
-    make_user(db, "judy", role="judge")
     make_user(db, "vol", role="volunteer", discipline="pong")
     assert TestClient(app).patch(url, json=body).status_code == 401
-    assert login_as(app, "judy").patch(url, json=body).status_code == 403
     assert login_as(app, "vol").patch(url, json=body).status_code == 403
     assert root.patch(url, json=body).status_code == 200
     assert root.patch(f"{API}/teams/99999", json=body).status_code == 404

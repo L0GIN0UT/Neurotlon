@@ -17,7 +17,7 @@ from neurotlon_server.scoring import SECTIONS, SectionScoring, score_teams
 
 router = APIRouter(prefix="/api/v1", tags=["export"])
 
-Exporter = Annotated[User, Depends(require_role("superuser", "admin", "judge"))]
+Exporter = Annotated[User, Depends(require_role("superuser", "admin"))]
 
 XLSX_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 DISCIPLINE_TITLES = {"darts": "Дартс", "football": "Футбол", "pong": "Понг"}

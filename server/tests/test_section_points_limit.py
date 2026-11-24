@@ -67,7 +67,7 @@ def test_raised_limit_allows_more_points(app: FastAPI, client: TestClient, db: S
     assert client.post(f"{API}/results", json=other, headers=headers).status_code == 422
 
 
-@pytest.mark.parametrize("role", ["superuser", "admin", "judge"])
+@pytest.mark.parametrize("role", ["superuser", "admin"])
 def test_limit_is_editable_and_audited(app: FastAPI, db: Session, role: str) -> None:
     make_user(db, role, role=role)
     response = login_as(app, role).patch(
@@ -88,7 +88,7 @@ def test_volunteer_cannot_change_the_limit(app: FastAPI, db: Session) -> None:
     assert response.status_code == 403
 
 
-def test_judge_patch_above_limit_is_422_and_pong_is_free(
+def test_admin_patch_above_limit_is_422_and_pong_is_free(
     app: FastAPI, client: TestClient, db: Session
 ) -> None:
     seed_people(db)
@@ -96,17 +96,17 @@ def test_judge_patch_above_limit_is_422_and_pong_is_free(
     _, pong = make_station(db, "p1", "pong")
     client.post(f"{API}/results", json=darts_body(points=5), headers=darts)
     client.post(f"{API}/results", json=pong_body(), headers=pong)
-    make_user(db, "judge", role="judge")
-    judge = login_as(app, "judge")
-    rows = judge.get(f"{API}/results").json()["items"]
+    make_user(db, "adm", role="admin")
+    admin = login_as(app, "adm")
+    rows = admin.get(f"{API}/results").json()["items"]
     darts_id = next(r["id"] for r in rows if r["discipline"] == "darts")
     pong_id = next(r["id"] for r in rows if r["participant_code"] == "NT03")
-    over = judge.patch(f"{API}/results/{darts_id}", json={"points": 11, "change_reason": "typo"})
+    over = admin.patch(f"{API}/results/{darts_id}", json={"points": 11, "change_reason": "typo"})
     assert over.status_code == 422
     assert over.json()["code"] == "invalid_entries"
-    fixed = judge.patch(f"{API}/results/{darts_id}", json={"points": 10, "change_reason": "ok"})
+    fixed = admin.patch(f"{API}/results/{darts_id}", json={"points": 10, "change_reason": "ok"})
     assert fixed.status_code == 200
-    free = judge.patch(f"{API}/results/{pong_id}", json={"points": 300, "change_reason": "ok"})
+    free = admin.patch(f"{API}/results/{pong_id}", json={"points": 300, "change_reason": "ok"})
     assert free.status_code == 200
 
 
@@ -125,17 +125,17 @@ def test_replay_of_stored_session_ignores_a_lowered_limit(
     assert replay.json() == first.json()
 
 
-def test_judge_patch_without_points_ignores_a_lowered_limit(
+def test_admin_patch_without_points_ignores_a_lowered_limit(
     app: FastAPI, client: TestClient, db: Session
 ) -> None:
     seed_people(db)
     _, headers = make_station(db, "d1", "darts")
     client.post(f"{API}/results", json=darts_body(points=9), headers=headers)
-    make_user(db, "judge", role="judge")
-    judge = login_as(app, "judge")
-    judge.patch(f"{API}/disciplines/darts", json={"max_section_points": 5})
-    row_id = judge.get(f"{API}/results").json()["items"][0]["id"]
-    ok = judge.patch(f"{API}/results/{row_id}", json={"comment": "note", "change_reason": "c"})
+    make_user(db, "adm", role="admin")
+    admin = login_as(app, "adm")
+    admin.patch(f"{API}/disciplines/darts", json={"max_section_points": 5})
+    row_id = admin.get(f"{API}/results").json()["items"][0]["id"]
+    ok = admin.patch(f"{API}/results/{row_id}", json={"comment": "note", "change_reason": "c"})
     assert ok.status_code == 200
-    bad = judge.patch(f"{API}/results/{row_id}", json={"points": 6, "change_reason": "c"})
+    bad = admin.patch(f"{API}/results/{row_id}", json={"points": 6, "change_reason": "c"})
     assert bad.status_code == 422

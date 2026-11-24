@@ -83,9 +83,9 @@ def test_undo_unknown_session_and_roles(app: FastAPI, client: TestClient, db: Se
     vol = setup_volunteer(app, db)
     assert vol.post(f"{API}/results/{SESSION_B}/undo").status_code == 404
     assert client.post(f"{API}/results/{SESSION_A}/undo").status_code == 401
-    make_user(db, "judge1", role="judge")
-    judge = login_as(app, "judge1")
-    assert judge.post(f"{API}/results/{SESSION_A}/undo").status_code == 403
+    make_user(db, "admin1", role="admin")
+    admin = login_as(app, "admin1")
+    assert admin.post(f"{API}/results/{SESSION_A}/undo").status_code == 403
 
 
 def test_undo_of_station_result_is_403(app: FastAPI, client: TestClient, db: Session) -> None:
@@ -130,9 +130,9 @@ def test_correction_rules(app: FastAPI, db: Session) -> None:
     assert vol.post(f"{API}/corrections", json={**ok, "comment": "я" * 201}).status_code == 422
     assert vol.post(f"{API}/corrections", json={**ok, "comment": ""}).status_code == 422
     assert vol.post(f"{API}/corrections", json={**ok, "comment": "я" * 200}).status_code == 201
-    make_user(db, "judge1", role="judge")
-    judge = login_as(app, "judge1")
-    assert judge.post(f"{API}/corrections", json=ok).status_code == 403
+    make_user(db, "admin1", role="admin")
+    admin = login_as(app, "admin1")
+    assert admin.post(f"{API}/corrections", json=ok).status_code == 403
 
 
 def test_list_and_resolve(app: FastAPI, client: TestClient, db: Session) -> None:
@@ -146,19 +146,19 @@ def test_list_and_resolve(app: FastAPI, client: TestClient, db: Session) -> None
     assert other.get(f"{API}/corrections?status=open").json() == []
     assert client.get(f"{API}/corrections").status_code == 401
 
-    for role in ("judge", "admin", "superuser"):
+    for role in ("admin", "superuser"):
         make_user(db, role, role=role)
         assert len(login_as(app, role).get(f"{API}/corrections?status=open").json()) == 1
 
     assert vol.post(f"{API}/corrections/{created['id']}/done").status_code == 403
-    judge = login_as(app, "judge")
-    response = judge.post(f"{API}/corrections/{created['id']}/done")
+    admin = login_as(app, "admin")
+    response = admin.post(f"{API}/corrections/{created['id']}/done")
     assert response.status_code == 200
     assert response.json()["status"] == "done"
-    assert judge.get(f"{API}/corrections?status=open").json() == []
-    assert len(judge.get(f"{API}/corrections?status=done").json()) == 1
-    assert judge.post(f"{API}/corrections/{created['id']}/done").status_code == 409
-    assert judge.post(f"{API}/corrections/999/done").status_code == 404
+    assert admin.get(f"{API}/corrections?status=open").json() == []
+    assert len(admin.get(f"{API}/corrections?status=done").json()) == 1
+    assert admin.post(f"{API}/corrections/{created['id']}/done").status_code == 409
+    assert admin.post(f"{API}/corrections/999/done").status_code == 404
     db.expire_all()
     row = db.scalars(select(CorrectionRequest)).one()
     assert row.resolved_by is not None

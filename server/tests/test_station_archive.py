@@ -67,12 +67,9 @@ def test_archive_audit_has_no_secrets(boss: TestClient, db: Session, clock: Fake
         assert secret not in dump
 
 
-@pytest.mark.parametrize(("role", "discipline"), [("judge", None), ("volunteer", "darts")])
-def test_staff_cannot_archive(
-    app: FastAPI, db: Session, boss: TestClient, role: str, discipline: str | None
-) -> None:
+def test_volunteer_cannot_archive(app: FastAPI, db: Session, boss: TestClient) -> None:
     station = _create(boss)
-    make_user(db, "staff", role=role, discipline=discipline)
+    make_user(db, "staff", role="volunteer", discipline="darts")
     response = login_as(app, "staff").delete(f"{API}/stations/{station['id']}")
     assert response.status_code == 403
     assert len(boss.get(f"{API}/stations").json()) == 1
