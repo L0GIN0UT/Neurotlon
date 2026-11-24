@@ -2,11 +2,10 @@ import { useState } from 'react'
 import type { Discipline, Me } from '../shared/types.ts'
 import type { StaffApi } from './api.ts'
 import { useLoader } from './hooks.ts'
-import { ExportLink } from './ExportLink.tsx'
 import { ConflictsPanel } from './judge/ConflictsPanel.tsx'
 import { CorrectionsPanel } from './judge/CorrectionsPanel.tsx'
-import { LockPanel } from './judge/LockPanel.tsx'
 import { SearchPanel } from './judge/SearchPanel.tsx'
+import { SummaryPanel } from './judge/SummaryPanel.tsx'
 import { PageHead, StaffShell, Tabs } from './StaffShell.tsx'
 
 type Tab = 'conflicts' | 'corrections' | 'search' | 'lock'
@@ -33,7 +32,7 @@ const TABS: { id: Tab; label: string; title: string; hint?: string }[] = [
     id: 'lock',
     label: 'Итоги',
     title: 'Подведение итогов',
-    hint: 'Фиксация результатов перед расчётом итогов и выгрузка в Excel.',
+    hint: 'Сверьте счётчики и чек-лист, зафиксируйте результаты и выгрузите таблицу в Excel.',
   },
 ]
 
@@ -59,10 +58,7 @@ function JudgeTabs({ api, me }: { api: StaffApi; me: Me }) {
       )}
       {tab === 'search' && <SearchPanel api={api} canEditLocked={canEditLocked} limits={limits} />}
       {tab === 'lock' && (
-        <>
-          <LockPanel api={api} canForce={canEditLocked} />
-          <ExportLink />
-        </>
+        <SummaryPanel api={api} canForce={canEditLocked} onNavigate={setTab} />
       )}
     </>
   )
