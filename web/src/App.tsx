@@ -1,3 +1,4 @@
+import { BadgesApp } from './badges/BadgesApp.tsx'
 import { BoardApp } from './board/BoardApp.tsx'
 import { OverlayApp } from './board/OverlayApp.tsx'
 import { AdminApp } from './staff/AdminApp.tsx'
@@ -18,6 +19,7 @@ export function App() {
   const { pathname } = window.location
   if (matches(pathname, '/tablet')) return <TabletApp />
   if (matches(pathname, '/admin')) return <AdminApp />
+  if (matches(pathname, '/badges')) return <BadgesApp />
   if (matches(pathname, '/judge')) return <JudgeApp />
   if (matches(pathname, '/board')) return <BoardApp />
   if (matches(pathname, '/overlay')) return <OverlayApp />

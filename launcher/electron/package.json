@@ -27,6 +27,7 @@
       "main.cjs",
       "preload.cjs",
       "lib.cjs",
+      "splash.html",
       "build/icon.png",
       "package.json"
     ],
@@ -68,7 +69,8 @@
       "installerHeaderIcon": "build/icon.ico",
       "createDesktopShortcut": true,
       "shortcutName": "Нейротлон Стенд",
-      "language": "1049"
+      "language": "1049",
+      "include": "build/installer.nsh"
     }
   }
 }

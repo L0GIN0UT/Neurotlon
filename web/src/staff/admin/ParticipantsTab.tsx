@@ -92,11 +92,15 @@ export function ParticipantsTab({ api }: { api: StaffApi }) {
         </form>
         <button
           type="button"
+          className="primary"
           disabled={everyone.length === 0}
-          onClick={() => window.open(BADGES_URL, '_blank')}
+          onClick={() => window.open('/badges', '_blank', 'noopener')}
         >
-          Печать бейджей
+          Бейджи
         </button>
+        <a href={BADGES_URL} target="_blank" rel="noopener noreferrer">
+          Простой PDF
+        </a>
         {notice && <span role="status">{notice}</span>}
       </div>
       <ErrorText error={action.error ?? list.error} />

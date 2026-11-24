@@ -70,6 +70,49 @@ paths:
         "404":
           $ref: "#/components/responses/Problem"
 
+  /participants/qr:
+    get:
+      operationId: getParticipantQr
+      summary: Матрицы QR для страницы печати бейджей
+      description: |
+        Только админ и суперпользователь. Источник матрицы — `segno` (уровень коррекции M, не Micro),
+        содержимое QR ровно код участника. Страница `/badges` рисует по ней SVG.
+        Без `codes` — все участники.
+      parameters:
+        - name: codes
+          in: query
+          required: false
+          description: Коды через запятую, например `NT01,NT02`.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Матрицы в порядке кодов
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [code, size, rows]
+                  additionalProperties: false
+                  properties:
+                    code:
+                      $ref: "#/components/schemas/ParticipantCode"
+                    size:
+                      type: integer
+                      description: Модулей по стороне, без тихой зоны.
+                    rows:
+                      type: array
+                      description: "`size` строк длиной `size` из символов 0 и 1 (1 — тёмный модуль)."
+                      items:
+                        type: string
+                        pattern: "^[01]+$"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/Problem"
+
   /participants:
     get:
       operationId: listParticipants
