@@ -286,7 +286,7 @@ def test_technical_problem_retry_reuses_session_and_people() -> None:
     assert rig.queue.items[0]["entries"][0]["outcome"] == "completed"
 
 
-def test_technical_problem_back_returns_to_start_without_a_result() -> None:
+def test_back_from_the_problem_screen_returns_to_confirm_without_a_result() -> None:
     rig = Rig("darts", Aborted("датчик отвалился"))
     rig.scan("NT07")
     rig.machine.confirm()
@@ -295,42 +295,41 @@ def test_technical_problem_back_returns_to_start_without_a_result() -> None:
     assert isinstance(rig.state, TechnicalProblem)
 
     rig.machine.back()
-    assert isinstance(rig.state, Idle)
-    assert rig.state.taken == ()
+    assert isinstance(rig.state, Confirm)
+    assert rig.state.candidate.code == "NT07"
     assert rig.queue.items == []  # результат не отправлен
 
 
-def test_back_does_nothing_outside_the_problem_screen() -> None:
-    rig = Rig("darts", DARTS_DONE)
+def test_back_while_playing_stops_the_game() -> None:
+    rig = Rig("darts")  # исходов нет: игра идёт и не заканчивается
     rig.scan("NT07")
+    rig.machine.confirm()
+    rig.machine.tick()
+    rig.machine.tick()
+    assert isinstance(rig.state, Playing)
+
     rig.machine.back()
     assert isinstance(rig.state, Confirm)
+    assert rig.runner.stopped
+    assert rig.queue.items == []
 
 
-def test_technical_problem_give_up_enqueues_not_completed_for_each() -> None:
-    rig = Rig("pong", Aborted("датчик отвалился"))
-    rig.confirm_through("NT03")
-    rig.confirm_through("NT14")
-    rig.machine.tick()
-    rig.machine.tick()
-    assert isinstance(rig.state, TechnicalProblem)
-    assert rig.state.reason == "датчик отвалился"
-    failed = rig.state.session_id
-    rig.machine.give_up()
-    assert isinstance(rig.state, Done)
-    assert rig.queue.items == [
-        {
-            "session_id": str(failed),
-            "discipline": "pong",
-            "section": "bci",
-            "finished_at": "2027-04-12T11:05:00+00:00",
-            "entries": [
-                {"participant_code": "NT03", "outcome": "not_completed", "reason": "equipment"},
-                {"participant_code": "NT14", "outcome": "not_completed", "reason": "equipment"},
-            ],
-        }
-    ]
-    assert rig.kicks == 1
+def test_back_from_checking_and_confirm_returns_to_the_code_screen() -> None:
+    rig = Rig("darts", DARTS_DONE)
+    rig.machine.enter_code("NT07")
+    assert isinstance(rig.state, Checking)
+    rig.machine.back()
+    assert rig.snap() == Idle()
+    rig.scan("NT07")
+    assert isinstance(rig.state, Confirm)
+    rig.machine.back()
+    assert rig.snap() == Idle()
+
+
+def test_back_on_the_code_screen_does_nothing() -> None:
+    rig = Rig("darts")
+    rig.machine.back()
+    assert rig.snap() == Idle()
 
 
 def test_keyboard_entry() -> None:
@@ -356,7 +355,7 @@ def test_events_in_wrong_state_are_ignored() -> None:
     rig = Rig("darts")
     rig.machine.confirm()
     rig.machine.retry()
-    rig.machine.give_up()
+    rig.machine.back()
     rig.machine.cancel()
     rig.machine.tick()
     assert rig.snap() == Idle()

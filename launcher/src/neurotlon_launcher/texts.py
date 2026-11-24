@@ -17,7 +17,6 @@ DISCIPLINE_UNKNOWN = (
     "подключитесь к сети зала и запустите заново"
 )
 RESTARTED = "Лаунчер был перезапущен во время игры, результата нет"
-DONE_GIVE_UP = "Отмечено: не пройдено"
 
 
 def server_error(detail: str) -> str:

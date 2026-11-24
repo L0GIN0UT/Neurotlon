@@ -48,7 +48,6 @@ DEFAULT_DURATION_S = 240
 DEFAULT_MAX_POINTS = 10  # section points limit when the server has never been reached
 DONE_SECONDS = 5.0
 INPUT_MAX = 12
-GIVE_UP_REASON = "equipment"
 
 
 @dataclass(frozen=True)
@@ -276,25 +275,32 @@ class StationMachine:
             self.state = Starting(self.state.session_id, self.state.players)
 
     def back(self) -> None:
-        """С экрана проблемы к началу: результат не отправляется, очередь игроков пуста.
+        """Шаг назад с любого экрана после ввода кода: проверка, подтверждение, игра, проблема.
 
-        Нужно, когда волонтёр хочет отсканировать другого игрока или начать заново. Сессия на
-        сервере остаётся открытой: повторный вход того же участника продолжит её (startSession
-        идемпотентен), а «не пройдено» по-прежнему отдельное действие.
+        Игру, если она идёт, останавливаем; результат не отправляется. Сессия на сервере
+        остаётся открытой: повторный вход того же участника продолжит её (startSession
+        идемпотентен). Из экрана игры и проблемы возвращаемся к подтверждению последнего игрока:
+        там можно начать снова или выбрать «Это не я».
         """
-        if isinstance(self.state, TechnicalProblem):
-            self.state = Idle()
+        match self.state:
+            case Checking(taken=taken) | Confirm(taken=taken):
+                self._drop_pending()
+                self.state = Idle(taken=taken)
+            case (
+                Starting(players=players)
+                | Playing(players=players)
+                | TechnicalProblem(players=players)
+            ):
+                self._drop_pending()
+                self._runner.stop()
+                self._outbox.clear_active()
+                self.state = Confirm(players[-1], players[:-1])
+            case _:
+                pass
 
-    def give_up(self) -> None:
-        state = self.state
-        if not isinstance(state, TechnicalProblem):
-            return
-        entries = [
-            {"participant_code": p.code, "outcome": "not_completed", "reason": GIVE_UP_REASON}
-            for p in state.players
-        ]
-        self._enqueue(state.session_id, entries)
-        self.state = Done((texts.DONE_GIVE_UP,), self._monotonic() + DONE_SECONDS)
+    def _drop_pending(self) -> None:
+        """Забыть незавершённый сетевой шаг: его ответ уже никому не нужен."""
+        self._pending = None
 
     def recover(self, active: ActiveSession, outcome: GameOutcome) -> None:
         """После перезапуска: сессия была в игре. Результат есть — в буфер, иначе экран проблемы."""
