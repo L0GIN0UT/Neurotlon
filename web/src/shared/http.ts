@@ -47,6 +47,13 @@ export type Requester = <T>(
   isLogin?: boolean,
 ) => Promise<T>
 
+/** JSON по умолчанию; Blob (например, JPEG) уходит как есть со своим Content-Type. */
+function requestBody(body: unknown): Pick<RequestInit, 'headers' | 'body'> {
+  if (body === undefined) return {}
+  if (body instanceof Blob) return { headers: { 'Content-Type': body.type }, body }
+  return { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+}
+
 export function createRequester({ fetchFn, onUnauthorized }: ApiOptions = {}): Requester {
   return async function request<T>(
     method: string,
@@ -60,8 +67,7 @@ export function createRequester({ fetchFn, onUnauthorized }: ApiOptions = {}): R
       response = await doFetch(`${API_BASE}${path}`, {
         method,
         credentials: 'include',
-        headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
-        body: body === undefined ? undefined : JSON.stringify(body),
+        ...requestBody(body),
       })
     } catch {
       throw new NetworkError()
@@ -83,7 +89,9 @@ export function createRequester({ fetchFn, onUnauthorized }: ApiOptions = {}): R
       )
     }
     if (response.status === 204) return undefined as T
-    return (await response.json()) as T
+    // пустое тело (200 без содержимого) — не ошибка
+    const text = await response.text()
+    return (text.trim() === '' ? undefined : JSON.parse(text)) as T
   }
 }
 

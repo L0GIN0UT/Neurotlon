@@ -179,6 +179,37 @@ def test_badges_pdf_forbidden_for_volunteer(app: FastAPI, db: Session) -> None:
     assert login_as(app, "jd").get(f"{API}/badges.pdf").status_code == 403
 
 
+def test_qr_matrices_match_segno(admin: TestClient) -> None:
+    _generate(admin, 3)
+    response = admin.get(f"{API}/qr")
+    assert response.status_code == 200
+    body = response.json()
+    assert [item["code"] for item in body] == ["NT01", "NT02", "NT03"]
+    for item in body:
+        matrix = qr_for(item["code"]).matrix
+        assert item["size"] == len(matrix)
+        assert item["rows"] == ["".join("1" if d else "0" for d in row) for row in matrix]
+
+
+def test_qr_selected_codes(admin: TestClient) -> None:
+    _generate(admin, 5)
+    body = admin.get(f"{API}/qr", params={"codes": "NT04,2,NT04"}).json()
+    assert [item["code"] for item in body] == ["NT02", "NT04"]
+
+
+def test_qr_unknown_and_empty(admin: TestClient) -> None:
+    assert admin.get(f"{API}/qr").status_code == 404
+    _generate(admin, 3)
+    assert admin.get(f"{API}/qr", params={"codes": "NT01,NT09"}).status_code == 404
+    assert admin.get(f"{API}/qr", params={"codes": "zzz"}).status_code == 404
+
+
+def test_qr_permissions(app: FastAPI, db: Session) -> None:
+    make_user(db, "jd", role="volunteer", discipline="darts")
+    assert login_as(app, "jd").get(f"{API}/qr").status_code == 403
+    assert TestClient(app).get(f"{API}/qr").status_code == 401
+
+
 @pytest.mark.parametrize(("count", "pages"), [(1, 1), (6, 1), (7, 2), (12, 2), (13, 3)])
 def test_pdf_page_count(count: int, pages: int) -> None:
     codes = [f"NT{n:02d}" for n in range(1, count + 1)]

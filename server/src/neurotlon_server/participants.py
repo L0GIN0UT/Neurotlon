@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from neurotlon_server.audit import write_audit
 from neurotlon_server.auth import Db, Now, require_role
-from neurotlon_server.badges import build_badges_pdf
+from neurotlon_server.badges import build_badges_pdf, qr_for
 from neurotlon_server.codes import normalize_code
 from neurotlon_server.errors import ProblemError
 from neurotlon_server.models import Participant, Team, User
@@ -119,8 +119,8 @@ def list_participants(db: Db, user: Viewer) -> list[dict[str, Any]]:
     return [_out(p, t, with_category) for p, t in rows]
 
 
-@router.get("/badges.pdf")
-def badges_pdf(db: Db, actor: Manager, codes: Annotated[str | None, Query()] = None) -> Response:
+def _selected_codes(db: Session, codes: str | None) -> list[str]:
+    """Codes for badges: all participants, or the listed ones (unknown or empty is 404)."""
     query = select(Participant.code).order_by(Participant.code)
     wanted: list[str] = []
     if codes is not None:
@@ -134,11 +134,34 @@ def badges_pdf(db: Db, actor: Manager, codes: Annotated[str | None, Query()] = N
     found = list(db.scalars(query))
     if not found or (codes is not None and len(found) != len(wanted)):
         raise unknown_participant()
+    return found
+
+
+@router.get("/badges.pdf")
+def badges_pdf(db: Db, actor: Manager, codes: Annotated[str | None, Query()] = None) -> Response:
     return Response(
-        build_badges_pdf(found),
+        build_badges_pdf(_selected_codes(db, codes)),
         media_type="application/pdf",
         headers={"Content-Disposition": 'attachment; filename="badges.pdf"'},
     )
+
+
+@router.get("/qr")
+def badges_qr(
+    db: Db, actor: Manager, codes: Annotated[str | None, Query()] = None
+) -> list[dict[str, Any]]:
+    """QR matrices (rows of 0/1, without quiet zone) for the web badge page."""
+    result: list[dict[str, Any]] = []
+    for code in _selected_codes(db, codes):
+        matrix = qr_for(code).matrix
+        result.append(
+            {
+                "code": code,
+                "size": len(matrix),
+                "rows": ["".join("1" if dark else "0" for dark in row) for row in matrix],
+            }
+        )
+    return result
 
 
 @router.post("/{code}/check-in")

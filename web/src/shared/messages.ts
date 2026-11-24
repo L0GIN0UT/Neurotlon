@@ -33,6 +33,15 @@ const PROBLEM_TEXTS: Record<string, string> = {
   too_many_attempts: 'Слишком много попыток, подождите несколько минут',
 }
 
+/** Ошибка загрузки фото: 413 и 422 здесь значат «слишком большое» и «не JPEG». */
+export function photoErrorText(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.status === 413) return 'Фото слишком большое'
+    if (error.status === 422) return 'Нужен файл JPEG'
+  }
+  return errorText(error)
+}
+
 /** Текст ошибки для человека. */
 export function errorText(error: unknown): string {
   if (error instanceof NetworkError) return 'Нет связи с сервером'

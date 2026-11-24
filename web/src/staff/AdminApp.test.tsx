@@ -17,6 +17,8 @@ function person(code: string, extra: Partial<Participant> = {}): Participant {
     checked_in_at: null,
     team: null,
     category: null,
+    has_photo: false,
+    photo_version: null,
     ...extra,
   }
 }
@@ -167,6 +169,24 @@ describe('участники', () => {
     expect(text).not.toContain('ovz')
   })
 
+  test('колонка «Фото»: миниатюра с версией при has_photo, иначе заглушка', async () => {
+    people[0] = person('NT01', { has_photo: true, photo_version: 1700000000 })
+    renderAdmin(server)
+    const withPhoto = await screen.findByRole('button', { name: 'Фото NT01' })
+    const img = withPhoto.querySelector('img')
+    expect(img?.getAttribute('src')).toBe('/api/v1/participants/NT01/photo?v=1700000000')
+    expect(img?.getAttribute('loading')).toBe('lazy')
+    const without = screen.getByRole('button', { name: 'Фото NT02' })
+    expect(without.querySelector('img')).toBeNull()
+    expect(without.querySelector('svg')).not.toBeNull()
+  })
+
+  test('кнопка «Фото» открывает окно фото участника', async () => {
+    renderAdmin(server)
+    fireEvent.click(await screen.findByRole('button', { name: 'Фото NT02' }))
+    expect(await screen.findByRole('dialog', { name: 'Фото NT02' })).toBeDefined()
+  })
+
   test('отмена отметки и смена имени', async () => {
     server.routes.set('DELETE /participants/*/check-in', () => json(person('NT02')))
     server.routes.set('PATCH /participants/*', (body) => json({ ...person('NT01'), ...(body as object) }))
@@ -193,8 +213,9 @@ describe('участники', () => {
     expect(await screen.findByText('Создано: 2, всего 4')).toBeDefined()
     expect(server.bodies('POST /participants/generate')).toEqual([{ count: 4 }])
 
-    fireEvent.click(screen.getByRole('button', { name: 'Печать бейджей' }))
-    expect(open).toHaveBeenCalledWith(BADGES_URL, '_blank')
+    fireEvent.click(screen.getByRole('button', { name: 'Бейджи' }))
+    expect(open).toHaveBeenCalledWith('/badges', '_blank', 'noopener')
+    expect(screen.getByRole('link', { name: 'Простой PDF' }).getAttribute('href')).toBe(BADGES_URL)
     open.mockRestore()
   })
 
