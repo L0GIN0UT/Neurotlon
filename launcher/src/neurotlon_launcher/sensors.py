@@ -233,6 +233,7 @@ class BridgeProcess:
                 proc = None
             if proc is not None:
                 self._set(proc, None)
+                log.info("bridge started, pid %s", getattr(proc, "pid", "?"))
                 err = proc.stderr.read() if proc.stderr else ""
                 code = proc.wait()
                 if self._stop.is_set():
