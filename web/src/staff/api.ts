@@ -2,7 +2,7 @@
 // Категория участника есть только в запросах и ответах админки (регистрация, протокол жеребьёвки);
 // на табло и в экспорт она не попадает.
 
-import { createRequester, query } from '../shared/http.ts'
+import { API_BASE, createRequester, query } from '../shared/http.ts'
 import type { ApiOptions } from '../shared/http.ts'
 import type { Correction, Discipline, Me, Reason, Role, Section, Team } from '../shared/types.ts'
 
@@ -15,6 +15,9 @@ export interface Participant {
   checked_in_at: string | null
   team: Team | null
   category?: Category | null
+  has_photo: boolean
+  /** Метка версии фото для адреса картинки; null, если фото нет. */
+  photo_version: number | null
 }
 
 export interface DrawOption {
@@ -156,6 +159,12 @@ export type ResultFilter = {
 export const BADGES_URL = '/api/v1/participants/badges.pdf'
 export const EXPORT_URL = '/api/v1/export.xlsx'
 
+/** Адрес фото участника; версия сбрасывает кэш браузера после замены. */
+export function photoUrl(participant: string, version: number | null): string {
+  const base = `${API_BASE}/participants/${encodeURIComponent(participant)}/photo`
+  return version === null ? base : `${base}?v=${version}`
+}
+
 export function createStaffApi(options: ApiOptions = {}) {
   const request = createRequester(options)
   const code = encodeURIComponent
@@ -180,6 +189,10 @@ export function createStaffApi(options: ApiOptions = {}) {
       request<Participant>('PATCH', `/participants/${code(participant)}`, {
         display_name: displayName,
       }),
+    putPhoto: (participant: string, jpeg: Blob) =>
+      request<void>('PUT', `/participants/${code(participant)}/photo`, jpeg),
+    deletePhoto: (participant: string) =>
+      request<void>('DELETE', `/participants/${code(participant)}/photo`),
 
     drawOptions: () => request<DrawOption[]>('GET', '/draw/options'),
     runDraw: (m: number, seed?: number) =>
