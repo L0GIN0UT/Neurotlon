@@ -1169,7 +1169,7 @@ body:has(.station) {
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
-  align-items: flex-start;
+  align-items: stretch;
 }
 
 .setup-camera {
