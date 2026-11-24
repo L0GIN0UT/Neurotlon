@@ -168,6 +168,7 @@ def _popen(args: Sequence[str]) -> subprocess.Popen[str]:
         encoding="utf-8",
         errors="replace",
         env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
 
 
@@ -234,11 +235,16 @@ class BridgeProcess:
             if proc is not None:
                 self._set(proc, None)
                 log.info("bridge started, pid %s", getattr(proc, "pid", "?"))
-                err = proc.stderr.read() if proc.stderr else ""
+                lines: list[str] = []
+                if proc.stderr:
+                    for raw in proc.stderr:  # вывод моста сразу в журнал: видно, что он делает
+                        line = raw.strip()
+                        if line:
+                            lines.append(line)
+                            log.info("bridge: %s", line)
                 code = proc.wait()
                 if self._stop.is_set():
                     return
-                lines = [line.strip() for line in err.splitlines() if line.strip()]
                 self._set(proc, lines[-1] if lines else f"Мост завершился (код {code})")
                 log.warning("bridge exited with code %s: %s", code, self._error)
             delay = RESTART_DELAYS_S[min(failures, len(RESTART_DELAYS_S) - 1)]

@@ -4,7 +4,7 @@ import type { FormEvent } from 'react'
 import { cameraConstraints, listCameras } from './camera.ts'
 import type { CameraInfo } from './camera.ts'
 import { Icon } from './Icon.tsx'
-import { Notice } from './Notice.tsx'
+import { BreakablePath, Notice } from './Notice.tsx'
 import { Select } from './Select.tsx'
 import { SensorsSection } from './SensorsSection.tsx'
 import * as t from './texts.ts'
@@ -221,7 +221,7 @@ export function SetupScreen({
                 <div>{state.players_needed === 2 ? t.SETUP.playersTwo : t.SETUP.playersOne}</div>
                 {state.game && (
                   <div className="notice-sub" data-testid="setup-game">
-                    {t.SETUP.gameWillRun}: {state.game}
+                    {t.SETUP.gameWillRun}: <BreakablePath path={state.game} />
                   </div>
                 )}
               </Notice>

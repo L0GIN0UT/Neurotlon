@@ -1367,7 +1367,7 @@ body:has(.station) {
 
 .notice-text {
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word; /* только если слово не помещается целиком; anywhere рвало .exe на «.ex» и «e» */
 }
 
 .notice-text ul {
@@ -1380,7 +1380,6 @@ body:has(.station) {
   margin-top: 0.3rem;
   font-size: 1.3rem;
   opacity: 0.8;
-  word-break: break-all;
 }
 
 .notice-good {

@@ -27,6 +27,7 @@ GRACE_S = 420.0  # на калибровку и обучение перед иг
 DETAIL_START_FAILED = "не удалось запустить игру"
 DETAIL_TIMEOUT = "игра не завершилась вовремя"
 DETAIL_EXIT_CODE = "игра завершилась с кодом"
+DETAIL_BRIDGE_SILENT = "мост датчиков не отвечает: перезапустите стенд (Ctrl+Q и ярлык)"
 NAME_MAX = 24
 SIDES = ("left", "right")
 
@@ -155,7 +156,7 @@ def parse_result(path: Path, request: GameRequest) -> GameOutcome:
     return Finished(tuple(entries))
 
 
-BRIDGE_WAIT_S = 45.0
+BRIDGE_WAIT_S = 20.0
 
 
 def bridge_answers(host: str, port: int) -> bool:
@@ -256,8 +257,12 @@ class SubprocessGameRunner:
             ):
                 return None
             if waited >= self._bridge_wait_s:
-                log.warning("bridge did not answer in %.0f s, starting the game anyway", waited)
-            self._spawn_pending()
+                # Игра без моста всё равно сдастся через 15 с: сразу говорим, в чём дело.
+                log.warning("bridge did not answer in %.0f s, the game is not started", waited)
+                self._spawn_after = None
+                self._early = Crashed(DETAIL_BRIDGE_SILENT)
+            else:
+                self._spawn_pending()
         if self._early is not None:
             outcome, self._early = self._early, None
             return outcome
@@ -275,7 +280,10 @@ class SubprocessGameRunner:
         log.info("game exited with code %s, result %s", code, result_path)
         if code != 0:
             return Crashed(f"{DETAIL_EXIT_CODE} {code}")
-        return parse_result(result_path, request)
+        outcome = parse_result(result_path, request)
+        if isinstance(outcome, Aborted):
+            log.warning("game aborted: %s", outcome.reason)
+        return outcome
 
     def stop(self) -> None:
         self._finish_process()
