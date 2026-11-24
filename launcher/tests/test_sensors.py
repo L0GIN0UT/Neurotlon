@@ -361,3 +361,22 @@ def test_form_from_reads_sensor_fields_and_rejects_bad_ones() -> None:
     assert form_from({"devices": {"eeg": 5}}) is None
     assert form_from({"devices": {f"r{i}": "x" for i in range(9)}}) is None
     assert form_from({"devices": {"eeg": "x" * 200}}) is None
+
+
+def test_children_never_inherit_stdin(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Дочерний мост зависал, унаследовав канал stdin, на котором ядро ждёт закрытия окна."""
+    seen: list[dict[str, object]] = []
+
+    def fake_popen(args: object, **kwargs: object) -> object:
+        seen.append(kwargs)
+        return object()
+
+    def fake_run(args: object, **kwargs: object) -> object:
+        seen.append(kwargs)
+        return subprocess.CompletedProcess([], 0, "", "")
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    sensors._popen(["bridge.exe"])
+    sensors._run(["bridge.exe", "--scan"], timeout=1.0)
+    assert [kwargs["stdin"] for kwargs in seen] == [subprocess.DEVNULL, subprocess.DEVNULL]

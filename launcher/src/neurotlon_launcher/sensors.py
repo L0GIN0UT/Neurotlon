@@ -80,6 +80,7 @@ class Runner(Protocol):
 def _run(args: Sequence[str], *, timeout: float) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         list(args),
+        stdin=subprocess.DEVNULL,  # см. _popen
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -160,8 +161,11 @@ class Popener(Protocol):
 
 
 def _popen(args: Sequence[str]) -> subprocess.Popen[str]:
+    # stdin обязательно DEVNULL: Electron даёт ядру канал, на котором ядро ждёт закрытия окна
+    # (чтение в потоке). Унаследовавший его мост на Windows зависал бы при старте Python.
     return subprocess.Popen(
         list(args),
+        stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
         text=True,
