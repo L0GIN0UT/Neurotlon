@@ -12,6 +12,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     MetaData,
     String,
     Table,
@@ -111,6 +112,15 @@ class Participant(Base):
     checked_in_at: Mapped[datetime | None]
     team_id: Mapped[int | None] = mapped_column(ForeignKey("team.id"))
     number_in_team: Mapped[int | None]
+
+
+class ParticipantPhoto(Base):
+    # Personal data by the owner's decision (decision 36): admin-only, never in public output.
+    __tablename__ = "participant_photo"
+
+    participant_id: Mapped[int] = mapped_column(ForeignKey("participant.id"), primary_key=True)
+    content: Mapped[bytes] = mapped_column(LargeBinary)
+    updated_at: Mapped[datetime]
 
 
 class Duel(Base):

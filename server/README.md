@@ -44,6 +44,12 @@ uv run neurotlon-server create-superuser --login root
    `PATCH /{code}` меняет имя для табло.
 4. `GET /participants` — список (админ, суперпользователь); поле `category` видят они же.
 
+5. Фото для бейджа (персональные данные, решение 36): `PUT /{code}/photo` (тело — сырой JPEG,
+   `Content-Type: image/jpeg`, до 400 КБ; 413 при превышении, 422 если это не целый JPEG;
+   повтор заменяет), `GET /{code}/photo` (`private, no-store`), `DELETE /{code}/photo`.
+   В списке участников — `has_photo` и `photo_version`. Фото видят только админ и
+   суперпользователь; в табло, выгрузку и журнал оно не попадает (в аудите код и размер).
+
 Категория не попадает в журнал аудита: там только факт `category_set`.
 
 ## Команды
