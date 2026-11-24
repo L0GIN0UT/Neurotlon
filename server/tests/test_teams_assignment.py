@@ -4,6 +4,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from neurotlon_server.models import AuditLog, Duel, Pair, Participant, SectionResult, Team
@@ -192,3 +193,197 @@ def test_a_voided_result_does_not_lock_the_player(admin: TestClient, db: Session
 def test_judge_cannot_assign(app: FastAPI, db: Session) -> None:
     make_user(db, "jd", role="judge")
     assert put(login_as(app, "jd"), [], []).status_code == 403  # type: ignore[attr-defined]
+
+
+def test_a_player_without_a_team_who_has_a_result_does_not_block(
+    admin: TestClient, db: Session
+) -> None:
+    people(db)
+    add_result(db, "NT05")  # the result was accepted before any line-up
+    assert put(admin, ["NT01"], ["NT02"]).status_code == 200  # type: ignore[attr-defined]
+    assert put(admin, ["NT01", "NT05"], ["NT02"]).status_code == 200  # type: ignore[attr-defined]
+    # once placed, the player is locked
+    assert put(admin, ["NT01"], ["NT02"]).status_code == 409  # type: ignore[attr-defined]
+
+
+def legacy_four_teams(db: Session) -> None:
+    for number in (3, 4):
+        db.add(Team(number=number, name=f"T{number}", color="#112233", order=number))
+    db.commit()
+
+
+def test_a_draw_for_more_than_two_teams_blocks_manual_assignment(
+    admin: TestClient, db: Session
+) -> None:
+    people(db)
+    legacy_four_teams(db)
+    response = put(admin, ["NT01"], ["NT02"])
+    assert response.status_code == 409  # type: ignore[attr-defined]
+    assert response.json()["code"] == "conflict"  # type: ignore[attr-defined]
+    assert "more than two teams" in response.json()["detail"]  # type: ignore[attr-defined]
+    db.expire_all()
+    assert db.scalar(select(Team).where(Team.number == 1)) is None  # nothing was created
+
+
+def test_more_than_one_duel_blocks_manual_assignment(admin: TestClient, db: Session) -> None:
+    people(db)
+    put(admin, ["NT01"], ["NT02"])
+    teams = list(db.scalars(select(Team).order_by(Team.number)))
+    db.add(Duel(team_a_id=teams[1].id, team_b_id=teams[0].id, order=2))
+    db.commit()
+    assert put(admin, ["NT01"], ["NT02"]).status_code == 409  # type: ignore[attr-defined]
+
+
+def test_teams_payload_skips_a_pair_with_a_missing_participant(
+    admin: TestClient, db: Session
+) -> None:
+    people(db)
+    put(admin, ["NT01", "NT02"], ["NT03", "NT04"])
+    nt02 = db.scalar(select(Participant).where(Participant.code == "NT02"))
+    assert nt02 is not None
+    nt02.team_id = None
+    nt02.number_in_team = None
+    db.commit()
+    response = admin.get(f"{API}/teams")
+    assert response.status_code == 200
+    assert [p["k"] for p in response.json()["duels"][0]["pairs"]] == [1]
+
+
+def test_a_database_lock_gives_409_and_changes_nothing(
+    admin: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    people(db)
+    put(admin, ["NT01"], ["NT02"])
+
+    def locked(self: Session) -> None:
+        raise OperationalError("COMMIT", {}, Exception("database is locked"))
+
+    monkeypatch.setattr(Session, "commit", locked)
+    response = put(admin, ["NT03"], ["NT04"])
+    monkeypatch.undo()
+    assert response.status_code == 409  # type: ignore[attr-defined]
+    assert response.json()["code"] == "conflict"  # type: ignore[attr-defined]
+    assert pairs_of(db) == [(1, "NT01", "NT02")]
+    assert admin.get(f"{API}/teams").json()["teams"][0]["members"][0]["code"] == "NT01"
+
+
+def test_a_changed_partner_resets_the_pair_and_forgets_its_results(
+    admin: TestClient, db: Session
+) -> None:
+    people(db)
+    put(admin, ["NT01", "NT02"], ["NT03", "NT04"])
+    pair = db.scalars(select(Pair).where(Pair.k == 1)).one()
+    pair.zone_statuses = {"darts": "done"}
+    db.commit()
+    add_result(db, "NT01", pair.id)
+    assert put(admin, ["NT01", "NT02"], ["NT05", "NT04"]).status_code == 200  # type: ignore[attr-defined]
+    db.expire_all()
+    assert db.scalars(select(SectionResult)).one().pair_id is None
+    assert db.scalars(select(Pair).where(Pair.k == 1)).one().zone_statuses == {}
+
+
+def test_an_unchanged_pair_keeps_its_results(admin: TestClient, db: Session) -> None:
+    people(db)
+    put(admin, ["NT01", "NT02"], ["NT03", "NT04"])
+    pair = db.scalars(select(Pair).where(Pair.k == 1)).one()
+    pair_id = pair.id
+    add_result(db, "NT01", pair_id)
+    assert put(admin, ["NT01", "NT05"], ["NT03", "NT04"]).status_code == 200  # type: ignore[attr-defined]
+    db.expire_all()
+    assert db.scalars(select(SectionResult)).one().pair_id == pair_id
+
+
+def test_audit_lists_pairs_and_cleared_results(admin: TestClient, db: Session) -> None:
+    people(db)
+    put(admin, ["NT01", "NT02"], ["NT03", "NT04"])
+    pair = db.scalars(select(Pair).where(Pair.k == 1)).one()
+    add_result(db, "NT01", pair.id)
+    put(admin, ["NT01", "NT02"], ["NT05", "NT04"])
+    db.expire_all()
+    entry = list(
+        db.scalars(select(AuditLog).where(AuditLog.action == "teams.assign").order_by(AuditLog.id))
+    )[-1]
+    assert entry.object_id == "all"
+    assert entry.after is not None
+    assert entry.after["pairs"] == [[1, "NT01", "NT05"], [2, "NT02", "NT04"]]
+    assert entry.after["cleared_pair_results"] == 1
+    assert "category" not in str(entry.after) and "general" not in str(entry.after)
+
+
+def test_volunteer_cannot_assign(app: FastAPI, db: Session) -> None:
+    make_user(db, "vl", role="volunteer", discipline="darts")
+    assert put(login_as(app, "vl"), [], []).status_code == 403  # type: ignore[attr-defined]
+
+
+def test_an_entirely_empty_team_is_listed_correctly(admin: TestClient, db: Session) -> None:
+    people(db)
+    assert put(admin, ["NT01", "NT02"], []).status_code == 200  # type: ignore[attr-defined]
+    response = admin.get(f"{API}/teams")
+    assert response.status_code == 200
+    body = response.json()
+    assert [m["code"] for m in body["teams"][0]["members"]] == ["NT01", "NT02"]
+    assert body["teams"][1]["members"] == []
+    assert body["duels"][0]["pairs"] == []
+
+
+def test_a_huge_code_is_rejected_without_echo(admin: TestClient, db: Session) -> None:
+    people(db)
+    huge = "X" * 200000
+    response = admin.put(
+        f"{API}/teams/assignment",
+        json={"teams": [{"number": 1, "members": ["NT01", huge]}, {"number": 2, "members": []}]},
+    )
+    assert response.status_code == 422
+    assert "XXXX" not in response.text
+
+
+def test_a_bad_code_error_names_the_position_only(admin: TestClient, db: Session) -> None:
+    people(db)
+    response = put(admin, ["NT01", "zzz"], [])
+    assert response.status_code == 422  # type: ignore[attr-defined]
+    assert "teams[0].members[1]" in response.text  # type: ignore[attr-defined]
+    assert "zzz" not in response.text  # type: ignore[attr-defined]
+
+
+@pytest.mark.parametrize("number", [True, "2", 3, 1.0])
+def test_team_number_must_be_a_strict_one_or_two(
+    admin: TestClient, db: Session, number: object
+) -> None:
+    people(db)
+    response = admin.put(
+        f"{API}/teams/assignment",
+        json={"teams": [{"number": 1, "members": []}, {"number": number, "members": []}]},
+    )
+    assert response.status_code == 422
+
+
+def test_a_player_with_a_result_and_no_check_in_is_still_accepted(
+    admin: TestClient, db: Session
+) -> None:
+    people(db)
+    put(admin, ["NT01", "NT02"], ["NT03"])
+    add_result(db, "NT01")
+    nt01 = db.scalar(select(Participant).where(Participant.code == "NT01"))
+    assert nt01 is not None
+    nt01.checked_in_at = None  # the check-in was cancelled
+    db.commit()
+    assert put(admin, ["NT01"], ["NT03"]).status_code == 200  # type: ignore[attr-defined]
+    # someone without a result and without a check-in is still refused
+    nt06 = db.scalar(select(Participant).where(Participant.code == "NT06"))
+    assert nt06 is not None
+    nt06.checked_in_at = None
+    db.commit()
+    assert put(admin, ["NT01", "NT06"], ["NT03"]).status_code == 422  # type: ignore[attr-defined]
+
+
+def test_audit_lists_the_ids_of_cleared_results(admin: TestClient, db: Session) -> None:
+    people(db)
+    put(admin, ["NT01"], ["NT02"])
+    pair = db.scalars(select(Pair)).one()
+    add_result(db, "NT01", pair.id)
+    result_id = db.scalars(select(SectionResult)).one().id
+    put(admin, ["NT01"], ["NT03"])
+    db.expire_all()
+    entry = list(db.scalars(select(AuditLog).where(AuditLog.action == "teams.assign")))[-1]
+    assert entry.after is not None
+    assert entry.after["cleared_result_ids"] == [result_id]

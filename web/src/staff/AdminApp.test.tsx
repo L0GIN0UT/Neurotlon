@@ -150,6 +150,14 @@ describe('участники', () => {
     expect(screen.getByText('NT02')).toBeDefined()
   })
 
+  test('табло открывается в новой вкладке', async () => {
+    renderAdmin(server)
+    const link = await screen.findByRole('link', { name: 'Табло' })
+    expect(link.getAttribute('target')).toBe('_blank')
+    expect(link.getAttribute('rel')).toContain('noopener')
+    expect(screen.getByRole('link', { name: 'Судья' }).getAttribute('target')).toBeNull()
+  })
+
   test('в списке участников категории нет', async () => {
     people[1] = person('NT02', { checked_in: true, category: OTHER_CATEGORY })
     renderAdmin(server)
