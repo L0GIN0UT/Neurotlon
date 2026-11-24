@@ -90,7 +90,7 @@
   background: transparent;
 }
 
-.staff .card.summary-actions {
+.staff .summary-actions {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
   gap: 16px;
@@ -108,6 +108,16 @@
 
 .staff .card.summary-action .push {
   margin-top: auto;
+}
+
+.staff .card.summary-action.standalone {
+  height: auto;
+  max-width: 640px;
+}
+
+.staff .card.summary-action.standalone .push {
+  margin-top: 0;
+  align-self: flex-start;
 }
 
 .staff .card.summary-action .head {
