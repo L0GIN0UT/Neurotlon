@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import logo from '../station/assets/logo.png'
@@ -41,6 +41,43 @@ export function StaffShell({ title, allow, fetchFn, children }: Props) {
   const [menuNode, setMenuNode] = useState<HTMLElement | null>(null)
   // На узких экранах панель — верхняя полоса, разделы раскрываются кнопкой «Меню».
   const [menuOpen, setMenuOpen] = useState(false)
+  const toggleRef = useRef<HTMLButtonElement>(null)
+  const sideRef = useRef<HTMLElement>(null)
+
+  /** Закрывает меню и отдаёт фокус кнопке «Меню», чтобы он не пропал вместе со скрытым списком. */
+  const closeMenu = useCallback(() => {
+    setMenuOpen(false)
+    toggleRef.current?.focus()
+  }, [])
+
+  // Клик вне панели и Escape закрывают меню. Escape слушаем на документе: список разделов
+  // выводится порталом, и React-событие с него не доходит до <aside>.
+  useEffect(() => {
+    if (!menuOpen) return
+    function onOutside(e: MouseEvent) {
+      if (sideRef.current && !sideRef.current.contains(e.target as Node)) setMenuOpen(false)
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') closeMenu()
+    }
+    document.addEventListener('mousedown', onOutside)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onOutside)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [menuOpen, closeMenu])
+
+  // На широком экране панель боковая: раскрытое состояние мобильного меню сбрасывается.
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return
+    const wide = window.matchMedia('(min-width: 901px)')
+    function onChange(e: { matches: boolean }) {
+      if (e.matches) setMenuOpen(false)
+    }
+    wide.addEventListener('change', onChange)
+    return () => wide.removeEventListener('change', onChange)
+  }, [])
   const allowed = allow.join(',')
   const resolve = useCallback(
     (me: Me) => {
@@ -113,12 +150,16 @@ export function StaffShell({ title, allow, fetchFn, children }: Props) {
       )}
       {ready && (
         <>
-          <aside className={`staff-side no-print${menuOpen ? ' open' : ''}`}>
+          <aside
+            ref={sideRef}
+            className={`staff-side no-print${menuOpen ? ' open' : ''}`}
+          >
             <div className="staff-brand">
               <img src={logo} alt="" />
               <strong>{title}</strong>
             </div>
             <button
+              ref={toggleRef}
               type="button"
               className="staff-toggle"
               aria-expanded={menuOpen}
@@ -145,13 +186,19 @@ export function StaffShell({ title, allow, fetchFn, children }: Props) {
             </div>
             <div className="staff-user">
               <span>{ready.me.login}</span>
-              <button type="button" className="small" onClick={() => void logout()}>
+              <button
+                type="button"
+                className="small"
+                title={`Выйти (${ready.me.login})`}
+                aria-label={`Выйти (${ready.me.login})`}
+                onClick={() => void logout()}
+              >
                 Выйти
               </button>
             </div>
           </aside>
           <div className="staff-main">
-            <MenuContext.Provider value={{ node: menuNode, onPick: () => setMenuOpen(false) }}>
+            <MenuContext.Provider value={{ node: menuNode, onPick: closeMenu }}>
               {children({ api, me: ready.me })}
             </MenuContext.Provider>
           </div>
