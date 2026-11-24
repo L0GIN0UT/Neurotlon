@@ -20,9 +20,20 @@ function Players({ players }: { players: CandidateView[] }) {
 }
 
 /** Шаг назад: проверка, запуск, игра и проблема. Игру, если она идёт, останавливает. */
-function BackButton({ send }: { send: (command: Command) => void }) {
+function BackButton({
+  send,
+  inline = false,
+}: {
+  send: (command: Command) => void
+  inline?: boolean
+}) {
   return (
-    <button type="button" className="ghost wide back-button" onClick={() => send({ action: 'back' })}>
+    <button
+      type="button"
+      className={`ghost wide back-button${inline ? ' inline' : ''}`}
+      onClick={() => send({ action: 'back' })}
+    >
+      <Icon name="back" />
       {t.BACK}
     </button>
   )
@@ -169,11 +180,9 @@ export function ProblemScreen({
       <p className="lead">{t.PROBLEM_HINT}</p>
       <p className="reason card">{reason}</p>
       <div className="actions">
+        <BackButton send={send} inline />
         <button type="button" className="play play-warn" onClick={() => send({ action: 'retry' })}>
           {t.RETRY}
-        </button>
-        <button type="button" className="ghost wide" onClick={() => send({ action: 'back' })}>
-          {t.BACK}
         </button>
       </div>
     </div>
