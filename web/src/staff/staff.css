@@ -9,6 +9,7 @@ body:has(.staff) {
   --bg: #0b0f1a;
   --surface: #151b2c;
   --surface-hi: #232c46;
+  --surface-hover: #1a2135;
   --border: #3a4566;
   --line: rgb(255 255 255 / 9%);
   --text: #f1f5ff;
@@ -68,11 +69,20 @@ body:has(.staff) {
   letter-spacing: 0.02em;
 }
 
+.staff-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  flex: 1;
+  min-height: 0;
+}
+
 .staff-menu {
   display: flex;
   flex-direction: column;
   gap: 4px;
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
 }
 
@@ -310,6 +320,7 @@ body:has(.staff) {
   display: flex;
   flex-direction: column;
   gap: 5px;
+  min-width: 0;
   color: var(--muted);
   font-size: 0.92rem;
 }
@@ -318,6 +329,8 @@ body:has(.staff) {
 .staff .field > select {
   color: var(--text);
   font-size: 1rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 /* ---------- контейнеры ---------- */
@@ -395,6 +408,86 @@ body:has(.staff) {
   gap: 16px;
 }
 
+/* ---------- дисциплины ---------- */
+
+.staff .discipline-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: 16px;
+  align-items: stretch;
+}
+
+.staff .discipline-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.staff .discipline-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+}
+
+.staff .discipline-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: rgb(91 140 255 / 16%);
+  color: var(--accent);
+}
+
+.staff .discipline-icon svg {
+  width: 26px;
+  height: 26px;
+}
+
+.staff .discipline-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 12px;
+  flex: 1;
+  align-content: start;
+}
+
+.staff .with-unit {
+  position: relative;
+  display: block;
+}
+
+.staff .with-unit input {
+  width: 100%;
+  padding-right: 44px;
+}
+
+.staff .with-unit .unit {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+  font-size: 0.85rem;
+  pointer-events: none;
+}
+
+.staff .field-hint {
+  font-size: 0.78rem;
+  line-height: 1.3;
+  color: var(--muted);
+  opacity: 0.85;
+}
+
+.staff .discipline-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 40px;
+}
+
 /* ---------- меню разделов ---------- */
 
 .staff .tabs button {
@@ -460,7 +553,7 @@ body:has(.staff) {
 }
 
 .staff tbody tr:hover td {
-  background: rgb(255 255 255 / 3%);
+  background: var(--surface-hover);
 }
 
 .staff td.num,
@@ -556,7 +649,7 @@ body:has(.staff) {
   backdrop-filter: blur(3px);
   display: grid;
   place-items: center;
-  z-index: 10;
+  z-index: 30;
 }
 
 .staff .dialog {
@@ -565,8 +658,9 @@ body:has(.staff) {
   border: 1px solid var(--line);
   border-radius: 14px;
   padding: 22px;
-  min-width: 360px;
-  max-width: 580px;
+  width: min(580px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
   box-shadow: 0 18px 60px rgb(0 0 0 / 55%);
 }
 
@@ -584,48 +678,181 @@ body:has(.staff) {
 
 /* ---------- узкие экраны ---------- */
 
+.staff .staff-toggle {
+  display: none;
+}
+
 @media (max-width: 900px) {
   .staff {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
   }
 
+  /* боковая панель становится верхней полосой: логотип, «Меню», пользователь */
   .staff-side {
-    position: static;
+    position: sticky;
+    z-index: 20;
     height: auto;
     flex-direction: row;
     flex-wrap: wrap;
     align-items: center;
-    padding: 12px;
+    gap: 8px 10px;
+    padding: 8px 12px;
     border-right: 0;
     border-bottom: 1px solid var(--line);
+    background: rgb(21 27 44 / 96%);
   }
 
-  .staff-menu,
-  .staff-menu .tabs {
-    flex-direction: row;
-    flex-wrap: wrap;
-    flex: 1 1 100%;
-    order: 3;
+  .staff-brand {
+    padding: 0;
+    flex: 1 1 auto;
+    min-width: 0;
   }
 
-  .staff .tabs button {
-    width: auto;
+  .staff-brand img {
+    height: 32px;
   }
 
-  .staff-pages {
-    flex-direction: row;
-    border-top: 0;
-    padding-top: 0;
+  .staff-brand strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .staff .staff-toggle {
+    display: inline-flex;
+    order: 2;
   }
 
   .staff-user {
+    order: 3;
     border-top: 0;
     padding: 0;
-    margin-left: auto;
+    max-width: 45%;
+  }
+
+  .staff-nav {
+    order: 4;
+    display: none;
+    flex: 1 1 100%;
+    flex-direction: column;
+    gap: 10px;
+    max-height: calc(100vh - 70px);
+    max-height: calc(100dvh - 70px);
+    overflow-y: auto;
+    padding-top: 8px;
+    border-top: 1px solid var(--line);
+  }
+
+  .staff-side.open .staff-nav {
+    display: flex;
+  }
+
+  .staff-menu {
+    flex: none;
+    overflow: visible;
+  }
+
+  .staff-pages {
+    padding-top: 8px;
   }
 
   .staff-main {
-    padding: 18px 14px 40px;
+    padding: 16px 14px 40px;
+  }
+
+  .page-head h1 {
+    font-size: 1.4rem;
+  }
+
+  /* таблицы прокручиваются внутри своего блока, ID и имя остаются слева */
+  .staff .table-wrap {
+    max-width: 100%;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .staff .table-wrap th:first-child,
+  .staff .table-wrap td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--surface);
+    box-shadow: 1px 0 0 var(--line);
+  }
+
+  .staff .table-wrap tbody tr:hover td:first-child {
+    background: var(--surface-hover);
+  }
+
+  .staff .row > .field {
+    flex: 1 1 150px;
+  }
+
+  .staff .backdrop {
+    padding: 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  .staff-user span {
+    display: none;
+  }
+
+  .staff-side {
+    gap: 8px;
+    padding: 8px 10px;
+  }
+
+  .staff-brand {
+    gap: 6px;
+  }
+
+  .staff-brand img {
+    height: 26px;
+  }
+
+  .staff-brand strong {
+    font-size: 0.95rem;
+  }
+
+  .staff .staff-toggle {
+    padding: 6px 12px;
+  }
+
+  .staff .row > .field,
+  .staff .row > .grow {
+    flex: 1 1 100%;
+  }
+
+  .staff .discipline-fields {
+    gap: 12px 10px;
+  }
+
+  .staff .card {
+    padding: 14px;
+  }
+}
+
+/* сенсорные экраны без мыши: цели касания не меньше 44 px (малые кнопки 40 px) */
+@media (any-pointer: coarse) and (hover: none) {
+  .staff button,
+  .staff input,
+  .staff select,
+  .staff a.button {
+    min-height: 44px;
+  }
+
+  .staff button.small {
+    min-height: 40px;
+  }
+
+  .staff input[type='checkbox'],
+  .staff input[type='radio'] {
+    min-height: 0;
+  }
+
+  .staff-pages a {
+    padding: 11px 12px;
   }
 }
 
@@ -666,5 +893,16 @@ body:has(.staff) {
     border: 0;
     box-shadow: none;
     padding: 0;
+  }
+
+  .staff .table-wrap,
+  .staff .table-wrap th,
+  .staff .table-wrap td,
+  .staff .table-wrap th:first-child,
+  .staff .table-wrap td:first-child {
+    position: static;
+    background: #fff;
+    color: #000;
+    box-shadow: none;
   }
 }

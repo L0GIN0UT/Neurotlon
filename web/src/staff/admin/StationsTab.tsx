@@ -71,45 +71,47 @@ export function StationsTab({ api }: { api: StaffApi }) {
 
       {issued && <TokenPanel station={issued} onDone={() => setIssued(null)} />}
 
-      <table className="card">
-        <thead>
-          <tr>
-            <th>Станция</th>
-            <th>Дисциплина</th>
-            <th>Связь</th>
-            <th>Последний сигнал</th>
-            <th>Состояние</th>
-            <th>В очереди</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {(list.data ?? []).map((station) => (
-            <tr key={station.id}>
-              <td>{station.name}</td>
-              <td>{DISCIPLINE_NAMES[station.discipline]}</td>
-              <td>
-                <span className={station.online ? 'badge ok' : 'badge bad'}>
-                  {station.online ? 'на связи' : 'нет связи'}
-                </span>
-              </td>
-              <td>{formatTime(station.last_heartbeat_at)}</td>
-              <td>{station.last_state ? (STATE_NAMES[station.last_state] ?? station.last_state) : '—'}</td>
-              <td>{station.queue_length}</td>
-              <td className="actions">
-                <button
-                  type="button"
-                  className="small"
-                  aria-label={`Новый токен ${station.name}`}
-                  onClick={() => setRotating(station.id)}
-                >
-                  Новый токен
-                </button>
-              </td>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Станция</th>
+              <th>Дисциплина</th>
+              <th>Связь</th>
+              <th>Последний сигнал</th>
+              <th>Состояние</th>
+              <th>В очереди</th>
+              <th />
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {(list.data ?? []).map((station) => (
+              <tr key={station.id}>
+                <td>{station.name}</td>
+                <td>{DISCIPLINE_NAMES[station.discipline]}</td>
+                <td>
+                  <span className={station.online ? 'badge ok' : 'badge bad'}>
+                    {station.online ? 'на связи' : 'нет связи'}
+                  </span>
+                </td>
+                <td>{formatTime(station.last_heartbeat_at)}</td>
+                <td>{station.last_state ? (STATE_NAMES[station.last_state] ?? station.last_state) : '—'}</td>
+                <td>{station.queue_length}</td>
+                <td className="actions">
+                  <button
+                    type="button"
+                    className="small"
+                    aria-label={`Новый токен ${station.name}`}
+                    onClick={() => setRotating(station.id)}
+                  >
+                    Новый токен
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       {rotatingStation && (
         <ConfirmDialog
