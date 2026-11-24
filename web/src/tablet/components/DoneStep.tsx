@@ -97,7 +97,7 @@ export function DoneStep({ api, result, onNext, onRedo }: Props) {
       )}
       {phase === 'correction' && (
         <div className="stack">
-          <p>Отмена уже недоступна. Можно отправить запрос судье.</p>
+          <p>Отмена уже недоступна. Можно отправить запрос админу.</p>
           <label className="field">
             Что исправить
             <textarea
@@ -112,7 +112,7 @@ export function DoneStep({ api, result, onNext, onRedo }: Props) {
             onClick={() => void requestCorrection()}
             disabled={busy || comment.trim() === ''}
           >
-            Запрос судье на исправление
+            Запрос админу на исправление
           </button>
         </div>
       )}
@@ -124,7 +124,7 @@ export function DoneStep({ api, result, onNext, onRedo }: Props) {
           </button>
         </>
       )}
-      {phase === 'requested' && <p>Запрос отправлен судье.</p>}
+      {phase === 'requested' && <p>Запрос отправлен админу.</p>}
       {error && (
         <p role="alert" className="error">
           {error}

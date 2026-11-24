@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { Discipline, Me } from '../shared/types.ts'
+import type { Discipline } from '../shared/types.ts'
 import type { StaffApi } from './api.ts'
 import { useLoader } from './hooks.ts'
 import { ConflictsPanel } from './judge/ConflictsPanel.tsx'
@@ -36,7 +36,7 @@ const TABS: { id: Tab; label: string; title: string; hint?: string }[] = [
   },
 ]
 
-function JudgeTabs({ api, me }: { api: StaffApi; me: Me }) {
+function JudgeTabs({ api }: { api: StaffApi }) {
   const [tab, setTab] = useState<Tab>('conflicts')
   const settings = useLoader(() => api.disciplines())
   // Лимит очков за секцию нужен формам правки; пока не загружен (или не загрузился),
@@ -44,7 +44,6 @@ function JudgeTabs({ api, me }: { api: StaffApi; me: Me }) {
   const limits: Partial<Record<Discipline, number>> = Object.fromEntries(
     (settings.data ?? []).map((d) => [d.code, d.max_section_points]),
   )
-  const canEditLocked = me.role !== 'judge'
   return (
     <>
       <Tabs tabs={TABS} active={tab} onChange={setTab} />
@@ -54,20 +53,18 @@ function JudgeTabs({ api, me }: { api: StaffApi; me: Me }) {
       />
       {tab === 'conflicts' && <ConflictsPanel api={api} />}
       {tab === 'corrections' && (
-        <CorrectionsPanel api={api} canEditLocked={canEditLocked} limits={limits} />
+        <CorrectionsPanel api={api} limits={limits} />
       )}
-      {tab === 'search' && <SearchPanel api={api} canEditLocked={canEditLocked} limits={limits} />}
-      {tab === 'lock' && (
-        <SummaryPanel api={api} canForce={canEditLocked} onNavigate={setTab} />
-      )}
+      {tab === 'search' && <SearchPanel api={api} limits={limits} />}
+      {tab === 'lock' && <SummaryPanel api={api} onNavigate={setTab} />}
     </>
   )
 }
 
 export function JudgeApp({ fetchFn }: { fetchFn?: typeof fetch }) {
   return (
-    <StaffShell title="Судья" allow={['judge', 'admin', 'superuser']} fetchFn={fetchFn}>
-      {({ api, me }) => <JudgeTabs api={api} me={me} />}
+    <StaffShell title="Результаты" allow={['admin', 'superuser']} fetchFn={fetchFn}>
+      {({ api }) => <JudgeTabs api={api} />}
     </StaffShell>
   )
 }

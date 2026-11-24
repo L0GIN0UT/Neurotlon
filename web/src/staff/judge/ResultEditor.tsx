@@ -23,25 +23,21 @@ const STATUS_NAMES: Record<StoredResult['status'], string> = {
 interface Props {
   api: StaffApi
   row: StoredResult
-  /** Заблокированные результаты правят только админ и суперпользователь. */
-  canEditLocked: boolean
   /** Лимит очков за секцию дисциплины строки (дартс, футбол); null, пока не загружен. */
   maxPoints?: number | null
   onSaved: (row: StoredResult) => void
 }
 
-export function ResultEditor({ api, row, canEditLocked, maxPoints = null, onSaved }: Props) {
+export function ResultEditor({ api, row, maxPoints = null, onSaved }: Props) {
   const limit = pointsLimit(row, maxPoints)
   const action = useAction()
   const [draft, setDraft] = useState<ResultDraft>(() => draftOf(row))
   const [formError, setFormError] = useState<string | null>(null)
   const blocked = row.voided
     ? 'Результат аннулирован, правка недоступна.'
-    : row.status === 'locked' && !canEditLocked
-      ? 'Итоги зафиксированы: заблокированный результат правит админ.'
-      : row.status === 'entered'
-        ? 'Результат ещё не подтверждён.'
-        : null
+    : row.status === 'entered'
+      ? 'Результат ещё не подтверждён.'
+      : null
 
   function set<K extends keyof ResultDraft>(key: K, value: ResultDraft[K]) {
     setFormError(null)

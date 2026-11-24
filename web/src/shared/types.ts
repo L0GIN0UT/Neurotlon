@@ -3,7 +3,7 @@
 export type Discipline = 'darts' | 'football' | 'pong'
 export type Section = 'bci' | 'physical'
 export type Reason = 'participant_refused' | 'health' | 'equipment' | 'no_show' | 'other'
-export type Role = 'superuser' | 'admin' | 'judge' | 'volunteer'
+export type Role = 'superuser' | 'admin' | 'volunteer'
 
 export interface Me {
   login: string

@@ -8,7 +8,7 @@ import { TabletApp } from './tablet/TabletApp.tsx'
 const ROUTES: { path: string; label: string }[] = [
   { path: '/tablet', label: 'Планшет волонтёра' },
   { path: '/admin', label: 'Админка' },
-  { path: '/judge', label: 'Судья' },
+  { path: '/judge', label: 'Результаты' },
   { path: '/board', label: 'Табло' },
 ]
 
