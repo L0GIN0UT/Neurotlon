@@ -3,7 +3,7 @@ import type { FormEvent } from 'react'
 import { DISCIPLINE_NAMES } from '../../shared/messages.ts'
 import { DISCIPLINES } from '../../shared/types.ts'
 import type { Category, DisciplineSettings, Participant, StaffApi, StoredResult } from '../api.ts'
-import { BADGES_URL } from '../api.ts'
+import { BADGES_PRINT_URL, BADGES_SHEET_URL } from '../api.ts'
 import { formatTime } from '../format.ts'
 import { useAction, useLoader } from '../hooks.ts'
 import { indexResults, scoreCell, SECTIONS } from '../scores.ts'
@@ -93,9 +93,16 @@ export function ParticipantsTab({ api }: { api: StaffApi }) {
         <button
           type="button"
           disabled={everyone.length === 0}
-          onClick={() => window.open(BADGES_URL, '_blank')}
+          onClick={() => window.open(BADGES_SHEET_URL, '_blank')}
         >
-          Печать бейджей
+          Бейджи на A4
+        </button>
+        <button
+          type="button"
+          disabled={everyone.length === 0}
+          onClick={() => window.open(BADGES_PRINT_URL, '_blank')}
+        >
+          Бейджи для типографии (95×135 мм)
         </button>
         {notice && <span role="status">{notice}</span>}
       </div>

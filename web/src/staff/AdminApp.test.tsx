@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { createFakeServer, json, problem } from '../test/fakeServer.ts'
 import type { FakeServer } from '../test/fakeServer.ts'
 import { AdminApp } from './AdminApp.tsx'
-import { BADGES_URL } from './api.ts'
+import { BADGES_PRINT_URL, BADGES_SHEET_URL } from './api.ts'
 import type { Participant, StationInfo, UserInfo } from './api.ts'
 
 function person(code: string, extra: Partial<Participant> = {}): Participant {
@@ -190,8 +190,12 @@ describe('участники', () => {
     expect(await screen.findByText('Создано: 2, всего 4')).toBeDefined()
     expect(server.bodies('POST /participants/generate')).toEqual([{ count: 4 }])
 
-    fireEvent.click(screen.getByRole('button', { name: 'Печать бейджей' }))
-    expect(open).toHaveBeenCalledWith(BADGES_URL, '_blank')
+    fireEvent.click(screen.getByRole('button', { name: 'Бейджи на A4' }))
+    expect(open).toHaveBeenLastCalledWith(BADGES_SHEET_URL, '_blank')
+    fireEvent.click(screen.getByRole('button', { name: 'Бейджи для типографии (95×135 мм)' }))
+    expect(open).toHaveBeenLastCalledWith(BADGES_PRINT_URL, '_blank')
+    expect(BADGES_SHEET_URL).toContain('layout=sheet')
+    expect(BADGES_PRINT_URL).toContain('layout=single')
     open.mockRestore()
   })
 

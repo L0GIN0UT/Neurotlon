@@ -144,6 +144,8 @@ export type ResultFilter = {
 }
 
 export const BADGES_URL = '/api/v1/participants/badges.pdf'
+export const BADGES_SHEET_URL = `${BADGES_URL}?layout=sheet`
+export const BADGES_PRINT_URL = `${BADGES_URL}?layout=single`
 export const EXPORT_URL = '/api/v1/export.xlsx'
 
 export function createStaffApi(options: ApiOptions = {}) {
