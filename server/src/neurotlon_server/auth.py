@@ -108,7 +108,7 @@ def current_station(db: Db, authorization: Annotated[str | None, Header()] = Non
     if scheme.lower() != "bearer" or not token:
         raise unauthorized()
     station = db.scalar(select(Station).where(Station.token_hash == hash_token(token)))
-    if station is None:
+    if station is None or station.archived_at is not None:
         raise unauthorized()
     return station
 

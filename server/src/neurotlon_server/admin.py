@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from neurotlon_server.audit import write_audit
 from neurotlon_server.auth import Db, Now, require_role
 from neurotlon_server.errors import conflict, not_found
-from neurotlon_server.models import Station, User, WebSession
+from neurotlon_server.models import GameSession, Station, User, WebSession
 from neurotlon_server.results import HEARTBEAT_WINDOW
 from neurotlon_server.security import hash_password, hash_token, new_token
 from neurotlon_server.users import LoginTakenError, create_user, normalize_login
@@ -96,6 +96,13 @@ def _get_user(db: Session, user_id: int) -> User:
 
 def _station_name_taken(db: Session, name: str) -> bool:
     return db.scalar(select(Station.id).where(Station.name == name)) is not None
+
+
+def _get_active_station(db: Session, station_id: int) -> Station:
+    station = db.get(Station, station_id)
+    if station is None or station.archived_at is not None:
+        raise not_found("station")
+    return station
 
 
 def _revoke_sessions(db: Session, user_id: int, now: Now) -> int:
@@ -197,7 +204,9 @@ def list_stations(db: Db, now: Now, actor: StationManager) -> list[StationListIt
             last_state=s.last_state,
             queue_length=s.queue_length,
         )
-        for s in db.scalars(select(Station).order_by(Station.id))
+        for s in db.scalars(
+            select(Station).where(Station.archived_at.is_(None)).order_by(Station.id)
+        )
     ]
 
 
@@ -231,9 +240,7 @@ def post_station(
 @router.post("/stations/{station_id}/rotate-token")
 def rotate_token(station_id: int, db: Db, actor: StationManager, response: Response) -> StationOut:
     response.headers["Cache-Control"] = "no-store"
-    station = db.get(Station, station_id)
-    if station is None:
-        raise not_found("station")
+    station = _get_active_station(db, station_id)
     token = new_token()
     station.token_hash = hash_token(token)
     write_audit(
@@ -245,3 +252,52 @@ def rotate_token(station_id: int, db: Db, actor: StationManager, response: Respo
     )
     db.commit()
     return _station_out(station, token)
+
+
+@router.delete("/stations/{station_id}", status_code=204)
+def archive_station(station_id: int, db: Db, now: Now, actor: StationManager) -> Response:
+    """The audit log references stations, so a station is archived, never deleted.
+
+    The unique name is freed by renaming and the token is replaced by an unknown one.
+    The archive is written first and the sessions are checked afterwards in the same
+    transaction, so a session cannot slip in between the check and the write.
+    """
+    station = _get_active_station(db, station_id)
+    old_name = station.name
+    station.archived_at = now
+    station.name = f"{old_name} [удалена {station.id} {int(now.timestamp())}]"
+    station.token_hash = hash_token(new_token())
+    try:
+        db.flush()
+    except IntegrityError:  # an active station already has the archive name
+        db.rollback()
+        raise conflict("archive name is taken, rename the other station") from None
+    open_sessions = list(
+        db.scalars(
+            select(GameSession).where(
+                GameSession.station_id == station.id, GameSession.closed_at.is_(None)
+            )
+        )
+    )
+    if open_sessions and _is_online(station, now):
+        db.rollback()
+        raise conflict(
+            "Station is playing; rotate its token to cut access, or retry when it is idle"
+        )
+    for session in open_sessions:  # abandoned: the station stopped sending heartbeats
+        session.closed_at = now
+    write_audit(
+        db,
+        action="station.archive",
+        object_type="station",
+        object_id=station.id,
+        user_id=actor.id,
+        before={"name": old_name},
+        after={
+            "name": station.name,
+            "archived_at": now.isoformat(),
+            "closed_sessions": len(open_sessions),
+        },
+    )
+    db.commit()
+    return Response(status_code=204)

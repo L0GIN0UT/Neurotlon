@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from neurotlon_server.auth import Db, Now
 from neurotlon_server.caller import Anyone, StationOnly
 from neurotlon_server.codes import normalize_code
-from neurotlon_server.errors import ProblemError
+from neurotlon_server.errors import ProblemError, unauthorized
 from neurotlon_server.models import Discipline, GameSession, Participant, Station, Team
 from neurotlon_server.results import (
     DisciplineName,
@@ -143,6 +143,11 @@ def start_session(body: SessionStart, db: Db, now: Now, caller: StationOnly) -> 
     )
     try:
         db.flush()
+        # The write lock is held now: an archive committed since authentication is visible.
+        archived = db.scalar(select(Station.archived_at).where(Station.id == caller.station_id))
+        if archived is not None:
+            db.rollback()
+            raise unauthorized()
         add_session_participants(db, session_id, people)
         db.commit()
     except IntegrityError:  # parallel retry of the same session_id
