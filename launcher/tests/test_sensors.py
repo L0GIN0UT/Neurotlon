@@ -384,18 +384,33 @@ def test_children_never_inherit_stdin(monkeypatch: pytest.MonkeyPatch) -> None:
     assert [kwargs["stdin"] for kwargs in seen] == [subprocess.DEVNULL, subprocess.DEVNULL]
 
 
-def test_popen_puts_the_bridge_into_a_kill_on_close_job(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_supervisor_puts_the_bridge_into_a_job_and_closes_it() -> None:
     jobbed: list[object] = []
-    fake = object()
-    monkeypatch.setattr(subprocess, "Popen", lambda args, **kwargs: fake)
+    closed: list[int] = []
+    proc = FakeProc(0, "")
 
     def fake_job(process: object) -> int:
         jobbed.append(process)
-        return 1
+        return 7
 
-    monkeypatch.setattr(sensors, "_create_kill_on_close_job", fake_job)
-    assert sensors._popen(["bridge.exe"]) is fake
-    assert jobbed == [fake]
+    stop = threading.Event()
+
+    def sleep(delay: float) -> bool:
+        stop.set()
+        return True
+
+    def popen(args: Sequence[str]) -> Any:
+        return proc
+
+    bridge = BridgeProcess(["b"], "emulate", popen, sleep)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(sensors, "create_kill_on_close_job", fake_job)
+        patch.setattr(sensors, "close_job", closed.append)
+        bridge.start()
+        assert stop.wait(5)
+        bridge.stop()
+    assert jobbed == [proc]
+    assert closed == [7]
 
 
 def test_bridge_dies_with_the_launcher(tmp_path: Path) -> None:
@@ -405,8 +420,12 @@ def test_bridge_dies_with_the_launcher(tmp_path: Path) -> None:
     script = (
         "import sys, time\n"
         "from neurotlon_launcher import sensors\n"
-        "p = sensors._popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
-        "print(p.pid, flush=True)\n"
+        "def popen(args):\n"
+        "    p = sensors._popen(args)\n"
+        "    print(p.pid, flush=True)\n"
+        "    return p\n"
+        "args = [sys.executable, '-c', 'import time; time.sleep(60)']\n"
+        "sensors.BridgeProcess(args, 'emulate', popen).start()\n"
         "time.sleep(60)\n"
     )
     core = subprocess.Popen(

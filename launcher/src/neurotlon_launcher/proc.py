@@ -65,7 +65,7 @@ class _ExtendedLimits(ctypes.Structure):
     )
 
 
-def _create_kill_on_close_job(process: subprocess.Popen[Any]) -> int | None:
+def create_kill_on_close_job(process: subprocess.Popen[Any]) -> int | None:
     """Job Object с процессом внутри или `None`, если не вышло."""
     if sys.platform != "win32":
         return None
@@ -99,6 +99,11 @@ def _create_kill_on_close_job(process: subprocess.Popen[Any]) -> int | None:
     return int(job)
 
 
+def close_job(job: int) -> None:
+    """Завершает всё, что осталось в job, и закрывает её ручку."""
+    _terminate_job(job)
+
+
 def _terminate_job(job: int) -> None:
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     kernel32.TerminateJobObject.argtypes = (wintypes.HANDLE, wintypes.UINT)
@@ -122,7 +127,7 @@ class ManagedProcess:
                 stdin=subprocess.DEVNULL,
                 creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
             )
-            self._job = _create_kill_on_close_job(self._proc)
+            self._job = create_kill_on_close_job(self._proc)
             if self._job is None:
                 log.warning("job object unavailable, falling back to taskkill /T")
         else:
