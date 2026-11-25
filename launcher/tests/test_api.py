@@ -235,3 +235,92 @@ def test_default_client_gets_hall_ca() -> None:
         "https://srv", "tok", ca_file=Path(__file__).parent / "data" / "test-ca.crt"
     )
     api.close()
+
+
+JPEG_TYPE = {"content-type": "image/jpeg"}
+JPEG_BYTES = b"\xff\xd8\xff\xe0" + b"x" * 100 + b"\xff\xd9"
+
+
+def test_eligibility_sends_opponent_and_reads_photo_fields() -> None:
+    seen: list[httpx2.Request] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        seen.append(request)
+        return httpx2.Response(
+            200,
+            json={
+                "code": "NT04",
+                "display_name": None,
+                "team": None,
+                "issues": ["not_opponents"],
+                "has_photo": True,
+                "photo_version": 1700,
+            },
+        )
+
+    result = make_api(handler).eligibility("NT04", "pong", "bci", "NT03")
+    assert seen[0].url.params["with"] == "NT03"
+    assert result.issues == ("not_opponents",)
+    assert (result.has_photo, result.photo_version) == (True, 1700)
+
+
+def test_eligibility_without_opponent_has_no_with_parameter() -> None:
+    seen: list[httpx2.Request] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        seen.append(request)
+        return httpx2.Response(200, json={"code": "NT01", "team": None, "issues": []})
+
+    result = make_api(handler).eligibility("NT01", "darts", "bci")
+    assert "with" not in seen[0].url.params
+    assert (result.has_photo, result.photo_version) == (False, None)
+
+
+def test_start_session_not_opponents_is_its_own_error() -> None:
+    from neurotlon_launcher.api import NotOpponents
+
+    api = make_api(lambda request: problem(409, "not_opponents"))
+    with pytest.raises(NotOpponents):
+        api.start_session(SESSION, "pong", ["NT01", "NT03"])
+
+
+def test_photo_returns_jpeg_from_station_endpoint() -> None:
+    seen: list[httpx2.Request] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        seen.append(request)
+        return httpx2.Response(200, content=JPEG_BYTES, headers={"content-type": "image/jpeg"})
+
+    assert make_api(handler).photo("NT01") == JPEG_BYTES
+    assert seen[0].url.path == "/api/v1/station/participants/NT01/photo"
+    assert seen[0].headers["authorization"] == "Bearer tok"
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        httpx2.Response(200, content=b"<html>not a jpeg</html>"),
+        httpx2.Response(200, content=b""),
+        httpx2.Response(200, content=b"\xff\xd8\xff" + b"x" * (400 * 1024)),
+        httpx2.Response(404, json={"code": "no_photo"}),
+        httpx2.Response(401, json={"code": "unauthorized"}),
+        httpx2.Response(500, content=b"boom"),
+    ],
+)
+def test_photo_rejects_bad_answers(response: httpx2.Response) -> None:
+    assert make_api(lambda request: response).photo("NT01") is None
+
+
+def test_photo_offline_is_none() -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        raise httpx2.ConnectError("down")
+
+    assert make_api(handler).photo("NT01") is None
+
+
+def test_photo_limit_boundary_is_accepted() -> None:
+    body = b"\xff\xd8\xff" + b"x" * (400 * 1024 - 3)
+    assert (
+        make_api(lambda r: httpx2.Response(200, content=body, headers=JPEG_TYPE)).photo("NT01")
+        == body
+    )

@@ -47,6 +47,7 @@ test('resolveInside keeps requests inside the web directory', () => {
 test('content security policy allows only the local bridge', () => {
   const csp = lib.contentSecurityPolicy(8799)
   assert.match(csp, /connect-src http:\/\/127\.0\.0\.1:8799(;|$)/)
+  assert.match(csp, /img-src 'self' data: blob: http:\/\/127\.0\.0\.1:8799(;|$)/)
   assert.match(csp, /default-src 'self'/)
   assert.doesNotMatch(csp, /https?:\/\/(?!127\.0\.0\.1)/)
   assert.doesNotMatch(csp, /unsafe-eval/)

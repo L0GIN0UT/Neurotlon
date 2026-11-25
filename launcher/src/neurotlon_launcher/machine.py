@@ -20,11 +20,13 @@ from .api import (
     ApiProblem,
     Busy,
     Eligibility,
+    NotOpponents,
     Offline,
     StationApi,
     Team,
     Unauthorized,
     UnknownParticipant,
+    is_station_photo,
 )
 from .bridge_link import BridgeLink, BridgeLinkFactory, LinkView
 from .calibration import (
@@ -77,6 +79,14 @@ class Candidate:
     @property
     def team(self) -> Team | None:
         return self.eligibility.team if self.eligibility else None
+
+    @property
+    def has_photo(self) -> bool:
+        return self.eligibility is not None and self.eligibility.has_photo
+
+    @property
+    def photo_version(self) -> int | None:
+        return self.eligibility.photo_version if self.eligibility else None
 
     @property
     def issues(self) -> tuple[str, ...]:
@@ -261,6 +271,28 @@ class StationMachine:
             case _:
                 return "idle", None
 
+    def photo_codes(self) -> frozenset[str]:
+        """ID, чьё фото сейчас может понадобиться окну: игроки на экране, у кого оно есть."""
+        state = self.state
+        shown: tuple[Candidate, ...]
+        match state:
+            case Confirm():
+                shown = (*state.taken, state.candidate)
+            case Idle(taken=taken) | Checking(taken=taken):
+                shown = taken
+            case Starting(players=players) | Calibrating(players=players):
+                shown = players
+            case Playing(players=players) | TechnicalProblem(players=players):
+                shown = players
+            case _:
+                shown = ()
+        return frozenset(c.code for c in shown if c.has_photo)
+
+    def fetch_photo(self, code: str) -> bytes | None:
+        """Запрос фото на сервере: блокирует до таймаута, вызывать без замка станции."""
+        data = self._api.photo(code)
+        return data if data is not None and is_station_photo(data) else None
+
     # --- события ---------------------------------------------------------------------
 
     def type_char(self, char: str) -> None:
@@ -419,14 +451,18 @@ class StationMachine:
         future, self._pending = self._pending, None
         return future
 
-    def _check_job(self, code: str) -> Eligibility | None:
+    def _check_job(self, code: str, opponent: str | None) -> Eligibility | None:
         try:
-            return self._api.eligibility(code, self.discipline, SECTION)
+            return self._api.eligibility(code, self.discipline, SECTION, opponent)
         except Offline:
+            if opponent is not None:
+                # Политика владельца: без сервера играть можно, но пару проверить нечем.
+                log.warning("pong pair is not verified: the server is unreachable")
             return None
 
     def _check(self, state: Checking) -> None:
-        future = self._await(lambda: self._check_job(state.code))
+        opponent = state.taken[0].code if self.discipline == "pong" and state.taken else None
+        future = self._await(lambda: self._check_job(state.code, opponent))
         if future is None:
             return
         try:
@@ -440,6 +476,9 @@ class StationMachine:
         except Exception as exc:
             log.warning("eligibility check failed: %s", exc)
             self.state = Idle("", texts.server_error(_error_name(exc)), state.taken)
+            return
+        if eligibility is not None and "not_opponents" in eligibility.issues:
+            self.state = Idle("", texts.NOT_OPPONENTS, state.taken)
             return
         self.state = Confirm(Candidate(state.code, eligibility), state.taken)
 
@@ -477,6 +516,10 @@ class StationMachine:
             duration, max_points, offline, default_limit = future.result()
         except Busy:
             self._back_to_confirm(state, texts.BUSY)
+            return
+        except NotOpponents:
+            # Обход проверки кода: сервер не пустил пару, просим другого второго игрока.
+            self.state = Idle("", texts.NOT_OPPONENTS, state.players[:-1])
             return
         except Unauthorized:
             self._back_to_confirm(state, texts.UNAUTHORIZED)

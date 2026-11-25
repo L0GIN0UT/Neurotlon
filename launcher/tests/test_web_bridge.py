@@ -1,5 +1,6 @@
 import json
 import threading
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Iterator
@@ -18,6 +19,7 @@ from neurotlon_launcher.testing import (
     Ids,
     SyncExecutor,
     Time,
+    eligibility,
 )
 from neurotlon_launcher.web_bridge import BridgeServer, Station
 
@@ -179,6 +181,7 @@ def test_snapshot_describes_confirm_with_team_and_last_flag() -> None:
         "issues": ["no_pair_assigned"],
         "offline": False,
         "warned": True,
+        "photo_url": None,
     }
 
 
@@ -190,3 +193,165 @@ def test_snapshot_done_counts_down_and_has_no_secrets() -> None:
     assert snapshot(machine, StationStatus())["state"]["seconds_left"] == 3.0
     text = json.dumps(snapshot(machine, StationStatus()), ensure_ascii=False)
     assert "ОВЗ" not in text and "token" not in text.lower()  # noqa: RUF001
+
+
+JPEG = b"\xff\xd8\xff\xe0" + b"p" * 64 + b"\xff\xd9"
+
+
+@pytest.fixture
+def photo_bridge() -> Iterator[tuple[BridgeServer, StationMachine, FakeApi]]:
+    machine, _ = make_machine("pong")
+    api = machine._api
+    assert isinstance(api, FakeApi)
+    api.photos["NT03"] = JPEG
+    api.people["NT03"] = eligibility("NT03", photo_version=1700)
+    station = Station(machine, lambda: StationStatus(0, 0, True))
+    server = BridgeServer(station, TOKEN)
+    station.start()
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield server, machine, api
+    server.close()
+
+
+def wait_for(predicate: Any) -> None:
+    for _ in range(200):
+        if predicate():
+            return
+        time.sleep(0.01)
+    raise AssertionError("timeout")
+
+
+def scan(server: BridgeServer, code: str) -> None:
+    assert (
+        call(server, "/api/command", method="POST", body={"action": "enter_code", "value": code})[0]
+        == 204
+    )
+    wait_for(lambda: json.loads(server.station.body)["state"]["kind"] == "confirm")
+
+
+def test_snapshot_links_to_the_photo_without_token_or_name(
+    photo_bridge: tuple[BridgeServer, StationMachine, FakeApi],
+) -> None:
+    server, _, _ = photo_bridge
+    scan(server, "3")
+    view = json.loads(call(server, "/api/state")[1])["state"]["candidate"]
+    assert view["photo_url"] == "/api/photo/NT03?v=1700"
+    assert TOKEN not in json.dumps(view)
+
+
+def test_photo_is_served_as_jpeg_and_cached_in_memory(
+    photo_bridge: tuple[BridgeServer, StationMachine, FakeApi],
+) -> None:
+    server, _, api = photo_bridge
+    scan(server, "3")
+    status, body = call(server, "/api/photo/NT03?v=1700")
+    assert (status, body) == (200, JPEG)
+    assert call(server, "/api/photo/nt-3")[1] == JPEG
+    assert api.photo_calls == ["NT03"]  # the second request came from memory
+
+
+def test_photo_headers(photo_bridge: tuple[BridgeServer, StationMachine, FakeApi]) -> None:
+    server, _, _ = photo_bridge
+    scan(server, "3")
+    request = urllib.request.Request(f"http://127.0.0.1:{server.port}/api/photo/NT03?token={TOKEN}")
+    with urllib.request.urlopen(request, timeout=5) as response:
+        assert response.headers["Content-Type"] == "image/jpeg"
+        assert response.headers["Cache-Control"] == "private, no-store"
+        assert response.headers["X-Content-Type-Options"] == "nosniff"
+        assert "sandbox" in response.headers["Content-Security-Policy"]
+        assert response.headers["Access-Control-Allow-Origin"] is None
+
+
+def test_photo_needs_the_token_and_a_local_host(
+    photo_bridge: tuple[BridgeServer, StationMachine, FakeApi],
+) -> None:
+    server, _, api = photo_bridge
+    scan(server, "3")
+    assert call(server, "/api/photo/NT03", token=None)[0] == 403
+    assert call(server, "/api/photo/NT03", token="x" * 32)[0] == 403
+    assert call(server, "/api/photo/NT03", host="evil.example:80")[0] == 403
+    assert api.photo_calls == []
+
+
+def test_photo_of_someone_not_on_screen_is_404_without_a_server_request(
+    photo_bridge: tuple[BridgeServer, StationMachine, FakeApi],
+) -> None:
+    server, _, api = photo_bridge
+    api.photos["NT09"] = JPEG
+    assert call(server, "/api/photo/NT03")[0] == 404  # nobody scanned yet
+    scan(server, "3")
+    assert call(server, "/api/photo/NT09")[0] == 404
+    assert call(server, "/api/photo/..%2f..")[0] == 404
+    assert call(server, "/api/photo/")[0] == 404
+    assert api.photo_calls == []
+
+
+def test_non_jpeg_from_the_server_is_dropped(
+    photo_bridge: tuple[BridgeServer, StationMachine, FakeApi],
+) -> None:
+    server, _, api = photo_bridge
+    api.photos["NT03"] = b"<html>no</html>"
+    scan(server, "3")
+    assert call(server, "/api/photo/NT03")[0] == 404
+    api.photos["NT03"] = b"\xff\xd8\xff" + b"x" * (400 * 1024)
+    assert call(server, "/api/photo/NT03")[0] == 404
+
+
+def test_offline_or_missing_photo_is_404(
+    photo_bridge: tuple[BridgeServer, StationMachine, FakeApi],
+) -> None:
+    server, _, api = photo_bridge
+    scan(server, "3")
+    del api.photos["NT03"]  # the API returns None when the server is gone
+    assert call(server, "/api/photo/NT03")[0] == 404
+
+
+def test_memory_is_cleared_when_the_player_leaves_the_screen(
+    photo_bridge: tuple[BridgeServer, StationMachine, FakeApi],
+) -> None:
+    server, _, _ = photo_bridge
+    station = server.station
+    assert isinstance(station, Station)
+    scan(server, "3")
+    assert call(server, "/api/photo/NT03")[0] == 200
+    assert len(station._photos) == 1
+    assert call(server, "/api/command", method="POST", body={"action": "cancel"})[0] == 204
+    wait_for(lambda: len(station._photos) == 0)
+    assert call(server, "/api/photo/NT03")[0] == 404  # no longer on screen: not served
+
+
+def test_photo_leaves_no_trace_on_disk_or_in_logs(
+    photo_bridge: tuple[BridgeServer, StationMachine, FakeApi],
+    caplog: pytest.LogCaptureFixture,
+    tmp_path: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server, _, _ = photo_bridge
+    monkeypatch.chdir(tmp_path)
+    with caplog.at_level("DEBUG"):
+        scan(server, "3")
+        assert call(server, "/api/photo/NT03")[0] == 200
+    assert "NT03" not in caplog.text and "photo" not in caplog.text.lower()
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_photo_404_closes_the_connection(
+    photo_bridge: tuple[BridgeServer, StationMachine, FakeApi],
+) -> None:
+    server, _, _ = photo_bridge
+    request = urllib.request.Request(f"http://127.0.0.1:{server.port}/api/photo/NT09?token={TOKEN}")
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        urllib.request.urlopen(request, timeout=5)
+    assert caught.value.code == 404
+    assert caught.value.headers["Connection"] == "close"
+
+
+def test_failed_photo_is_not_requested_again_while_on_screen(
+    photo_bridge: tuple[BridgeServer, StationMachine, FakeApi],
+) -> None:
+    server, _, api = photo_bridge
+    del api.photos["NT03"]
+    scan(server, "3")
+    assert call(server, "/api/photo/NT03")[0] == 404
+    assert call(server, "/api/photo/NT03")[0] == 404
+    assert api.photo_calls == ["NT03"]

@@ -453,11 +453,13 @@ class BlockingApi(FakeApi):
         self.entered = threading.Event()
         self.thread: int | None = None
 
-    def eligibility(self, code: str, discipline: str, section: str) -> Eligibility:
+    def eligibility(
+        self, code: str, discipline: str, section: str, opponent: str | None = None
+    ) -> Eligibility:
         self.thread = threading.get_ident()
         self.entered.set()
         assert self.release.wait(10)
-        return super().eligibility(code, discipline, section)
+        return super().eligibility(code, discipline, section, opponent)
 
 
 def test_network_calls_run_off_the_calling_thread() -> None:

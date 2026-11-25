@@ -28,6 +28,13 @@ from .sensors import BridgeStatus
 from .status import StationStatus
 
 
+def photo_url(candidate: Candidate) -> str | None:
+    """Относительная ссылка на фото через прокси ядра; токен окна добавляет веб-код."""
+    if not candidate.has_photo:
+        return None
+    return f"/api/photo/{candidate.code}?v={candidate.photo_version or 0}"
+
+
 def candidate_view(candidate: Candidate) -> dict[str, Any]:
     team = candidate.team
     return {
@@ -37,6 +44,7 @@ def candidate_view(candidate: Candidate) -> dict[str, Any]:
         "issues": list(candidate.issues),
         "offline": candidate.offline,
         "warned": candidate.warned,
+        "photo_url": photo_url(candidate),
     }
 
 
