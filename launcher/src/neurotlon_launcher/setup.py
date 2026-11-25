@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from neurotlon_contracts.contract import SchemaUnavailableError, eeg_methods
+from neurotlon_contracts.sensor_devices import DeviceRef
 
 from .api import (
     DisciplineConfig,
@@ -24,8 +25,14 @@ from .api import (
     StationApiError,
     Unauthorized,
 )
-from .config import DEFAULT_EEG_METHOD, ConfigError, load_config
-from .sensors import SensorService, duplicate_serials, missing_roles
+from .config import (
+    DEFAULT_BRIDGE_HOST,
+    DEFAULT_BRIDGE_PORT,
+    DEFAULT_EEG_METHOD,
+    ConfigError,
+    load_config,
+)
+from .sensors import SensorService, duplicate_devices, missing_roles
 
 TOKEN_FILE = "station.token"
 MIN_TOKEN_LENGTH = 16
@@ -34,13 +41,13 @@ GAME_NOT_BUNDLED = "В установщике нет игры для этой с
 ROLE_TITLES = {
     "eeg": "ЭЭГ (BrainBit)",
     "emg": "ЭМГ (Callibri)",
-    "emg_left": "левая рука (Callibri)",
-    "emg_right": "правая рука (Callibri)",
+    "emg_left": "датчик игрока 1 (слева)",
+    "emg_right": "датчик игрока 2 (справа)",
 }
 SENSORS_MODE = "Режим датчиков: настоящие датчики или эмулятор"
 NO_BRIDGE_IN_BUILD = "Мост датчиков не входит в эту установку: выберите «запускаю мост отдельно»"
-SENSORS_MISSING = "Укажите серийные номера датчиков: {roles}"
-SENSORS_DUPLICATE = "Один и тот же датчик указан для двух сигналов"
+SENSORS_MISSING = "Назначьте датчики: {roles}"
+SENSORS_DUPLICATE = "Один и тот же датчик назначен двум сигналам"
 EEG_METHOD_BAD = "Метод ЭЭГ: выберите один из предложенных"
 
 URL_REQUIRED = "Введите адрес сервера, например https://192.168.1.10"
@@ -76,7 +83,8 @@ class SetupForm:
     ca_file: str = ""  # необязательно
     camera: str = ""  # имя камеры для QR; пусто — камера по умолчанию
     sensors: str = ""  # hardware | emulate; пусто — мост запускают отдельно (external)
-    devices: dict[str, str] = field(default_factory=dict)  # сигнал -> серийный номер датчика
+    # сигнал -> датчик; из окна не приходит: назначение ведёт ядро (`SensorSession`)
+    devices: dict[str, DeviceRef] = field(default_factory=dict)
     eeg_method: str = (
         DEFAULT_EEG_METHOD  # метод ЭЭГ: alpha | emotions (bridge-protocol.schema.json)
     )
@@ -116,6 +124,14 @@ class SetupService:
 
     # --- что уже сохранено ----------------------------------------------------------------
 
+    def bridge_endpoint(self) -> tuple[str, int]:
+        """Где слушает рабочий мост: из `launcher.toml`, иначе по умолчанию."""
+        try:
+            config = load_config(self._path)
+        except ConfigError:
+            return DEFAULT_BRIDGE_HOST, DEFAULT_BRIDGE_PORT
+        return config.bridge_host, config.bridge_port
+
     @property
     def token_path(self) -> Path:
         return self._path.parent / TOKEN_FILE
@@ -135,7 +151,8 @@ class SetupService:
             "ca_file": "",
             "camera": "",
             "sensors": "hardware" if self.sensors.available else "",
-            "devices": self.sensors.saved_devices(),
+            # для прежнего окна: сигнал -> серийный номер; назначение ведёт `state.sensors`
+            "devices": {r: d.serial for r, d in self.sensors.saved_devices().items() if d.serial},
             "eeg_method": DEFAULT_EEG_METHOD,
             "has_token": bool(self.saved_token()),
         }
@@ -243,7 +260,7 @@ class SetupService:
             missing = missing_roles(discipline, form.devices)
             if missing:
                 return SENSORS_MISSING.format(roles=", ".join(ROLE_TITLES[r] for r in missing))
-            if duplicate_serials(discipline, form.devices):
+            if duplicate_devices(discipline, form.devices):
                 return SENSORS_DUPLICATE
         return None
 

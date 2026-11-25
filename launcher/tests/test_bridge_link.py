@@ -371,3 +371,20 @@ def test_commands_are_refused_without_a_connection() -> None:
         assert not connection.reset()
     finally:
         connection.close()
+
+
+def test_bridge_listening_counts_a_port_that_accepts_without_hello() -> None:
+    import socket
+
+    from neurotlon_launcher.game import bridge_answers, bridge_listening
+
+    server = socket.socket()
+    server.bind(("127.0.0.1", 0))
+    server.listen(1)
+    port = server.getsockname()[1]
+    try:
+        assert bridge_listening("127.0.0.1", port)  # слушает, но `hello` не шлёт
+        assert not bridge_answers("127.0.0.1", port)
+    finally:
+        server.close()
+    assert not bridge_listening("127.0.0.1", port)

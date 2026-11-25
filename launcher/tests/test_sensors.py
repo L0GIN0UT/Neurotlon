@@ -18,7 +18,7 @@ from neurotlon_launcher.sensors import (
     BridgeProcess,
     SensorDevice,
     SensorService,
-    duplicate_serials,
+    duplicate_devices,
     missing_roles,
     roles_for,
 )
@@ -29,6 +29,9 @@ SCAN = [
     {"kind": "brainbit", "name": "BrainBit", "serial": "BB-777", "address": "AA:01"},
     {"kind": "callibri", "name": "Callibri_L", "serial": "", "address": "AA:02"},
 ]
+
+
+DARTS_DEVICES = {"eeg": DeviceRef(serial="BB-1"), "emg": DeviceRef(serial="CA-2")}
 
 
 def completed(
@@ -54,10 +57,17 @@ def test_roles_per_discipline() -> None:
     assert roles_for("darts") == roles_for("football") == ("eeg", "emg")
     assert roles_for("pong") == ("emg_left", "emg_right")
     assert roles_for(None) == roles_for("chess") == ()
-    assert missing_roles("pong", {"emg_left": "C1"}) == ["emg_right"]
-    assert missing_roles("darts", {"eeg": " ", "emg": "C1"}) == ["eeg"]
-    assert duplicate_serials("pong", {"emg_left": "c1", "emg_right": "C1"})
-    assert not duplicate_serials("pong", {"emg_left": "C1", "emg_right": "C2"})
+    assert missing_roles("pong", {"emg_left": DeviceRef(serial="C1")}) == ["emg_right"]
+    assert missing_roles("darts", {"eeg": DeviceRef(), "emg": DeviceRef(address="A1")}) == ["eeg"]
+    assert duplicate_devices(
+        "pong", {"emg_left": DeviceRef(serial="c1"), "emg_right": DeviceRef(serial="C1")}
+    )
+    assert duplicate_devices(  # один адрес, серийный номер у одной записи неизвестен
+        "pong", {"emg_left": DeviceRef(address="A1"), "emg_right": DeviceRef("a1", "C2")}
+    )
+    assert not duplicate_devices(
+        "pong", {"emg_left": DeviceRef("A1", "C1"), "emg_right": DeviceRef("A2", "C2")}
+    )
 
 
 def test_scan_parses_the_bridge_output(tmp_path: Path) -> None:
@@ -99,16 +109,23 @@ def test_scan_without_a_bridge_in_the_build(tmp_path: Path) -> None:
 
 def test_bridge_toml_roundtrip_matches_the_bridge_config(tmp_path: Path) -> None:
     service = SensorService(tmp_path, "bridge.exe")
-    service.save_devices({"eeg": " BB-1 ", "emg": 'CA "2"', "emg_left": "", "junk": "x"})
+    service.save_devices(
+        {
+            "eeg": DeviceRef(serial="BB-1"),
+            "emg": DeviceRef(address="A2", serial='CA "2"', name="Callibri", kind="callibri"),
+            "emg_left": DeviceRef(),
+            "junk": DeviceRef(serial="x"),
+        }
+    )
     saved = service.saved_devices()
-    assert saved == {"eeg": "BB-1", "emg": 'CA "2"'}
+    assert saved == {
+        "eeg": DeviceRef(serial="BB-1", kind="brainbit"),
+        "emg": DeviceRef(address="A2", serial='CA "2"', name="Callibri", kind="callibri"),
+    }
     from neurotlon_bridge.config import load_config as bridge_load
 
     config = bridge_load(service.toml_path)  # тот самый разбор, который сделает мост
-    assert config.devices == {
-        "eeg": DeviceRef(serial="BB-1"),
-        "emg": DeviceRef(serial='CA "2"'),
-    }
+    assert config.devices == saved
     assert SensorService(tmp_path / "none", "x").saved_devices() == {}
 
 
@@ -287,16 +304,14 @@ def test_bridge_gets_the_eeg_method_only_when_the_discipline_has_eeg(tmp_path: P
 def test_saved_method_reaches_a_fresh_bridge_after_restart(tmp_path: Path) -> None:
     service = make_service(tmp_path, DisciplineConfig("darts", "bci", 240))
     service.save(
-        full_form(tmp_path, devices={"eeg": "BB-1", "emg": "CA-2"}, eeg_method="emotions"),
+        full_form(tmp_path, devices=DARTS_DEVICES, eeg_method="emotions"),
         "darts",
     )
     from neurotlon_launcher.config import load_config
 
     # После setup_save лаунчер перезапускается: настройки читаются заново, мост создаётся заново.
     first = StationRuntime._make_bridge(load_config(service._path), "darts", "bridge.exe")
-    service.save(
-        full_form(tmp_path, devices={"eeg": "BB-1", "emg": "CA-2"}, eeg_method="alpha"), "darts"
-    )
+    service.save(full_form(tmp_path, devices=DARTS_DEVICES, eeg_method="alpha"), "darts")
     second = StationRuntime._make_bridge(load_config(service._path), "darts", "bridge.exe")
     assert first is not None and second is not None and first is not second
     assert first._args[first._args.index("--eeg-method") + 1] == "emotions"
@@ -305,7 +320,7 @@ def test_saved_method_reaches_a_fresh_bridge_after_restart(tmp_path: Path) -> No
 
 def test_eeg_method_is_validated_saved_and_leaves_bridge_toml_alone(tmp_path: Path) -> None:
     service = make_service(tmp_path, DisciplineConfig("darts", "bci", 240))
-    devices = {"eeg": "BB-1", "emg": "CA-2"}
+    devices = {"eeg": DeviceRef(serial="BB-1"), "emg": DeviceRef(serial="CA-2")}
     assert service.defaults()["eeg_method"] == "alpha"
     bad = service.check(full_form(tmp_path, devices=devices, eeg_method="fft"))
     assert bad.error is not None and "Метод ЭЭГ" in bad.error
@@ -354,12 +369,21 @@ def test_hardware_mode_needs_a_serial_for_each_role_of_the_discipline(tmp_path: 
     service = make_service(tmp_path, DisciplineConfig("pong", "bci", 240))
     result = service.check(full_form(tmp_path))
     assert result.discipline == "pong"  # дисциплина известна: форма покажет нужные поля
-    assert (
-        result.error is not None and "левая рука" in result.error and "правая рука" in result.error
+    assert result.error is not None and result.error.startswith("Назначьте датчики")
+    assert "игрока 1 (слева)" in result.error and "игрока 2 (справа)" in result.error
+    assert "рука" not in result.error
+    same = full_form(
+        tmp_path,
+        devices={"emg_left": DeviceRef(serial="C1"), "emg_right": DeviceRef("A9", "c1")},
     )
-    same = full_form(tmp_path, devices={"emg_left": "C1", "emg_right": "c1"})
-    assert service.check(same).error == "Один и тот же датчик указан для двух сигналов"
-    ok = full_form(tmp_path, devices={"emg_left": "C1", "emg_right": "C2"})
+    assert service.check(same).error == "Один и тот же датчик назначен двум сигналам"
+    by_address = full_form(
+        tmp_path, devices={"emg_left": DeviceRef("A1"), "emg_right": DeviceRef("a1")}
+    )
+    assert service.check(by_address).error == "Один и тот же датчик назначен двум сигналам"
+    ok = full_form(
+        tmp_path, devices={"emg_left": DeviceRef("A1"), "emg_right": DeviceRef(serial="C2")}
+    )
     assert service.check(ok).ok
 
 
@@ -378,15 +402,21 @@ def sensors_mode_error() -> str:
 
 def test_saving_writes_the_bridge_mode_and_bridge_toml(tmp_path: Path) -> None:
     service = make_service(tmp_path, DisciplineConfig("darts", "bci", 240))
-    service.save(full_form(tmp_path, devices={"eeg": "BB-1", "emg": "CA-2"}))
+    devices = {
+        "eeg": DeviceRef("AA:01", "BB-1", "BrainBit", "brainbit"),
+        "emg": DeviceRef("AA:02", "CA-2", "Callibri", "callibri"),
+    }
+    service.save(full_form(tmp_path, devices=devices))
     from neurotlon_launcher.config import load_config
 
     config = load_config(tmp_path / "cfg" / "launcher.toml")
     assert config.bridge_mode == "hardware"
-    assert service.sensors.saved_devices() == {"eeg": "BB-1", "emg": "CA-2"}
+    assert service.sensors.saved_devices() == devices
+    written = service.sensors.toml_path.read_text(encoding="utf-8")
+    assert "[devices.emg]" in written and 'address = "AA:02"' in written
     defaults = service.defaults()
     assert defaults["sensors"] == "hardware"
-    assert defaults["devices"] == {"eeg": "BB-1", "emg": "CA-2"}
+    assert defaults["devices"] == {"eeg": "BB-1", "emg": "CA-2"}  # для прежнего окна
 
 
 def test_a_build_without_a_bridge_refuses_hardware_mode(tmp_path: Path) -> None:
@@ -399,7 +429,9 @@ def test_a_build_without_a_bridge_refuses_hardware_mode(tmp_path: Path) -> None:
 
     service = SetupService(tmp_path / "cfg" / "launcher.toml", lambda u, t, c: Client())
     assert service.defaults()["sensors"] == ""
-    result = service.check(full_form(tmp_path, devices={"eeg": "BB-1", "emg": "CA-2"}))
+    result = service.check(
+        full_form(tmp_path, devices={"eeg": DeviceRef("A1"), "emg": DeviceRef("A2")})
+    )
     assert result.error is not None and "Мост датчиков" in result.error
 
 
@@ -420,14 +452,12 @@ def test_scan_action_fills_the_state_and_roles_follow_the_discipline(tmp_path: P
 
 def test_form_from_reads_sensor_fields_and_rejects_bad_ones() -> None:
     form = form_from({"sensors": "hardware", "devices": {"eeg": "BB"}})
-    assert form is not None and form.sensors == "hardware" and form.devices == {"eeg": "BB"}
-    assert form_from({"devices": "nope"}) is None
+    assert form is not None and form.sensors == "hardware"
+    assert form.devices == {}  # назначение из окна не берётся: его ведёт ядро
+    assert form_from({"devices": "nope"}) == form_from({})
     assert form_from({"eeg_method": 5}) is None
     assert form_from({}).eeg_method == "alpha"  # type: ignore[union-attr]
     assert form_from({"eeg_method": "emotions"}).eeg_method == "emotions"  # type: ignore[union-attr]
-    assert form_from({"devices": {"eeg": 5}}) is None
-    assert form_from({"devices": {f"r{i}": "x" for i in range(9)}}) is None
-    assert form_from({"devices": {"eeg": "x" * 200}}) is None
 
 
 def test_children_never_inherit_stdin(monkeypatch: pytest.MonkeyPatch) -> None:

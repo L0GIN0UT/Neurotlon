@@ -191,6 +191,15 @@ def bridge_answers(host: str, port: int) -> bool:
     return isinstance(message, dict) and message.get("type") == "hello"
 
 
+def bridge_listening(host: str, port: int) -> bool:
+    """Порт моста занят: соединение принято (с `hello` или без; мост мог занять другой клиент)."""
+    try:
+        with socket.create_connection((host, port), timeout=HELLO_WAIT_S):
+            return True
+    except OSError:
+        return False
+
+
 class SubprocessGameRunner:
     def __init__(
         self,
