@@ -3,6 +3,7 @@
     "rootNamespace": "Neurotlon.Games.Darts.Tests",
     "references": [
         "Neurotlon.Games.Darts",
+        "Neurotlon.Kit",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"
     ],

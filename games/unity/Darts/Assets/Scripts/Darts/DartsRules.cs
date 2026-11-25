@@ -31,7 +31,7 @@ namespace Neurotlon.Games.Darts
         public float WobbleMin = 0.035f;           // и при полном сосредоточении
         public float WobbleGamma = 1.0f;           // 1: линейно; больше — награда за сосредоточение растёт к концу шкалы
         public float EegSmoothSeconds = 0.6f;      // сглаживание сигнала ЭЭГ
-        public float GripOn = 0.6f;                // порог сжатия руки (бросок)
+        public float GripOn = 0.6f;                // порог напряжения мышцы (бросок)
         public float GripOff = 0.35f;              // порог отпускания; после броска надо отпустить
         public float FlightSeconds = 0.42f;
         public float ShowSeconds = 1.1f;           // сколько показывается результат броска
@@ -39,13 +39,13 @@ namespace Neurotlon.Games.Darts
 
     // Правила и модель прицела дартса без Unity: тестируются отдельно.
     // Прицел сам «гуляет» вокруг центра мишени, чем выше сосредоточение (ЭЭГ), тем меньше размах.
-    // Бросок — по сжатию руки (ЭМГ): дротик летит в точку прицела. Очки по кольцам: 2 / 1 / 0.
+    // Бросок — по напряжению мышцы с датчиком (ЭМГ): дротик летит в точку прицела. Очки по кольцам: 2 / 1 / 0.
     public sealed class DartsRules
     {
         readonly DartsTuning t;
         readonly AimWobble aim;
         float phaseTimer;
-        bool gripArmed;                     // рука отпущена и готова к броску
+        bool gripArmed;                     // мышца расслаблена и готова к броску
         int[] results;
 
         public event Action<DartsEvent> Raised;

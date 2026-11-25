@@ -4,7 +4,7 @@ using UnityEngine;
 namespace Neurotlon.Games.Darts
 {
     // Дартс от первого лица. Прицел сам «гуляет» по мишени, размах зависит от сосредоточения (ЭЭГ, сигнал `eeg`);
-    // бросок — по сжатию руки (ЭМГ, сигнал `emg`). Запуск, мост, калибровку, отсчёт, таймер, Esc, паузу и запись
+    // бросок — по напряжению мышцы с датчиком (ЭМГ, сигнал `emg`). Запуск, мост, калибровку, отсчёт, таймер, Esc, паузу и запись
     // результата делает NeurotlonGame; здесь правила (DartsRules), картинка, звук и экран игрока.
     //
     // Раскладка экрана: сверху полоса (имя, броски, очки), снизу полоса (две шкалы), мишень между ними;
@@ -16,6 +16,9 @@ namespace Neurotlon.Games.Darts
         const float ArcHeight = 0.22f;                                              // дуга полёта: дротик чуть провисает
         const float EmbedDepth = 0.012f;                                            // на сколько острие входит в мишень
         const float PopupSeconds = 1.1f;
+        const float AimStepTimeoutSeconds = 90f;                                    // попытка шага «попади сам»
+        const float RepeatShowSeconds = 1f;                                         // «Попробуйте ещё раз» после перезапуска
+        const string AimHint = "Попадите дважды в зелёное или оранжевое кольцо";
 
         // Прожектор — это зона разброса прицела: вокруг центра светлый круг радиусом в текущий разброс, снаружи мишень
         // затемнена. Чем выше сосредоточение, тем меньше круг. Прицел гуляет внутри него.
@@ -47,6 +50,8 @@ namespace Neurotlon.Games.Darts
         static readonly Color Cream = new Color(0.96f, 0.89f, 0.74f, 1f);
         static readonly Color PlaqueFill = new Color(0.09f, 0.055f, 0.035f, 0.90f);
         static readonly Color Cyan = new Color(0.3f, 0.9f, 1f, 1f);
+        static readonly Color TestAccent = new Color(0.35f, 0.90f, 0.45f, 1f);      // рамка плашки на шаге-проверке
+        const string PracticeLabel = "Тренировка";
         static readonly Color ReticleColor = new Color(0.25f, 0.92f, 1f, 1f);
         static readonly Color ZoneTwo = new Color(0.15f, 1f, 0.40f, 1f);
         static readonly Color ZoneOne = new Color(1f, 0.56f, 0.04f, 1f);        // оранжевый: не сливается с кремовыми секторами
@@ -67,11 +72,14 @@ namespace Neurotlon.Games.Darts
         float endTimer;
         float popupTimer;
         int popupPoints;
-        bool checkHit;                              // демо-проверка: бросок попал в мишень, ждём, пока исчезнет результат
-        GUIStyle nameStyle, scoreStyle, labelStyle, popupStyle, legendStyle;
+        readonly DartsTutorial dartsTutorial = new DartsTutorial();
+        int[] debugScores = new int[0];                            // --debug-score N: только подпись очков на экране, в результат не идёт
+        float repeatTimer;                          // шаг «попади сам» начат заново: «Попробуйте ещё раз» ещё показывается
+        GUIStyle nameStyle, scoreStyle, labelStyle, popupStyle;
 
         void Awake()
         {
+            debugScores = NeurotlonHud.ParseValues(DartsArgs.TextValue(System.Environment.GetCommandLineArgs(), DartsArgs.DebugScore));
             dim = SpotlightQuad();
             zeroBack = Ring("ЗонаНольОбводка", ZoneLineWidth + ZoneOutline, Ink, 1);
             zeroRing = Ring("ЗонаНоль", ZoneLineWidth, new Color(ZoneZero.r, ZoneZero.g, ZoneZero.b, 0.98f), 2);
@@ -97,48 +105,135 @@ namespace Neurotlon.Games.Darts
             SetReticleVisible(true);
         }
 
-        // Обучение: три коротких шага.
+        // Подсказка обучения стоит слева от мишени (там свободно), чтобы не закрывать её.
+        protected override Rect TutorialHintArea
+        {
+            get { return new Rect(Screen.width * 0.03f, Screen.height * 0.34f, Screen.width * 0.28f, 0f); }
+        }
+
+        // Обучение: три шага, по одной механике; третий — проверка «попади сам». Условия шагов в DartsTutorial.
         protected override string[] TutorialSteps()
         {
             return new[]
             {
-                "Сосредоточьтесь: светлый круг сужается, прицел успокаивается",
-                "Расслабьте руку и сожмите её: дротик летит в прицел",
-                "Зелёное кольцо: 2 очка, оранжевое: 1",
+                NeurotlonTexts.Focus + ": светлый круг сужается, прицел меньше дрожит",
+                NeurotlonTexts.Tense + " выше линии: дротик полетит в прицел. После броска расслабьте её",
+                AimHint,
             };
         }
 
-        protected override bool HasCheck { get { return true; } }
+        // Шаг-проверка не пропускается Enter и длится дольше: нужно два попадания из пяти бросков.
+        protected override bool TutorialStepSkippable(int index) { return index != DartsTutorial.AimStep; }
 
-        // Демо-проверка: бросить дротик в мишень. Отдельные правила и отдельные дротики: очки проверки в результат не идут.
-        protected override void OnCheckStart()
+        protected override float TutorialStepTimeout(int index)
+        {
+            return index == DartsTutorial.AimStep ? AimStepTimeoutSeconds : base.TutorialStepTimeout(index);
+        }
+
+        // Песочница шага: отдельные правила, чистая мишень. Правила не двигаются, пока подсказку читают.
+        // Очки песочницы в результат не идут.
+        protected override void OnTutorialStepStart(int index)
+        {
+            StartSandbox(index);
+        }
+
+        // Попытка началась (чтение закончилось или повтор): счётчики условия шага с нуля.
+        protected override void OnTutorialTryStart(int index)
+        {
+            dartsTutorial.Reset();
+        }
+
+        void StartSandbox(int index)
         {
             ClearBoard();
-            checkHit = false;
-            rules = new DartsRules(new DartsTuning { Throws = 99 }, () => (float)random.NextDouble());
+            dartsTutorial.Reset();
+            repeatTimer = 0f;
+            int throws = index == DartsTutorial.AimStep ? DartsHitCounter.Throws : 99;
+            rules = new DartsRules(new DartsTuning { Throws = throws }, () => (float)random.NextDouble());
             rules.Raised += OnRulesEvent;
             SetReticleVisible(true);
         }
 
-        protected override void OnCheckUpdate(float dt)
+        protected override bool OnTutorialUpdate(int index, float dt)
         {
+            if (repeatTimer > 0f) repeatTimer -= dt;
+            if (popupTimer > 0f) popupTimer -= dt;
+            if (!TutorialInPlay)
+            {
+                UpdateVisuals();            // чтение подсказки: только картинка, правила стоят
+                return false;
+            }
             float? eeg = Bridge.Value(NeurotlonProtocol.SignalEeg);
             float? emg = Bridge.Value(NeurotlonProtocol.SignalEmg);
             if (emg.HasValue) lastEmg = emg.Value;
-            rules.Step(dt, eeg, emg);
+            // на шаге про сосредоточение бросков нет: сигнал мышцы не передаём
+            rules.Step(dt, eeg, index == DartsTutorial.FocusStep ? (float?)null : emg);
             UpdateVisuals();
-            if (popupTimer > 0f) popupTimer -= dt;
-            if (checkHit && rules.Phase == DartsPhase.Aiming)
+            bool worked = dartsTutorial.Update(index, dt, rules.Concentration);
+            // все броски сделаны, а двух попаданий нет: песочница заново, не дожидаясь таймаута (после показа последнего броска)
+            if (!worked && index == DartsTutorial.AimStep && dartsTutorial.Counter.MustRestart && rules.Phase == DartsPhase.Over)
             {
-                ClearBoard();
-                rules = null;
-                SetReticleVisible(false);
-                if (heldDart != null) heldDart.gameObject.SetActive(false);
-                PassCheck();
+                StartSandbox(index);
+                repeatTimer = RepeatShowSeconds;
+            }
+            return worked;
+        }
+
+        // Под подсказкой: на шаге-проверке верхняя плашка (имя, точки бросков, попадания), везде нижняя плашка с двумя шкалами.
+        protected override void DrawTutorial(int index)
+        {
+            float s = Screen.height / 1080f;
+            EnsureStyles(s);
+            float plaqueW, px;
+            PlaqueLayout(s, out px, out plaqueW);
+            if (index == DartsTutorial.AimStep) DrawAimTop(px, plaqueW, s);
+            else if (index == DartsTutorial.ThrowStep) DrawPracticeTop(px, plaqueW, s);
+            DrawBars(px, plaqueW, s);
+            DrawPopup(s);
+        }
+
+        // Верхняя плашка тренировки броска: те же квадратики бросков, что в игре, и подпись «Тренировка» вместо очков.
+        void DrawPracticeTop(float px, float plaqueW, float s)
+        {
+            var top = new Rect(px, 22f * s, plaqueW, 92f * s);
+            Plaque(top, s);
+            nameStyle.alignment = TextAnchor.MiddleLeft;
+            OutlinedLabel(new Rect(top.x + 38f * s, top.y, plaqueW * 0.3f, top.height), PlayerName(), nameStyle);
+            DrawThrowDots(top, s);
+            NeurotlonHud.SingleLine(scoreStyle);
+            scoreStyle.alignment = TextAnchor.MiddleRight;
+            Rect label = NeurotlonHud.RightAligned(top.xMax - 38f * s, top.y, top.height, PracticeLabel, scoreStyle.fontSize, plaqueW * 0.2f);
+            OutlinedLabel(label, PracticeLabel, scoreStyle);
+        }
+
+        // Верхняя плашка шага-проверки: как в игре, но вместо очков «Попаданий: n из 2», таймера нет.
+        void DrawAimTop(float px, float plaqueW, float s)
+        {
+            var top = new Rect(px, 22f * s, plaqueW, 92f * s);
+            Plaque(top, s, TestAccent);                 // проверка выглядит иначе, чем тренировка: зелёная рамка плашки
+            nameStyle.alignment = TextAnchor.MiddleLeft;
+            OutlinedLabel(new Rect(top.x + 38f * s, top.y, plaqueW * 0.3f, top.height), PlayerName(), nameStyle);
+            DrawThrowDots(top, s);
+            string text = DartsHitCounter.Label(dartsTutorial.Counter.Hits);
+            NeurotlonHud.SingleLine(scoreStyle);
+            scoreStyle.alignment = TextAnchor.MiddleRight;
+            Rect hitsRect = NeurotlonHud.RightAligned(top.xMax - 38f * s, top.y, top.height, text, scoreStyle.fontSize, plaqueW * 0.2f);
+            OutlinedLabel(hitsRect, text, scoreStyle);
+            if (repeatTimer > 0f)
+            {
+                DrawNotice(NeurotlonTexts.TutorialRepeat, 0.22f);
             }
         }
 
-        // Убрать воткнутые и летящие дротики: проверка не должна оставлять следов на мишени.
+        protected override void OnTutorialEnd()
+        {
+            ClearBoard();
+            rules = null;
+            SetReticleVisible(false);
+            if (heldDart != null) heldDart.gameObject.SetActive(false);
+        }
+
+        // Убрать воткнутые и летящие дротики: песочница не должна оставлять следов на мишени.
         void ClearBoard()
         {
             foreach (var dart in stuck) if (dart != null) Destroy(dart.gameObject);
@@ -182,45 +277,42 @@ namespace Neurotlon.Games.Darts
         protected override void DrawGame()
         {
             float s = Screen.height / 1080f;
-            float w = Screen.width, h = Screen.height;
             EnsureStyles(s);
-            float plaqueW = Mathf.Min(w * 0.94f, 1180f * s);
-            float px = (w - plaqueW) * 0.5f;
+            float plaqueW, px;
+            PlaqueLayout(s, out px, out plaqueW);
 
-            // верхняя плашка: имя, броски, таймер, очки
+            // верхняя плашка: имя слева, броски по центру, таймер справа от центра, очки у правого края
             var top = new Rect(px, 22f * s, plaqueW, 92f * s);
             Plaque(top, s);
             nameStyle.alignment = TextAnchor.MiddleLeft;
             OutlinedLabel(new Rect(top.x + 38f * s, top.y, plaqueW * 0.3f, top.height), PlayerName(), nameStyle);
             DrawThrowDots(top, s);
-            scoreStyle.alignment = TextAnchor.MiddleLeft;
-            OutlinedLabel(new Rect(top.center.x + 175f * s, top.y, 170f * s, top.height), TimerText(), scoreStyle);
+
+            // Очки прижаты к правому краю, число растёт влево; таймер сдвигается влево, если очки подходят вплотную.
+            NeurotlonHud.SingleLine(scoreStyle);
             scoreStyle.alignment = TextAnchor.MiddleRight;
-            OutlinedLabel(new Rect(top.xMax - plaqueW * 0.2f - 38f * s, top.y, plaqueW * 0.2f, top.height),
-                "Очки  " + (rules != null ? rules.Score : 0), scoreStyle);
+            int shownScore = debugScores.Length > 0 ? NeurotlonHud.Cycle(debugScores, Time.unscaledTime, 3f) : (rules != null ? rules.Score : 0);
+            Rect scoreRect = NeurotlonHud.RightAligned(top.xMax - 38f * s, top.y, top.height,
+                NeurotlonHud.ScoreText(shownScore), scoreStyle.fontSize, plaqueW * 0.2f);
+            OutlinedLabel(scoreRect, NeurotlonHud.ScoreText(shownScore), scoreStyle);
+
+            float timerW = 150f * s;
+            scoreStyle.alignment = TextAnchor.MiddleLeft;
+            OutlinedLabel(new Rect(Mathf.Min(top.center.x + 150f * s, scoreRect.x - timerW), top.y, timerW, top.height),
+                TimerText(), scoreStyle);
 
             DrawBars(px, plaqueW, s);
             DrawPopup(s);
         }
 
-        // Экран демо-проверки: что сделать, шкалы и легенда зон. Очков и таймера нет.
-        protected override void DrawCheck()
+        // Общая ширина и левый край плашек экрана (верхней и нижней).
+        static void PlaqueLayout(float s, out float px, out float plaqueW)
         {
-            float s = Screen.height / 1080f;
-            float w = Screen.width, h = Screen.height;
-            EnsureStyles(s);
-            float plaqueW = Mathf.Min(w * 0.94f, 1180f * s);
-            float px = (w - plaqueW) * 0.5f;
-            var top = new Rect(px, 22f * s, plaqueW, 92f * s);
-            Plaque(top, s);
-            nameStyle.alignment = TextAnchor.MiddleCenter;
-            OutlinedLabel(top, "ПРОВЕРКА: бросьте дротик в мишень", nameStyle);
-            DrawBars(px, plaqueW, s);
-            DrawLegend(s);
-            DrawPopup(s);
+            plaqueW = Mathf.Min(Screen.width * 0.94f, 1400f * s);
+            px = (Screen.width - plaqueW) * 0.5f;
         }
 
-        // Нижняя плашка: две шкалы рядом (сосредоточение и сжатие руки с линией порога).
+        // Нижняя плашка: две шкалы рядом (сосредоточение и мышца с линией порога).
         void DrawBars(float px, float plaqueW, float s)
         {
             float h = Screen.height;
@@ -229,7 +321,7 @@ namespace Neurotlon.Games.Darts
             float pad = 40f * s, barW = (plaqueW - pad * 3f) * 0.5f, barH = 22f * s, y = bottom.y + 72f * s;
             DrawBar(new Rect(bottom.x + pad, y, barW, barH), "СОСРЕДОТОЧЕНИЕ", rules != null ? rules.Concentration : 0f, Cyan, -1f, s);
             bool gripped = lastEmg >= tuning.GripOn;
-            DrawBar(new Rect(bottom.x + pad * 2f + barW, y, barW, barH), "РУКА", lastEmg,
+            DrawBar(new Rect(bottom.x + pad * 2f + barW, y, barW, barH), "МЫШЦА", lastEmg,
                 gripped ? new Color(0.4f, 1f, 0.5f) : new Color(1f, 0.75f, 0.2f), tuning.GripOn, s);
         }
 
@@ -259,20 +351,9 @@ namespace Neurotlon.Games.Darts
         void OnRulesEvent(DartsEvent e)
         {
             if (sounds != null) sounds.Play(e);
+            if (CurrentStage == Stage.Tutorial) dartsTutorial.NoteEvent(e);
             if (e.Kind == DartsEventKind.Throw) BeginFlight();
-            else if (e.Kind == DartsEventKind.Hit)
-            {
-                OnLanded(e.Points);
-                if (CurrentStage == Stage.Check) EvaluateCheckThrow();
-            }
-        }
-
-        // Проверка пройдена, если дротик попал в мишень (в любое место внутри её края), иначе это неудачная попытка.
-        void EvaluateCheckThrow()
-        {
-            float r = Mathf.Sqrt(rules.HitX * rules.HitX + rules.HitZ * rules.HitZ);
-            if (r <= tuning.BoardRadius) checkHit = true;
-            else ReportCheckFailure();
+            else if (e.Kind == DartsEventKind.Hit) OnLanded(e.Points);
         }
 
         void BeginFlight()
@@ -462,8 +543,6 @@ namespace Neurotlon.Games.Darts
                 scoreStyle = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold };
                 labelStyle = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold, alignment = TextAnchor.LowerLeft };
                 popupStyle = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleLeft };
-                legendStyle = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold };
-                legendStyle.normal.textColor = Cream;
                 nameStyle.normal.textColor = scoreStyle.normal.textColor = Cream;
                 labelStyle.normal.textColor = Cream;
             }
@@ -471,43 +550,22 @@ namespace Neurotlon.Games.Darts
             scoreStyle.fontSize = Mathf.RoundToInt(52f * s);
             labelStyle.fontSize = Mathf.RoundToInt(24f * s);
             popupStyle.fontSize = Mathf.RoundToInt(96f * s);
-            legendStyle.fontSize = Mathf.RoundToInt(34f * s);
         }
 
         // Латунная плашка с тёмной вставкой: единый вид всех панелей экрана.
         static void Plaque(Rect area, float s)
         {
+            Plaque(area, s, Brass);
+        }
+
+        static void Plaque(Rect area, float s, Color edge)
+        {
             float b = Mathf.Max(3f, 4f * s);
-            GUI.color = Brass;
+            GUI.color = edge;
             GUI.DrawTexture(area, Texture2D.whiteTexture);
             GUI.color = PlaqueFill;
             GUI.DrawTexture(new Rect(area.x + b, area.y + b, area.width - 2f * b, area.height - 2f * b), Texture2D.whiteTexture);
             GUI.color = Color.white;
-        }
-
-        // Легенда слева от мишени: цвет зоны и очки за неё (цвета те же, что у подсветки колец и квадратиков бросков).
-        void DrawLegend(float s)
-        {
-            float w = Screen.width, h = Screen.height;
-            var box = new Rect(w * 0.5f - h * 0.33f - 330f * s, h * 0.5f - 112f * s, 260f * s, 224f * s);
-            Plaque(box, s);
-            var entries = new[]
-            {
-                new KeyValuePair<Color, string>(ZoneTwo, "2 очка"),
-                new KeyValuePair<Color, string>(ZoneOne, "1 очко"),
-                new KeyValuePair<Color, string>(ZoneZero, "0 мимо"),
-            };
-            for (int i = 0; i < entries.Length; i++)
-            {
-                float y = box.y + 28f * s + i * 62f * s;
-                GUI.color = Ink;
-                GUI.DrawTexture(new Rect(box.x + 28f * s - 3f, y - 3f, 36f * s + 6f, 36f * s + 6f), Texture2D.whiteTexture);
-                GUI.color = entries[i].Key;
-                GUI.DrawTexture(new Rect(box.x + 28f * s, y, 36f * s, 36f * s), Texture2D.whiteTexture);
-                GUI.color = Color.white;
-                legendStyle.alignment = TextAnchor.MiddleLeft;
-                OutlinedLabel(new Rect(box.x + 82f * s, y - 6f * s, 170f * s, 48f * s), entries[i].Value, legendStyle);
-            }
         }
 
         void DrawThrowDots(Rect plaque, float s)
@@ -534,7 +592,7 @@ namespace Neurotlon.Games.Darts
             GUI.DrawTexture(area, Texture2D.whiteTexture);
             GUI.color = color;
             GUI.DrawTexture(new Rect(area.x, area.y, area.width * Mathf.Clamp01(value), area.height), Texture2D.whiteTexture);
-            if (threshold >= 0f)        // линия порога: выше неё рука считается сжатой и бросок идёт
+            if (threshold >= 0f)        // линия порога: выше неё мышца считается напряжённой и бросок идёт
             {
                 GUI.color = Color.white;
                 GUI.DrawTexture(new Rect(area.x + area.width * threshold - 3f * s, area.y - 8f * s, 6f * s, area.height + 16f * s), Texture2D.whiteTexture);
