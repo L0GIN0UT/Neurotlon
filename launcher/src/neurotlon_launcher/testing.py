@@ -168,6 +168,7 @@ class FakeLink:
         self.progress: dict[str, StepProgress] = {}
         self.generation = 0
         self.calls: list[tuple[str, ...]] = []
+        self.durations: dict[str, float | None] = {}
         self.closed = False
         self.samples: list[SampleRecord] = []
         self.bursts: list[BurstRecord] = []
@@ -183,8 +184,9 @@ class FakeLink:
             self.generation,
         )
 
-    def calibrate(self, signal: str, step: str) -> bool:
+    def calibrate(self, signal: str, step: str, duration_s: float | None = None) -> bool:
         self.calls.append(("calibrate", signal, step))
+        self.durations[signal] = duration_s
         self.calibrated.discard(signal)
         self.progress.pop(signal, None)
         return self.link == "live"

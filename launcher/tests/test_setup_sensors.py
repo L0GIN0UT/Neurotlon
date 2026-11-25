@@ -3,6 +3,7 @@
 import json
 import subprocess
 import threading
+import time
 import tomllib
 from collections.abc import Iterator, Sequence
 from pathlib import Path
@@ -11,8 +12,8 @@ from typing import Any
 import pytest
 
 from neurotlon_contracts.sensor_devices import DeviceRef
-from neurotlon_launcher import setup_station, texts
-from neurotlon_launcher.api import DisciplineConfig
+from neurotlon_launcher import setup, setup_station, texts
+from neurotlon_launcher.api import DisciplineConfig, Offline, Unauthorized
 from neurotlon_launcher.sensor_session import SCAN_AUTO_STOP_S, SensorSession
 from neurotlon_launcher.sensors import SCAN_JSON_MARK, SensorService
 from neurotlon_launcher.setup import SENSORS_DUPLICATE, SetupService
@@ -25,6 +26,7 @@ from neurotlon_launcher.testing_discovery import (
     link,
     wait_until,
 )
+from neurotlon_launcher.web_bridge import CommandRejected
 
 TOKEN = "a-very-long-station-token-0123456789"
 BB = "AA:00:00:00:00:01"
@@ -48,13 +50,20 @@ def bridge(command: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 class Client:
-    def __init__(self, outcome: DisciplineConfig, gate: threading.Event | None = None) -> None:
+    calls = 0  # сколько раз спросили дисциплину (на все клиенты разом)
+
+    def __init__(
+        self, outcome: DisciplineConfig | Exception, gate: threading.Event | None = None
+    ) -> None:
         self.outcome = outcome
         self.gate = gate
 
     def get_config(self) -> DisciplineConfig:
+        Client.calls += 1
         if self.gate is not None:
             self.gate.wait(5)
+        if isinstance(self.outcome, Exception):
+            raise self.outcome
         return self.outcome
 
     def close(self) -> None:
@@ -70,13 +79,15 @@ class Rig:
         busy: bool = False,
         gate: threading.Event | None = None,
         runner: Any = None,
+        outcome: DisciplineConfig | Exception | None = None,
     ) -> None:
+        Client.calls = 0
         self.tmp = tmp_path
         self.clock = Clock()
         self.spawner = Spawner(bridge)
         self.game = tmp_path / "Game.exe"
         self.game.write_bytes(b"MZ")
-        outcome = DisciplineConfig(discipline, "bci", 240)
+        outcome = outcome or DisciplineConfig(discipline, "bci", 240)
         sensors = (
             SensorService(tmp_path / "cfg", "bridge.exe", runner)
             if runner
@@ -88,7 +99,7 @@ class Rig:
             sensors=sensors,
         )
         session = SensorSession(self.spawner, self.clock, bridge_busy=lambda: busy)
-        self.station = SetupStation(self.service, session=session)
+        self.station = SetupStation(self.service, session=session, clock=self.clock)
         self.session = session
 
     def form(self, **changes: Any) -> dict[str, Any]:
@@ -147,7 +158,8 @@ def test_entering_setup_in_hardware_mode_starts_the_search_by_itself(rig: Rig) -
     assert sensors["phase"] == "scanning" and sensors["error"] is None
     assert [d["id"] for d in sensors["devices"]] == [BB, CA1, CA2]
     assert rig.state()["sensors_available"] is True
-    assert rig.state()["roles"] == []  # роли станут известны после проверки подключения
+    assert rig.state()["roles"] == []  # роли станут известны после ввода токена
+    assert rig.state()["roles_known"] is False
     assert rig.spawner.last.sent("scan") == [{"cmd": "scan", "on": True}]
 
 
@@ -185,7 +197,9 @@ def test_a_running_bridge_blocks_the_search(tmp_path: Path) -> None:
 
 def test_assigning_and_unassigning_need_the_discipline_and_valid_arguments(rig: Rig) -> None:
     rig.start()
-    assert not rig.assign("eeg", BB)  # дисциплина ещё неизвестна: ролей нет
+    with pytest.raises(CommandRejected, match="токен станции"):
+        rig.assign("eeg", BB)  # дисциплина ещё неизвестна: ролей нет
+    assert rig.state()["roles_known"] is False
     assert not rig.station.command("sensors_frobnicate", None)
     assert rig.check()["phase"] == "form"  # назначения нет
     assert rig.state()["roles"] == ["eeg", "emg"]
@@ -446,3 +460,178 @@ def test_switching_the_mode_to_the_emulator_releases_bluetooth(rig: Rig) -> None
     assert rig.sensors()["phase"] == "stopped"
     assert rig.station.command("sensors_scan_start", None)  # вернули датчики и ищем снова
     wait_until(lambda: len(rig.spawner.processes) == 2)
+
+
+# --- роли определяются сами после ввода токена ---
+
+
+def settle(rig: Rig, seconds: float) -> None:
+    """Сдвинуть виртуальные часы и дать фоновому шагу сработать."""
+    rig.clock.advance(seconds)
+    time.sleep(0.15)  # несколько тактов фонового шага (TICK_S подменён на 0,02 с)
+
+
+def test_devices_are_listed_before_any_token_or_check(rig: Rig) -> None:
+    rig.start()
+    state = rig.state()
+    assert [d["id"] for d in state["sensors"]["devices"]] == [BB, CA1, CA2]
+    assert state["roles_known"] is False and state["phase"] == "form"
+    assert Client.calls == 0
+
+
+def test_token_is_checked_automatically_after_a_pause_and_roles_become_known(rig: Rig) -> None:
+    rig.start()
+    assert rig.station.command("setup_form", rig.form())
+    settle(rig, 0.5)
+    assert Client.calls == 0 and rig.state()["roles_known"] is False  # пауза ещё не прошла
+    settle(rig, 0.3)
+    wait_until(lambda: rig.state()["roles_known"])
+    state = rig.state()
+    assert state["roles"] == ["eeg", "emg"] and state["discipline"] == "darts"
+    assert state["phase"] == "form" and state["error"] is None
+    assert Client.calls == 1
+    assert rig.assign("eeg", BB)  # теперь назначение принимается
+    assert [d["role"] for d in rig.sensors()["devices"]][:1] == ["eeg"]
+
+
+def test_every_keystroke_restarts_the_pause_and_checks_once(rig: Rig) -> None:
+    rig.start()
+    for end in (20, 25, 30, len(TOKEN)):
+        assert rig.station.command("setup_form", rig.form(token=TOKEN[:end]))
+        settle(rig, 0.3)
+    assert Client.calls == 0  # каждая правка отодвигает проверку
+    settle(rig, 0.5)
+    wait_until(lambda: rig.state()["roles_known"])
+    assert Client.calls == 1
+    assert rig.station.command("setup_form", rig.form(game_path="другое"))  # токен тот же
+    settle(rig, 1.0)
+    assert Client.calls == 1 and rig.state()["roles_known"] is True
+
+
+def test_changing_the_token_forgets_the_roles_until_it_is_checked_again(rig: Rig) -> None:
+    rig.start()
+    assert rig.station.command("setup_form", rig.form())
+    settle(rig, 1.0)
+    wait_until(lambda: rig.state()["roles_known"])
+    assert rig.station.command("setup_form", rig.form(token=TOKEN + "9"))
+    assert rig.state()["roles_known"] is False and rig.state()["roles"] == []
+    settle(rig, 1.0)
+    wait_until(lambda: rig.state()["roles_known"])
+    assert Client.calls == 2
+
+
+def test_wrong_token_shows_the_error_and_keeps_the_device_list(tmp_path: Path) -> None:
+    made = Rig(tmp_path, outcome=Unauthorized(401, "unauthorized"))
+    made.start()
+    assert made.station.command("setup_form", made.form())
+    settle(made, 1.0)
+    wait_until(lambda: made.state()["error"] is not None)
+    state = made.state()
+    assert state["error"] == setup.UNAUTHORIZED and state["roles_known"] is False
+    assert [d["id"] for d in state["sensors"]["devices"]] == [BB, CA1, CA2]
+    assert made.sensors()["phase"] == "scanning"  # поиск продолжается
+    assert made.station.command("setup_form", made.form(token=TOKEN + "x"))
+    assert made.state()["error"] is None  # правка токена убирает старую ошибку
+    made.station.stop()
+
+
+def test_short_token_or_plain_http_address_is_not_checked(rig: Rig) -> None:
+    rig.start()
+    assert rig.station.command("setup_form", rig.form(token="short"))
+    assert rig.station.command("setup_form", rig.form(server_url="http://h"))
+    settle(rig, 2.0)
+    assert Client.calls == 0
+    assert rig.state()["error"] is None and rig.state()["roles_known"] is False
+
+
+def test_saved_token_is_checked_automatically_when_setup_opens(tmp_path: Path) -> None:
+    cfg = tmp_path / "cfg"
+    cfg.mkdir()
+    (cfg / "launcher.toml").write_text(
+        'server_url = "https://h"\ntoken_file = "station.token"\n'
+        '[game]\ncommand = ["g.exe"]\n[bridge]\nmode = "hardware"\n',
+        encoding="utf-8",
+    )
+    (cfg / "station.token").write_text(TOKEN + "\n", encoding="utf-8")
+    made = Rig(tmp_path)
+    made.station.start()
+    assert made.state()["roles_known"] is False
+    settle(made, 1.0)
+    wait_until(lambda: made.state()["roles_known"])
+    assert made.state()["roles"] == ["eeg", "emg"] and Client.calls == 1
+    made.station.stop()
+
+
+def test_manual_check_still_works_and_is_not_repeated_by_the_form_command(rig: Rig) -> None:
+    rig.start()
+    assert rig.check()["roles_known"] is True
+    assert Client.calls == 1
+    assert rig.station.command("setup_form", rig.form())
+    settle(rig, 1.0)
+    assert Client.calls == 1
+
+
+def test_full_check_is_not_overwritten_by_a_late_probe_answer(rig: Rig) -> None:
+    started, release = threading.Event(), threading.Event()
+
+    def slow_probe(form: Any) -> setup.CheckResult:
+        started.set()
+        release.wait(5)
+        return setup.CheckResult(None, "старый ответ")
+
+    rig.service.probe = slow_probe  # type: ignore[method-assign]
+    rig.start()
+    assert rig.station.command("setup_form", rig.form())
+    settle(rig, 1.0)
+    assert started.wait(5)
+    assert rig.station.command("setup_check", rig.form(sensors=""))
+    wait_until(lambda: rig.state()["phase"] == "ok")
+    release.set()
+    time.sleep(0.2)
+    state = rig.state()
+    assert state["phase"] == "ok" and state["error"] is None and state["roles_known"] is True
+
+
+def test_setup_form_during_check_or_after_saving_is_ignored_quietly(tmp_path: Path) -> None:
+    gate = threading.Event()
+    made = Rig(tmp_path, gate=gate)
+    made.start()
+    assert made.station.command("setup_check", made.form(sensors=""))
+    assert made.state()["phase"] == "checking"
+    assert made.station.command("setup_form", made.form(token=TOKEN + "z"))  # 204, без эффекта
+    gate.set()
+    wait_until(lambda: made.state()["phase"] == "ok")
+    assert made.state()["roles_known"] is True
+    assert made.station.command("setup_save", made.form(sensors=""))
+    assert made.state()["phase"] == "saved"
+    assert made.station.command("setup_form", made.form(token=TOKEN + "q"))
+    assert made.state()["roles_known"] is True
+    made.station.stop()
+
+
+def test_probe_is_retried_once_after_a_network_error(tmp_path: Path) -> None:
+    made = Rig(tmp_path, outcome=Offline("нет сети"))
+    made.start()
+    assert made.station.command("setup_form", made.form())
+    settle(made, 1.0)
+    wait_until(lambda: Client.calls == 1)
+    time.sleep(0.1)
+    assert made.state()["error"] is None  # первая ошибка не показывается
+    settle(made, 4.0)
+    assert Client.calls == 1
+    settle(made, 1.5)
+    wait_until(lambda: Client.calls == 2)
+    wait_until(lambda: made.state()["error"] == setup.OFFLINE)
+    settle(made, 20.0)
+    assert Client.calls == 2  # дальше сами не мучаем сеть
+    made.station.stop()
+
+
+def test_probe_and_check_threads_do_not_keep_the_process_alive(rig: Rig) -> None:
+    rig.start()
+    assert rig.station.command("setup_form", rig.form())
+    settle(rig, 1.0)
+    rig.check()
+    for thread in threading.enumerate():
+        if thread.name in {"setup-probe", "setup-check"}:
+            assert thread.daemon
