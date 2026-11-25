@@ -1237,40 +1237,241 @@ body:has(.station) {
   height: 3.6rem;
 }
 
-.sensors-found {
-  margin: 0;
-  padding: 0;
-  list-style: none;
+.sensors-phase {
+  flex: 1;
+  min-width: 0;
   font-size: 1.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
+  font-weight: 700;
 }
 
-.sensors-role {
-  display: grid;
-  grid-template-columns: 17rem 1fr;
-  align-items: center;
-  gap: 1rem;
-  font-size: 1.5rem;
+.sensors-phase span {
+  font-weight: 400;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.sensors-hint {
+  display: block;
+  font-size: 1.2rem;
+  color: var(--muted);
+  opacity: 0.8;
+}
+
+.sensor-error {
+  font-size: 1.3rem;
+  color: #ff8b88;
+}
+
+.sensors-title {
+  margin: 0 0 0.5rem;
+  font-size: 1.3rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   color: var(--muted);
 }
 
-.sensors-role input {
-  height: 4rem;
-  padding: 0 1.2rem;
-  border: 2px solid var(--border);
-  border-radius: 1rem;
-  background: var(--bg);
-  color: var(--text);
-  font: inherit;
-  font-size: 1.7rem;
-  user-select: text;
+.sensor-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
 }
 
-.sensors-role input:focus {
-  outline: none;
-  border-color: var(--accent);
+.sensor-row {
+  display: flex;
+  align-items: center;
+  gap: 1.2rem;
+  padding: 0.8rem 1.1rem;
+  border: 1px solid rgb(255 255 255 / 8%);
+  border-radius: 1rem;
+  background: var(--surface);
+  font-size: 1.5rem;
+}
+
+.sensor-row.vacant {
+  border-style: dashed;
+  background: transparent;
+}
+
+.sensor-row.stale {
+  opacity: 0.55;
+}
+
+.sensor-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  overflow-wrap: anywhere;
+}
+
+.sensor-sub,
+.sensor-battery {
+  font-size: 1.3rem;
+  color: var(--muted);
+}
+
+.sensor-addr {
+  font-size: 1.1rem;
+  color: var(--muted);
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+
+.sensor-name {
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.sensor-kind {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 3.6rem;
+  height: 3.6rem;
+  border-radius: 0.9rem;
+  background: var(--surface-hi);
+  color: var(--accent);
+}
+
+.sensor-kind svg {
+  width: 2.2rem;
+  height: 2.2rem;
+}
+
+.sensor-status {
+  display: flex;
+  gap: 1rem;
+  align-items: baseline;
+}
+
+.sensor-state {
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
+.sensor-state.good {
+  color: var(--good);
+}
+
+.sensor-state.warn {
+  color: var(--warn);
+}
+
+.sensor-state.bad {
+  color: #ff8b88;
+}
+
+.sensor-state.muted {
+  color: var(--muted);
+}
+
+.sensor-level {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-top: 0.3rem;
+}
+
+.level-bar {
+  height: 0.8rem;
+  border-radius: 1rem;
+  overflow: hidden;
+  background: var(--surface-hi);
+}
+
+.level-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.15s linear;
+}
+
+.sensor-signal {
+  flex: none;
+  min-width: 7rem;
+  display: flex;
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.sensor-action {
+  flex: none;
+  min-width: 12rem;
+  display: flex;
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.sensor-action > .setup-hint {
+  max-width: 14rem;
+}
+
+.sensor-row .setup-action {
+  min-height: 3.6rem;
+  white-space: nowrap;
+}
+
+.setup-action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.rssi {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 0.25rem;
+  height: 1.9rem;
+}
+
+.rssi span {
+  width: 0.5rem;
+  border-radius: 0.15rem;
+  background: var(--border);
+}
+
+.rssi span.on {
+  background: var(--good);
+}
+
+.role-menu {
+  position: relative;
+}
+
+.role-menu-list {
+  position: absolute;
+  z-index: 5;
+  right: 0;
+  top: calc(100% + 0.4rem);
+  margin: 0;
+  padding: 0.4rem;
+  min-width: 26rem;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  background: var(--surface-hi);
+  box-shadow: 0 1rem 2.4rem rgb(0 0 0 / 45%);
+}
+
+.role-menu-list button {
+  width: 100%;
+  padding: 0.9rem 1.2rem;
+  border: 0;
+  border-radius: 0.7rem;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 1.5rem;
+  text-align: left;
+}
+
+.role-menu-list button:hover,
+.role-menu-list button:focus-visible {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
 .topbar-right {
@@ -1424,20 +1625,7 @@ body:has(.station) {
   background: var(--surface-hi);
 }
 
-/* поиск датчиков: кольцо и полоса отсчёта */
-.scan-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.8rem;
-  height: 3.8rem;
-  white-space: nowrap;
-}
-
-.scan-button svg {
-  width: 1.8rem;
-  height: 1.8rem;
-}
-
+/* поиск датчиков: кольцо */
 .scan-spinner {
   flex: none;
   width: 1.8rem;
@@ -1446,27 +1634,6 @@ body:has(.station) {
   border: 0.25rem solid color-mix(in srgb, var(--accent) 25%, transparent);
   border-top-color: var(--accent);
   animation: spin 0.8s linear infinite;
-}
-
-.scan-left {
-  font-size: 1.5rem;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.scan-progress {
-  height: 0.5rem;
-  border-radius: 1rem;
-  overflow: hidden;
-  background: var(--surface-hi);
-}
-
-.scan-progress span {
-  display: block;
-  height: 100%;
-  border-radius: 1rem;
-  background: var(--accent);
-  transition: width 0.25s linear;
 }
 
 .setup-actions {
@@ -1522,8 +1689,13 @@ body:has(.station) {
 @media (prefers-reduced-motion: reduce) {
   .glow,
   .pulse,
-  .caret {
+  .caret,
+  .scan-spinner {
     animation: none;
+  }
+
+  .level-bar span {
+    transition: none;
   }
 }
 

@@ -27,10 +27,40 @@ export interface SetupFormView {
   ca_file: string
   camera: string
   sensors: string
-  devices: Record<string, string>
+  /** Старые ядра ещё присылают; веб его не читает и не отправляет. */
+  devices?: Record<string, string>
   eeg_method: string
 }
 
+export type SensorLinkState = 'connecting' | 'connected' | 'failed' | 'lost'
+
+/** Устройство из фонового поиска ядра. Назначенные идут первыми, остальные по времени обнаружения. */
+export interface SensorEntry {
+  id: string
+  name: string
+  kind: 'brainbit' | 'callibri'
+  serial: string | null
+  address: string
+  rssi: number | null
+  in_range: boolean
+  age_s: number
+  role: string | null
+  link: SensorLinkState | null
+  battery: number | null
+  contact: boolean | null
+  signal: boolean | null
+  level: number | null
+  /** Причина сбоя по-русски (при `link === 'failed'`). */
+  error: string | null
+}
+
+export interface SensorsView {
+  phase: 'idle' | 'scanning' | 'stopped' | 'error'
+  error: string | null
+  devices: SensorEntry[]
+}
+
+/** Старый результат блокирующего поиска; уйдёт вместе с `sensors_scan` в PR-уборке ядра. */
 export interface SensorDevice {
   kind: string
   name: string
@@ -38,7 +68,7 @@ export interface SensorDevice {
   address: string
 }
 
-export interface SetupFields extends SetupFormView {
+export type SetupFields = Omit<SetupFormView, 'devices'> & {
   token: string
 }
 
@@ -111,6 +141,8 @@ export type StateView =
       game: string
       sensors_available: boolean
       roles: string[]
+      /** Живой поиск датчиков; у старого ядра поля нет. */
+      sensors?: SensorsView
       scan: {
         seconds: number
         phase: 'idle' | 'scanning' | 'done'
@@ -137,7 +169,9 @@ export interface Snapshot {
 export type Command =
   | { action: 'type_char' | 'enter_code' | 'calibration_retry'; value: string }
   | { action: 'setup_check' | 'setup_save'; value: SetupFields }
-  | { action: 'sensors_scan'; value?: undefined }
+  | { action: 'sensors_scan_start' | 'sensors_scan_stop'; value?: undefined }
+  | { action: 'sensors_assign'; value: { role: string; id: string } }
+  | { action: 'sensors_unassign'; value: { role: string } }
   | {
       action:
         | 'backspace'

@@ -127,10 +127,9 @@ export function SetupScreen({
   state: SetupState
   send: (command: Command) => void
 }) {
-  const [fields, setFields] = useState<SetupFields>({
-    ...state.form,
-    devices: { ...state.form.devices },
-    token: '',
+  const [fields, setFields] = useState<SetupFields>(() => {
+    const { devices: _legacy, ...form } = state.form
+    return { ...form, token: '' }
   })
   const [showToken, setShowToken] = useState(false)
   // Сохранить можно только проверенное: правка поля после проверки сбрасывает «готово».
@@ -255,7 +254,6 @@ function same(a: SetupFields, b: SetupFields): boolean {
     a.game_path === b.game_path &&
     a.ca_file === b.ca_file &&
     a.camera === b.camera &&
-    a.sensors === b.sensors &&
-    JSON.stringify(a.devices) === JSON.stringify(b.devices)
+    a.sensors === b.sensors
   )
 }

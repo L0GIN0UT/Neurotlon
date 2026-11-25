@@ -244,7 +244,6 @@ describe('StationApp', () => {
           ca_file: '',
           camera: '',
           sensors: '',
-          devices: {},
           eeg_method: 'alpha',
         },
       })
@@ -393,7 +392,7 @@ describe('StationApp', () => {
       overrides: Partial<{
         roles: string[]
         discipline: string | null
-        scan: { seconds: number; phase: 'idle' | 'scanning' | 'done'; devices: object[]; error: string | null }
+        sensors: { phase: 'idle' | 'scanning' | 'stopped' | 'error'; devices: object[]; error: string | null }
         mode: string
         devices: Record<string, string>
         eegMethod: string
@@ -421,7 +420,8 @@ describe('StationApp', () => {
           game: '',
           sensors_available: overrides.available ?? true,
           roles: overrides.roles ?? [],
-          scan: (overrides.scan ?? { phase: 'idle', devices: [], error: null }) as never,
+          scan: { seconds: 15, phase: 'idle', devices: [], error: null },
+          sensors: (overrides.sensors ?? { phase: 'idle', devices: [], error: null }) as never,
         },
         '',
       )
@@ -439,57 +439,13 @@ describe('StationApp', () => {
       expect(screen.queryByRole('combobox', { name: 'Датчики' })).toBeNull()
     })
 
-    it('asks for a check first, then shows one serial field per role', async () => {
+    it('asks for a check first, then shows one row per role', async () => {
       render(<StationApp />)
       act(() => FakeEventSource.last?.emit(withSensors()))
       expect(await screen.findByText(/станция сообщит, какие датчики нужны/)).toBeTruthy()
       act(() => FakeEventSource.last?.emit(withSensors({ roles: ['emg_left', 'emg_right'], discipline: 'pong' })))
-      expect(await screen.findByText('Датчик игрока 1 (Callibri)')).toBeTruthy()
-      expect(screen.getByText('Датчик игрока 2 (Callibri)')).toBeTruthy()
-    })
-
-    it('scans on request and lists the devices with their serials', async () => {
-      const fetchMock = vi.fn().mockResolvedValue({ ok: true })
-      vi.stubGlobal('fetch', fetchMock)
-      render(<StationApp />)
-      act(() => FakeEventSource.last?.emit(withSensors({ roles: ['eeg', 'emg'], discipline: 'darts' })))
-      fireEvent.click(await screen.findByRole('button', { name: 'Найти датчики' }))
-      expect(lastBody(fetchMock)).toEqual({ action: 'sensors_scan' })
-      act(() =>
-        FakeEventSource.last?.emit(
-          withSensors({
-            roles: ['eeg', 'emg'],
-            discipline: 'darts',
-            scan: {
-              seconds: 15,
-              phase: 'done',
-              error: null,
-              devices: [
-                { kind: 'brainbit', name: 'BrainBit', serial: 'BB-777', address: 'AA:01' },
-                { kind: 'callibri', name: 'Callibri', serial: '', address: 'AA:02' },
-              ],
-            },
-          }),
-        ),
-      )
-      const found = await screen.findByTestId('sensors-found')
-      expect(found.textContent).toContain('BB-777')
-      expect(found.textContent).toContain('серийный номер неизвестен')
-    })
-
-    it('sends the serials typed for each role with the check', async () => {
-      const fetchMock = vi.fn().mockResolvedValue({ ok: true })
-      vi.stubGlobal('fetch', fetchMock)
-      render(<StationApp />)
-      act(() => FakeEventSource.last?.emit(withSensors({ roles: ['eeg', 'emg'], discipline: 'darts' })))
-      const inputs = await screen.findAllByPlaceholderText('Серийный номер')
-      fireEvent.change(inputs[0] as HTMLElement, { target: { value: 'BB-777' } })
-      fireEvent.change(inputs[1] as HTMLElement, { target: { value: 'CA-1' } })
-      fireEvent.change(screen.getByLabelText(/Токен станции/), { target: { value: 'secret-token-0123456789' } })
-      fireEvent.click(screen.getByRole('button', { name: 'Проверить подключение' }))
-      const sent = lastBody(fetchMock)
-      expect(sent.value.sensors).toBe('hardware')
-      expect(sent.value.devices).toEqual({ eeg: 'BB-777', emg: 'CA-1' })
+      expect(await screen.findByText('Датчик игрока 1 (слева)')).toBeTruthy()
+      expect(screen.getByText('Датчик игрока 2 (справа)')).toBeTruthy()
     })
 
     it('offers the eeg method only when the discipline has an eeg sensor and sends the choice', async () => {
@@ -497,7 +453,7 @@ describe('StationApp', () => {
       vi.stubGlobal('fetch', fetchMock)
       render(<StationApp />)
       act(() => FakeEventSource.last?.emit(withSensors({ roles: ['emg_left', 'emg_right'], discipline: 'pong' })))
-      await screen.findByText('Датчик игрока 1 (Callibri)')
+      await screen.findByText('Датчик игрока 1 (слева)')
       expect(screen.queryByTestId('eeg-method')).toBeNull()
 
       act(() => FakeEventSource.last?.emit(withSensors({ roles: ['eeg', 'emg'], discipline: 'darts' })))
@@ -517,13 +473,13 @@ describe('StationApp', () => {
       expect(screen.queryByTestId('eeg-method')).toBeNull()
     })
 
-    it('hides serials and scanning for the emulator', async () => {
+    it('hides the sensor list and scanning for the emulator', async () => {
       render(<StationApp />)
       act(() => FakeEventSource.last?.emit(withSensors({ mode: 'emulate', roles: ['eeg', 'emg'], discipline: 'darts' })))
       const mode = await screen.findByRole('combobox', { name: 'Датчики' })
       expect(mode.textContent).toContain('Эмуляция')
       expect(screen.getByText(/Сигналы подаются сами/)).toBeTruthy()
-      expect(screen.queryByRole('button', { name: 'Найти датчики' })).toBeNull()
+      expect(screen.queryByRole('button', { name: /Искать|Остановить/ })).toBeNull()
     })
 
     it('warns in the top bar when the bridge is down, and only then', async () => {
@@ -644,8 +600,14 @@ describe('StationApp', () => {
     })
   })
 
-  describe('scanning feedback', () => {
-    const scanState = (scan: object, roles: string[] = []) =>
+  describe('sensor commands from the station window', () => {
+    const lastSent = (mock: ReturnType<typeof vi.fn>) => {
+      const call = mock.mock.calls.at(-1)
+      if (!call) throw new Error('no request was sent')
+      return JSON.parse((call[1] as RequestInit).body as string)
+    }
+
+    const fieldsState = (sensors: object, roles: string[] = ['eeg', 'emg']) =>
       snapshot(
         {
           kind: 'setup',
@@ -659,34 +621,42 @@ describe('StationApp', () => {
           game: '',
           sensors_available: true,
           roles,
-          scan: scan as never,
+          scan: { seconds: 15, phase: 'idle', devices: [], error: null },
+          sensors: sensors as never,
         },
         '',
       )
 
-    it('shows a spinner, a countdown and locks the button while scanning', async () => {
+    it('starts and stops the live search through the launcher', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true })
+      vi.stubGlobal('fetch', fetchMock)
       render(<StationApp />)
-      act(() => FakeEventSource.last?.emit(scanState({ seconds: 15, phase: 'scanning', devices: [], error: null })))
-      const button = await screen.findByRole('button', { name: 'Идёт поиск…' })
-      expect((button as HTMLButtonElement).disabled).toBe(true)
-      expect(button.querySelector('.scan-spinner')).toBeTruthy()
-      expect((await screen.findByTestId('scan-left')).textContent).toMatch(/Ещё около \d+ с/)
+      act(() => FakeEventSource.last?.emit(fieldsState({ phase: 'idle', devices: [], error: null })))
+      fireEvent.click(await screen.findByRole('button', { name: 'Искать датчики' }))
+      expect(lastSent(fetchMock)).toEqual({
+        action: 'sensors_scan_start',
+      })
+      act(() => FakeEventSource.last?.emit(fieldsState({ phase: 'scanning', devices: [], error: null })))
+      fireEvent.click(await screen.findByRole('button', { name: 'Остановить' }))
+      expect(lastSent(fetchMock)).toEqual({
+        action: 'sensors_scan_stop',
+      })
     })
 
-    it('explains what to check when nothing was found and allows scanning again', async () => {
+    it('does not send the legacy devices field with the check', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true })
+      vi.stubGlobal('fetch', fetchMock)
       render(<StationApp />)
-      act(() => FakeEventSource.last?.emit(scanState({ seconds: 15, phase: 'done', devices: [], error: null })))
-      const none = await screen.findByTestId('sensors-none')
-      expect(none.textContent).toContain('Датчики не найдены')
-      expect(none.textContent).toContain('настройках Bluetooth Windows')
-      const again = screen.getByRole('button', { name: 'Искать ещё раз' })
-      expect((again as HTMLButtonElement).disabled).toBe(false)
+      act(() => FakeEventSource.last?.emit(fieldsState({ phase: 'idle', devices: [], error: null })))
+      fireEvent.change(await screen.findByLabelText(/Токен станции/), { target: { value: 'secret-token-0123456789' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Проверить подключение' }))
+      expect(lastSent(fetchMock).value).not.toHaveProperty('devices')
     })
 
-    it('shows a scan error as a wrapping notice, not a clipped chip', async () => {
+    it('shows a search error as a wrapping alert', async () => {
       render(<StationApp />)
-      const long = 'Ошибка: Bluetooth-адаптер не найден или выключен: вставьте USB-адаптер и включите Bluetooth в Windows'
-      act(() => FakeEventSource.last?.emit(scanState({ seconds: 15, phase: 'done', devices: [], error: long })))
+      const long = 'Bluetooth-адаптер не найден или выключен: вставьте USB-адаптер и включите Bluetooth в Windows'
+      act(() => FakeEventSource.last?.emit(fieldsState({ phase: 'error', devices: [], error: long })))
       const alert = await screen.findByRole('alert')
       expect(alert.textContent).toBe(long)
       expect(alert.className).toContain('notice')
