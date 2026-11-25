@@ -8,9 +8,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from .calibration import StepView, sensors_view
 from .machine import (
     DONE_SECONDS,
     Blocked,
+    Calibrating,
     Candidate,
     Checking,
     Confirm,
@@ -42,6 +44,56 @@ def _candidates(items: tuple[Candidate, ...]) -> list[dict[str, Any]]:
     return [candidate_view(c) for c in items]
 
 
+def _step_view(step: StepView) -> dict[str, Any]:
+    return {
+        "id": step.id,
+        "step": step.step,
+        "signals": list(step.signals),
+        "status": step.status,
+        "progress": round(step.progress, 3),
+        "segment": step.segment,
+        "segments_total": step.segments_total,
+        "phase": step.phase,
+        "phase_left_s": None if step.phase_left_s is None else round(step.phase_left_s, 1),
+        "reason_text": step.reason_text,
+        "parts": [
+            {
+                "signal": part.signal,
+                "status": part.status,
+                "progress": round(part.progress, 3),
+                "reason_text": part.reason_text,
+            }
+            for part in step.parts
+        ],
+    }
+
+
+def calibrating_view(machine: StationMachine, players: tuple[Candidate, ...]) -> dict[str, Any]:
+    screen = machine.calibration_screen()
+    if screen is None:  # связи уже нет (состояние меняется): показываем «связи нет»
+        return {
+            "kind": "calibrating",
+            "players": _candidates(players),
+            "link": "connecting",
+            "sensors": [],
+            "eeg_method": None,
+            "steps": [],
+            "current": None,
+            "ready": False,
+        }
+    link = screen.link
+    return {
+        "kind": "calibrating",
+        "players": _candidates(players),
+        "link": link.link,
+        "sensors": sensors_view(link),
+        "eeg_method": link.hello.eeg_method if link.hello else None,
+        "steps": [_step_view(step) for step in screen.run.steps],
+        "current": screen.run.current,
+        "ready": screen.run.ready,
+    }
+
+
 def state_view(machine: StationMachine) -> dict[str, Any]:
     state = machine.state
     match state:
@@ -64,6 +116,8 @@ def state_view(machine: StationMachine) -> dict[str, Any]:
             }
         case Starting():
             return {"kind": "starting", "players": _candidates(state.players)}
+        case Calibrating():
+            return calibrating_view(machine, state.players)
         case Playing():
             return {
                 "kind": "playing",

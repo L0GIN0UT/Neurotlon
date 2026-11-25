@@ -6,6 +6,7 @@
 
 - `GET  /api/state`   — текущий снимок;
 - `GET  /api/events`  — поток Server-Sent Events, снимок при каждом изменении;
+- `GET  /api/signals` — SSE с живыми значениями датчиков, пока идёт калибровка (`signal_stream`);
 - `POST /api/command` — `{"action": "...", "value": "..."}` из белого списка.
 """
 
@@ -23,6 +24,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from .machine import StationMachine
 from .sensors import BridgeStatus
+from .signal_stream import SignalCursor, next_frame
 from .snapshot import snapshot
 from .status import StationStatus
 
@@ -30,6 +32,9 @@ log = logging.getLogger(__name__)
 
 TICK_S = 0.05
 KEEPALIVE_S = 15.0
+SIGNALS_PERIOD_S = 0.1  # кадры значений датчиков 10 раз в секунду
+SIGNALS_KEEPALIVE_S = 5.0
+MAX_STREAMS = 4  # одновременных SSE-подписчиков на сервер (`/api/events` и `/api/signals`)
 MAX_BODY = 16384
 
 # Команды без аргумента и с одним строковым аргументом `value`.
@@ -44,9 +49,11 @@ PLAIN_ACTIONS = frozenset(
         "show_rejected",
         "close_rejected",
         "export_rejected",
+        "calibration_continue",
+        "calibration_restart",
     }
 )
-VALUE_ACTIONS = frozenset({"type_char", "enter_code"})
+VALUE_ACTIONS = frozenset({"type_char", "enter_code", "calibration_retry"})
 
 
 class LiveState:
@@ -59,7 +66,9 @@ class LiveState:
         self.body = b""
 
     def publish(self, snapshot_data: dict[str, Any]) -> None:
-        body = json.dumps(snapshot_data, ensure_ascii=False, separators=(",", ":")).encode()
+        body = json.dumps(
+            snapshot_data, ensure_ascii=False, separators=(",", ":"), allow_nan=False
+        ).encode()
         with self._changed:
             if body != self.body:
                 self.body = body
@@ -82,6 +91,10 @@ class LiveState:
 
     def command(self, action: str, value: Any) -> bool:
         raise NotImplementedError
+
+    def signal_frame(self, cursor: SignalCursor) -> dict[str, Any] | None:
+        """Следующий кадр значений датчиков для слушателя; по умолчанию их нет."""
+        return None
 
 
 class Station(LiveState):
@@ -124,6 +137,12 @@ class Station(LiveState):
             except Exception:
                 log.exception("station tick failed")
             self._stop.wait(TICK_S)
+
+    def signal_frame(self, cursor: SignalCursor) -> dict[str, Any] | None:
+        with self._lock:
+            found = self._machine.signal_link
+        epoch, link = found if found is not None else (cursor.epoch, None)
+        return next_frame(cursor, epoch, link)
 
     def command(self, action: str, value: Any) -> bool:
         """Выполнить команду из белого списка; `False` — команда неизвестна или без аргумента."""
@@ -188,6 +207,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(HTTPStatus.OK, self.server.station.body)
         elif self._route() == "/api/events":
             self._events()
+        elif self._route() == "/api/signals":
+            self._signals()
         else:
             self._send(HTTPStatus.NOT_FOUND)
 
@@ -216,6 +237,15 @@ class _Handler(BaseHTTPRequestHandler):
         return self.rfile.read(length)
 
     def _events(self) -> None:
+        if not self.server.acquire_stream():
+            self._send(HTTPStatus.SERVICE_UNAVAILABLE)
+            return
+        try:
+            self._events_stream()
+        finally:
+            self.server.release_stream()
+
+    def _events_stream(self) -> None:
         self.send_response(HTTPStatus.OK)
         self._cors()
         self.send_header("Content-Type", "text/event-stream")
@@ -236,6 +266,47 @@ class _Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError, OSError):
             return
 
+    def _signals(self) -> None:
+        if not self.server.acquire_stream():
+            self._send(HTTPStatus.SERVICE_UNAVAILABLE)
+            return
+        try:
+            self._signals_stream()
+        finally:
+            self.server.release_stream()
+
+    def _signals_stream(self) -> None:
+        """Кадры значений датчиков 10 раз в секунду, пока идёт калибровка; иначе keepalive."""
+        self.send_response(HTTPStatus.OK)
+        self._cors()
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "keep-alive")
+        self.end_headers()
+        station = self.server.station
+        cursor = SignalCursor()
+        silent_for = 0.0
+        try:
+            while not self.server.closing.is_set():
+                frame = station.signal_frame(cursor)
+                if frame is not None:
+                    body = json.dumps(
+                        frame, ensure_ascii=False, separators=(",", ":"), allow_nan=False
+                    )
+                    self.wfile.write(b"data: " + body.encode() + b"\n\n")
+                    silent_for = 0.0
+                elif silent_for >= SIGNALS_KEEPALIVE_S:
+                    self.wfile.write(b": keepalive\n\n")
+                    silent_for = 0.0
+                else:
+                    silent_for += SIGNALS_PERIOD_S
+                    self.server.closing.wait(SIGNALS_PERIOD_S)
+                    continue
+                self.wfile.flush()
+                self.server.closing.wait(SIGNALS_PERIOD_S)
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            return
+
 
 class BridgeServer(ThreadingHTTPServer):
     daemon_threads = True
@@ -245,6 +316,20 @@ class BridgeServer(ThreadingHTTPServer):
         self.station = station
         self.token = token
         self.closing = threading.Event()
+        self._streams = 0
+        self._streams_lock = threading.Lock()
+
+    def acquire_stream(self) -> bool:
+        """Занять место SSE-подписчика; `False`, если все `MAX_STREAMS` мест заняты."""
+        with self._streams_lock:
+            if self._streams >= MAX_STREAMS:
+                return False
+            self._streams += 1
+            return True
+
+    def release_stream(self) -> None:
+        with self._streams_lock:
+            self._streams -= 1
 
     @property
     def port(self) -> int:

@@ -247,6 +247,7 @@ def test_runtime_builds_the_bridge_command_from_the_mode(tmp_path: Path) -> None
     assert hardware._args == [
         "bridge.exe", "--profile", "pong", "--port", "9100",
         "--headless", "--config", str(tmp_path / "bridge.toml"),
+        "--state-dir", str(config("hardware").data_dir),
     ]  # fmt: skip
     emulate = make(config("emulate"), "darts", "bridge.exe")
     assert emulate is not None

@@ -19,6 +19,7 @@ DEFAULT_FALLBACK_DURATION_S = 240
 DEFAULT_EEG_METHOD = "alpha"  # метод ЭЭГ нового стенда (значения: bridge-protocol.schema.json)
 
 log = logging.getLogger(__name__)
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
 
 class ConfigError(Exception):
@@ -121,6 +122,8 @@ def parse_config(data: dict[str, Any], base_dir: Path) -> LauncherConfig:
         or not 1 <= port <= 65535
     ):
         raise ConfigError("в [bridge] host — строка, port — число 1…65535")
+    if isinstance(host, str) and host not in LOOPBACK_HOSTS:
+        log.warning("[bridge] host %s не локальный: сигналы датчиков уйдут в сеть", host)
     mode = bridge.get("mode", "external")
     if mode not in ("external", "hardware", "emulate"):
         raise ConfigError("в [bridge] mode — external, hardware или emulate")

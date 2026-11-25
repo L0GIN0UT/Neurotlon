@@ -10,6 +10,15 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 from neurotlon_launcher.api import DisciplineConfig, Eligibility, Team
+from neurotlon_launcher.bridge_link import (
+    BurstRecord,
+    Hello,
+    LinkState,
+    LinkView,
+    SampleRecord,
+    SignalBatch,
+    StepProgress,
+)
 from neurotlon_launcher.game import GameOutcome, GameRequest
 from neurotlon_launcher.outbox import ActiveSession, OutboxItem
 
@@ -145,3 +154,85 @@ class SyncExecutor(Executor):
         except Exception as exc:
             future.set_exception(exc)
         return future
+
+
+class FakeLink:
+    """Подставная связь с мостом: состояние задаёт тест, команды записываются."""
+
+    def __init__(self) -> None:
+        self.link: LinkState = "connecting"
+        self.hello: Hello | None = None
+        self.states: dict[str, str] = {}
+        self.batteries: dict[str, int | None] = {}
+        self.calibrated: set[str] = set()
+        self.progress: dict[str, StepProgress] = {}
+        self.generation = 0
+        self.calls: list[tuple[str, ...]] = []
+        self.closed = False
+        self.samples: list[SampleRecord] = []
+        self.bursts: list[BurstRecord] = []
+
+    def view(self) -> LinkView:
+        return LinkView(
+            self.link,
+            self.hello,
+            dict(self.states),
+            dict(self.batteries),
+            frozenset(self.calibrated),
+            dict(self.progress),
+            self.generation,
+        )
+
+    def calibrate(self, signal: str, step: str) -> bool:
+        self.calls.append(("calibrate", signal, step))
+        self.calibrated.discard(signal)
+        self.progress.pop(signal, None)
+        return self.link == "live"
+
+    def reset(self) -> bool:
+        self.calls.append(("reset",))
+        self.calibrated.clear()
+        self.progress.clear()
+        return self.link == "live"
+
+    def recent(self, after_seq: int, after_burst: int, limit: int) -> SignalBatch:
+        fresh = [s for s in self.samples if s.seq > after_seq][-limit:]
+        cursor = fresh[-1].seq if fresh else after_seq
+        return SignalBatch(
+            cursor,
+            tuple(fresh),
+            tuple(b for b in self.bursts if b.n > after_burst),
+            self.generation,
+        )
+
+    def close(self) -> None:
+        self.closed = True
+
+    # --- действия «моста» в тестах ---
+
+    def go_live(
+        self,
+        states: dict[str, str],
+        calibrated: tuple[str, ...] = (),
+        eeg_method: str | None = None,
+    ) -> None:
+        self.link = "live"
+        self.generation += 1
+        self.states = dict(states)
+        self.calibrated = set(calibrated)
+        self.progress = {}
+        self.hello = Hello(tuple(states.items()), ("calibration_state",), eeg_method, calibrated)
+
+    def drop(self) -> None:
+        self.link = "lost"
+
+    def running(self, signal: str, step: str, progress: float, **extra: object) -> None:
+        self.progress[signal] = StepProgress(step, "running", progress, **extra)  # type: ignore[arg-type]
+
+    def finish(self, signal: str, step: str) -> None:
+        self.progress[signal] = StepProgress(step, "done", 1.0)
+        self.calibrated.add(signal)
+
+    def fail(self, signal: str, step: str, reason: str) -> None:
+        self.progress[signal] = StepProgress(step, "failed", 0.0, reason)
+        self.calibrated.discard(signal)

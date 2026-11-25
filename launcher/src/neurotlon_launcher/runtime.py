@@ -10,6 +10,7 @@ from types import TracebackType
 
 from . import texts
 from .api import HttpStationApi, StationApiError, Unauthorized
+from .bridge_link import BridgeLinkFactory, SocketBridgeLink
 from .config import ConfigError, LauncherConfig
 from .game import SubprocessGameRunner, bridge_answers
 from .heartbeat import HeartbeatLoop
@@ -54,6 +55,7 @@ class StationRuntime:
             runner,
             on_enqueue=self.sender.kick,
             fallback_duration_s=config.fallback_duration_s,
+            bridge_link=self._link_factory(config),
         )
         self.heartbeat = HeartbeatLoop(
             self.api, self.machine.heartbeat_view, self.outbox.pending_count
@@ -63,6 +65,14 @@ class StationRuntime:
         problem = check_discipline(self.api, config.discipline) if config.discipline else None
         if problem:
             self.machine.block(problem)
+
+    @staticmethod
+    def _link_factory(config: LauncherConfig) -> BridgeLinkFactory | None:
+        """Связь с мостом для экрана калибровки; на эмуляторе калибровки нет."""
+        if config.bridge_mode == "emulate":
+            return None
+        host, port = config.bridge_host, config.bridge_port
+        return lambda: SocketBridgeLink(host, port)
 
     @staticmethod
     def _make_bridge(config: LauncherConfig, discipline: str, exe: str) -> BridgeProcess | None:
@@ -77,6 +87,7 @@ class StationRuntime:
             args += ["--emulate", "--auto", "--headless"]  # сигналы идут по сценарию, без окна
         else:
             args += ["--headless", "--config", str(config.token_file.parent / "bridge.toml")]
+            args += ["--state-dir", str(config.data_dir)]  # калибровка переживает перезапуск моста
         log.info("bridge: mode=%s, command=%s", config.bridge_mode, args)
         return BridgeProcess(args, config.bridge_mode)
 
