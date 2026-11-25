@@ -111,11 +111,11 @@ def test_calibration_progress_then_done() -> None:
 def test_calibration_durations_and_speed() -> None:
     src, clock = make(speed=2.0)
     src.start_calibration("eeg", "baseline")
-    clock.now = 6.0  # 12 секунд (длительность по умолчанию) на скорости 2
+    clock.now = 10.0  # 20 секунд (длительность по умолчанию) на скорости 2
     status = src.calibration_status("eeg")
     assert status is not None and status.status == "done"
     src.start_calibration("emg", "contract")
-    clock.now = 9.0  # 3 секунды после старта на скорости 2: 6 из 12 с шага
+    clock.now = 13.0  # 3 секунды после старта на скорости 2: 6 из 12 с шага
     status = src.calibration_status("emg")
     assert status is not None and status.progress == pytest.approx(0.5)
 

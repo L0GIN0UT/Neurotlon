@@ -26,7 +26,7 @@ from .source import EegMethod
 
 log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2  # 2: eeg стал сосредоточением, файлы версии 1 не восстанавливаются
 FILE_NAME = "calibration.json"
 DEFAULT_TTL_H = 4.0
 MAX_FILE_BYTES = 64 * 1024

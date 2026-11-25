@@ -109,7 +109,7 @@ class SignalBatch:
 class BridgeLink(Protocol):
     def view(self) -> LinkView: ...
 
-    def calibrate(self, signal: str, step: str) -> bool:
+    def calibrate(self, signal: str, step: str, duration_s: float | None = None) -> bool:
         """Запустить шаг; сигнал сразу перестаёт считаться откалиброванным."""
         ...
 
@@ -239,11 +239,14 @@ class SocketBridgeLink:
 
     # --- команды ---
 
-    def calibrate(self, signal: str, step: str) -> bool:
+    def calibrate(self, signal: str, step: str, duration_s: float | None = None) -> bool:
         with self._lock:
             self._calibrated.discard(signal)  # мост стирает прежнюю шкалу при старте шага
             self._progress.pop(signal, None)
-        return self._send({"type": "calibrate", "signal": signal, "step": step})
+        message: dict[str, Any] = {"type": "calibrate", "signal": signal, "step": step}
+        if duration_s is not None:
+            message["duration_s"] = duration_s
+        return self._send(message)
 
     def reset(self) -> bool:
         with self._lock:
@@ -264,7 +267,7 @@ class SocketBridgeLink:
 
     # --- внутреннее ---
 
-    def _send(self, message: dict[str, str]) -> bool:
+    def _send(self, message: dict[str, Any]) -> bool:
         with self._lock:
             sock = self._sock
         if sock is None:

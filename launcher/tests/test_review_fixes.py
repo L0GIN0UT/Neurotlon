@@ -24,6 +24,8 @@ from neurotlon_launcher.bridge_link import (
     parse_sample,
 )
 from neurotlon_launcher.calibration import (
+    CONNECT_WAIT_S,
+    COUNTDOWN_S,
     SENSOR_MISSING,
     SENSOR_WAIT_S,
     Calibrate,
@@ -48,6 +50,7 @@ from neurotlon_launcher.web_bridge import BridgeServer, LiveState
 
 DARTS = {"eeg": "connected", "emg": "connected"}
 PONG = {"emg_left": "connected", "emg_right": "connected"}
+CD = float(COUNTDOWN_S)
 TOKEN = "t" * 32
 
 
@@ -89,7 +92,8 @@ def test_clean_hello_after_a_lost_reset_confirms_it() -> None:
     for command in run.update(link.view(), 0.0):
         run.command_failed(command)
     link.go_live(DARTS)  # новый hello: у моста ничего нет
-    assert apply(run, link, 1.0) == [Calibrate("emg", "cycle")]  # reset повторять незачем
+    assert apply(run, link, 1.0) == []  # reset повторять незачем
+    assert apply(run, link, 1.0 + CD) == [Calibrate("emg", "cycle")]
 
 
 def test_own_results_survive_a_bridge_restart_but_foreign_ones_do_not() -> None:
@@ -97,12 +101,13 @@ def test_own_results_survive_a_bridge_restart_but_foreign_ones_do_not() -> None:
     link.go_live(DARTS)
     run = CalibrationRun(plan_for("darts"), fresh=True)
     apply(run, link, 0.0)
+    apply(run, link, CD)
     link.finish("emg", "cycle")
-    apply(run, link, 1.0)
-    link.go_live(DARTS, calibrated=("emg",))  # мост восстановил нашу мышцу
-    assert Reset() not in apply(run, link, 2.0)
-    link.go_live(DARTS, calibrated=("emg", "eeg"))  # мозг мы не калибровали
-    assert apply(run, link, 3.0)[0] == Reset()
+    apply(run, link, CD + 1.0)
+    link.go_live(DARTS, calibrated=("emg",))  # мост восстановил нашу ЭМГ
+    assert Reset() not in apply(run, link, CD + 2.0)
+    link.go_live(DARTS, calibrated=("emg", "eeg"))  # ЭЭГ мы не калибровали
+    assert apply(run, link, CD + 3.0)[0] == Reset()
 
 
 def test_machine_does_not_launch_on_a_stale_file_after_reconnect() -> None:
@@ -126,7 +131,8 @@ def test_only_pending_signals_start_when_the_other_is_restored() -> None:
     link = FakeLink()
     link.go_live(PONG, calibrated=("emg_left",))
     run = CalibrationRun(plan_for("pong"), fresh=False)
-    assert apply(run, link, 0.0) == [Calibrate("emg_right", "cycle")]
+    assert apply(run, link, 0.0) == []
+    assert apply(run, link, CD) == [Calibrate("emg_right", "cycle")]
     parts = run.view(link.view()).steps[0].parts
     assert [p.status for p in parts] == ["done", "running"]
 
@@ -136,13 +142,24 @@ def test_sensor_that_never_connects_fails_the_step_with_a_reason() -> None:
     link.go_live({"eeg": "connected", "emg": "disconnected"})
     run = CalibrationRun(plan_for("darts"), fresh=False)
     assert apply(run, link, 0.0) == []
-    apply(run, link, SENSOR_WAIT_S - 1)
-    assert run.view(link.view()).steps[0].status == "pending"
-    apply(run, link, SENSOR_WAIT_S + 1)
+    apply(run, link, CONNECT_WAIT_S - 1)
+    assert run.view(link.view()).connect_error is None
+    apply(run, link, CONNECT_WAIT_S + 1)
+    view = run.view(link.view())
+    assert view.connect_error is not None and view.stage == "connecting"
+    assert [s.status for s in view.steps] == ["pending", "pending"]  # калибровка не начиналась
+    link.states["emg"] = "connected"
+    assert apply(run, link, CONNECT_WAIT_S + 2) == []
+    link.states["emg"] = "disconnected"  # пропал в отсчёте: ждём, потом понятная причина
+    apply(run, link, CONNECT_WAIT_S + 2 + CD)
+    apply(run, link, CONNECT_WAIT_S + 2 + CD + SENSOR_WAIT_S)
     step = run.view(link.view()).steps[0]
     assert (step.status, step.reason_text) == ("failed", SENSOR_MISSING)
     link.states["emg"] = "connected"
-    assert run.retry("muscle", link.view(), SENSOR_WAIT_S + 2) == [Calibrate("emg", "cycle")]
+    t = CONNECT_WAIT_S + 3 + CD + SENSOR_WAIT_S
+    assert run.retry("muscle", link.view(), t) == []
+    assert apply(run, link, t) == []
+    assert apply(run, link, t + CD) == [Calibrate("emg", "cycle")]
 
 
 def test_silence_timeout_is_extended_by_every_bridge_message() -> None:

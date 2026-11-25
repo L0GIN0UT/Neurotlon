@@ -89,14 +89,17 @@ def test_clear_is_idempotent(tmp_path: Path) -> None:
         "{not json",
         "[]",
         '{"schema_version": 99, "signals": {}}',
-        '{"schema_version": 1, "eeg_method": "fft", "signals": {}}',
-        '{"schema_version": 1, "signals": []}',
-        '{"schema_version": 1, "signals": {"emg": {"kind": "emg", "rest": "1", "peak": 2, '
+        # версия 1: eeg был расслаблением, а не сосредоточением; файл целиком не восстанавливаем
+        '{"schema_version": 1, "eeg_method": "alpha", "signals": {"eeg": {"kind": "eeg", '
+        '"low": 0.1, "high": 0.3, "fs": 250, "calibrated_at": 5}}}',
+        '{"schema_version": 2, "eeg_method": "fft", "signals": {}}',
+        '{"schema_version": 2, "signals": []}',
+        '{"schema_version": 2, "signals": {"emg": {"kind": "emg", "rest": "1", "peak": 2, '
         '"fs": 1000, "calibrated_at": 5}}}',
-        '{"schema_version": 1, "signals": {"emg": {"kind": "emg", "rest": true, "peak": 2, '
+        '{"schema_version": 2, "signals": {"emg": {"kind": "emg", "rest": true, "peak": 2, '
         '"fs": 1000, "calibrated_at": 5}}}',
-        '{"schema_version": 1, "signals": {"emg": {"kind": "gsr"}}}',
-        '{"schema_version": 1, "signals": {"emg": {"kind": "emg", "rest": 1, "peak": 2}}}',
+        '{"schema_version": 2, "signals": {"emg": {"kind": "gsr"}}}',
+        '{"schema_version": 2, "signals": {"emg": {"kind": "emg", "rest": 1, "peak": 2}}}',
     ],
 )
 def test_corrupt_file_is_ignored_and_erased(tmp_path: Path, text: str) -> None:
@@ -115,7 +118,7 @@ def test_binary_garbage_is_ignored_and_erased(tmp_path: Path) -> None:
 
 def test_parse_record_rejects_other_version() -> None:
     with pytest.raises(ValueError):
-        parse_record('{"schema_version": 2, "signals": {}}')
+        parse_record('{"schema_version": 3, "signals": {}}')
 
 
 def test_nan_cannot_be_written() -> None:
@@ -245,12 +248,12 @@ def test_empty_record_is_a_problem() -> None:
     "text",
     [
         "[" * 100_000,
-        '{"schema_version": 1, "signals": {"emg": {"kind": "emg", "rest": 1, "peak": '
+        '{"schema_version": 2, "signals": {"emg": {"kind": "emg", "rest": 1, "peak": '
         + "9" * 400
         + ', "fs": 1000, "calibrated_at": 5}}}',
-        '{"schema_version": 1, "signals": {"emg": {"kind": "emg", "rest": NaN, "peak": 2, '
+        '{"schema_version": 2, "signals": {"emg": {"kind": "emg", "rest": NaN, "peak": 2, '
         '"fs": 1000, "calibrated_at": 5}}}',
-        '{"schema_version": 1, "signals": {"emg": {"kind": "emg", "rest": 1, "peak": Infinity, '
+        '{"schema_version": 2, "signals": {"emg": {"kind": "emg", "rest": 1, "peak": Infinity, '
         '"fs": 1000, "calibrated_at": 5}}}',
         '"just a string"',
         "42",
