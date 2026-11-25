@@ -18,13 +18,15 @@ from .devices.base import DeviceBackend, DeviceError
 from .devices.scan import format_devices, scan_devices
 from .emulator import EmulatedSource
 from .server import BridgeServer, BridgeThread
-from .source import PROFILES
+from .source import EEG_METHODS, PROFILES, EegMethod
 
 EXIT_OK = 0
 EXIT_CONFIG = 2
 EXIT_DEVICES = 3
 SCAN_SECONDS = 15.0  # BLE находит датчики не сразу: 10 секунд бывало мало
 SCAN_JSON_MARK = "NEUROTLON_SCAN_JSON="
+
+DEFAULT_EEG_METHOD: EegMethod = "alpha"
 
 BackendFactory = Callable[[float], DeviceBackend]
 
@@ -34,6 +36,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--emulate", action="store_true", help="эмулятор датчиков (клавиши)")
     parser.add_argument("--scan", action="store_true", help="найти датчики, вывести и выйти")
     parser.add_argument("--profile", choices=sorted(PROFILES), default="darts")
+    parser.add_argument(
+        "--eeg-method",
+        choices=EEG_METHODS,
+        default=DEFAULT_EEG_METHOD,
+        help="метод ЭЭГ: alpha (относительная альфа) или emotions (NeuroSDK Emotions)",
+    )
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--config", type=Path, help="путь к bridge.toml (по умолчанию рядом)")
     parser.add_argument("--headless", action="store_true", help="без окна")
@@ -91,7 +99,7 @@ def _scan(args: argparse.Namespace, factory: BackendFactory) -> int:
 
 def _emulate(args: argparse.Namespace) -> int:
     source = EmulatedSource(args.profile, time.monotonic)
-    server = BridgeServer(source, port=args.port)
+    server = BridgeServer(source, port=args.port, eeg_method=args.eeg_method)
     if args.auto:
         from .scripted import ScriptedInput
 
@@ -127,11 +135,11 @@ def _hardware(args: argparse.Namespace, factory: BackendFactory) -> int:
         except DeviceError:
             backend.close()
             raise
-        source = HardwareSource(args.profile, config, backend)
+        source = HardwareSource(args.profile, config, backend, eeg_method=args.eeg_method)
     except DeviceError as exc:
         print(f"Ошибка: {exc}", file=sys.stderr)
         return EXIT_DEVICES
-    server = BridgeServer(source, port=args.port)
+    server = BridgeServer(source, port=args.port, eeg_method=args.eeg_method)
     source.start()
     try:
         if args.headless:

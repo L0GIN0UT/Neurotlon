@@ -8,11 +8,12 @@ import pytest
 
 from neurotlon_bridge.config import BridgeConfig, ConfigError
 from neurotlon_bridge.devices.fakes import FakeBackend, FakeClock, FakeRawSensor
-from neurotlon_bridge.hardware_source import HardwareSource
-from neurotlon_bridge.processing.eeg import EmotionsResult
+from neurotlon_bridge.hardware_source import HardwareSource, make_engine_factory
+from neurotlon_bridge.processing.alpha import AlphaEngine
+from neurotlon_bridge.processing.eeg import EegResult
 from neurotlon_bridge.processing.emg import EmgConfig
 from neurotlon_bridge.server import BridgeServer
-from neurotlon_bridge.source import Segment
+from neurotlon_bridge.source import EegMethod, Segment
 
 FAST_EMG = EmgConfig(
     settle_s=0.0,
@@ -29,28 +30,31 @@ class FakeEngine:
     def __init__(self) -> None:
         self.started = False
         self.percent = 0
-        self.length_s: int | None = None
+        self.fail: str | None = None
+        self.duration_s: float | None = None
         self.closed = False
-        self.res = EmotionsResult(0.6, True, False)
+        self.res = EegResult(0.6, True, False)
 
     @property
     def calibrated(self) -> bool:
         return self.started and self.percent >= 100
 
     @property
-    def calibration_percent(self) -> int:
-        return self.percent
+    def progress(self) -> float:
+        return self.percent / 100.0
 
-    def set_calibration_length(self, seconds: int) -> None:
-        self.length_s = seconds
+    @property
+    def failure(self) -> str | None:
+        return self.fail
 
-    def start_calibration(self) -> None:
+    def start_calibration(self, duration_s: float) -> None:
         self.started = True
+        self.duration_s = duration_s
 
     def push(self, volts: np.ndarray) -> None:
         self.percent = min(100, self.percent + 50)  # два пакета — и калибровка готова
 
-    def result(self) -> EmotionsResult:
+    def result(self) -> EegResult:
         return self.res
 
     def close(self) -> None:
@@ -308,7 +312,7 @@ def test_darts_eeg_calibration_and_calm() -> None:
     reading = rig.src.read(0)["eeg"]
     assert reading.valid
     assert reading.value == pytest.approx(0.6)
-    rig.engines[0].res = EmotionsResult(0.6, True, True)
+    rig.engines[0].res = EegResult(0.6, True, True)
     rig.run(0.1, {"eeg": 0})
     assert rig.src.read(0)["eeg"].reason == "artifact"
     rig.src.reset()
@@ -531,9 +535,9 @@ def test_cycle_is_not_for_eeg() -> None:
 def test_baseline_duration_goes_to_the_engine() -> None:
     rig = Rig("darts", DARTS)
     rig.src.start_calibration("eeg", "baseline", duration_s=20.0)
-    assert rig.engines[-1].length_s == 20
+    assert rig.engines[-1].duration_s == 20.0
     rig.src.start_calibration("eeg", "baseline")
-    assert rig.engines[-1].length_s is None  # без запроса длительность из настроек
+    assert rig.engines[-1].duration_s == 12.0  # без запроса: из настроек, по умолчанию 12 с
     rig.src.close()
 
 
@@ -543,3 +547,55 @@ def test_segments_and_duration_do_not_leak_into_other_channel_kinds() -> None:
     status = rig.src.calibration_status("emg")
     assert status is not None and status.step == "rest"
     rig.src.close()
+
+
+def test_factory_builds_alpha_engine() -> None:
+    engine = make_engine_factory("alpha", BridgeConfig(), time.monotonic)()
+    assert isinstance(engine, AlphaEngine)
+
+
+def test_factory_builds_emotions_engine(monkeypatch: pytest.MonkeyPatch) -> None:
+    built: list[object] = []
+
+    class FakePyem(FakeEngine):
+        def __init__(self, cfg: object) -> None:
+            super().__init__()
+            built.append(cfg)
+
+    monkeypatch.setattr("neurotlon_bridge.processing.emotions.Pyem", FakePyem)
+    config = BridgeConfig()
+    engine = make_engine_factory("emotions", config, time.monotonic)()
+    assert isinstance(engine, FakePyem)
+    assert built == [config.eeg]
+
+
+@pytest.mark.parametrize("method", ["alpha", "emotions"])
+def test_source_uses_selected_method(monkeypatch: pytest.MonkeyPatch, method: EegMethod) -> None:
+    monkeypatch.setattr("neurotlon_bridge.processing.emotions.Pyem", lambda cfg: FakeEngine())
+    raw = FakeRawSensor("brainbit", "B-1")
+    config = BridgeConfig(devices={"eeg": "B-1", "emg": "C-1"}, emg=FAST_EMG)
+    backend = FakeBackend([raw, FakeRawSensor("callibri", "C-1")])
+    src = HardwareSource(
+        "darts", config, backend, FakeClock(10.0), threaded=False, eeg_method=method
+    )
+    src.start()
+    deadline = time.monotonic() + 3
+    while src.state("eeg") != "connected" and time.monotonic() < deadline:
+        time.sleep(0.01)
+    src.start_calibration("eeg", "baseline")
+    raw.emit_samples(np.zeros((25, 4)).tolist())
+    src.step()
+    status = src.calibration_status("eeg")
+    assert status is not None and status.status == "running"
+    # FakeEngine набирает 50% с каждой пачки; AlphaEngine считает отсчёты (25 из 12 с * 250 Гц)
+    expected = 0.5 if method == "emotions" else 25 / (12 * 250)
+    assert status.progress == pytest.approx(expected, abs=0.01)
+    # длительность из calibrate: у альфы это число отсчётов, у Emotions - секунды в библиотеку
+    src.start_calibration("eeg", "baseline", duration_s=5.0)
+    raw.emit_samples(np.zeros((25, 4)).tolist())
+    src.step()
+    status = src.calibration_status("eeg")
+    assert status is not None
+    expected = 0.5 if method == "emotions" else 25 / (5 * 250)
+    assert status.progress == pytest.approx(expected, abs=0.01)
+    src.close()

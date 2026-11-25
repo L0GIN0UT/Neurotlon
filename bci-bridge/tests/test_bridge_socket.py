@@ -15,6 +15,7 @@ from neurotlon_bridge import protocol
 from neurotlon_bridge.client import BridgeClient
 from neurotlon_bridge.emulator import EmulatedSource
 from neurotlon_bridge.server import BridgeServer, BridgeThread
+from neurotlon_bridge.source import EegMethod
 
 TIMEOUT_S = 5.0  # запас для медленного CI; быстрые тесты от него не зависят
 
@@ -118,6 +119,30 @@ def test_hello_and_samples(env: Env) -> None:
         assert reading is not None and reading.valid and reading.value == 0.5
     finally:
         client.close()
+
+
+def _hello_of(profile: str, method: EegMethod | None) -> protocol.Hello:
+    source = EmulatedSource(profile, time.monotonic)
+    server = BridgeServer(source, port=0, eeg_method=method)
+    thread = BridgeThread(server)
+    thread.start()
+    conn = RawConn(server.port)
+    try:
+        hello = conn.next_message()
+        assert isinstance(hello, protocol.Hello)
+        return hello
+    finally:
+        conn.close()
+        thread.stop()
+
+
+@pytest.mark.parametrize("method", ["alpha", "emotions", None])
+def test_hello_carries_eeg_method(method: EegMethod | None) -> None:
+    assert _hello_of("darts", method).eeg_method == method
+
+
+def test_hello_has_no_eeg_method_without_eeg_signal() -> None:
+    assert _hello_of("pong", "alpha").eeg_method is None
 
 
 def test_t_ms_is_monotonic(env: Env) -> None:

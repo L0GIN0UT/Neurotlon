@@ -2,36 +2,39 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
-from neurotlon_bridge.processing.eeg import EegProcessor, EmotionsResult
+from neurotlon_bridge.processing.eeg import EegProcessor, EegResult
 
 
 class FakeEngine:
     def __init__(self) -> None:
         self.started = False
         self.percent = 0
+        self.fail: str | None = None
+        self.duration_s: float | None = None
         self.pushed = 0
-        self.length_s: int | None = None
         self.closed = False
-        self.res = EmotionsResult(0.5, True, False)
+        self.res = EegResult(0.5, True, False)
 
     @property
     def calibrated(self) -> bool:
         return self.started and self.percent >= 100
 
     @property
-    def calibration_percent(self) -> int:
-        return self.percent
+    def progress(self) -> float:
+        return self.percent / 100.0
 
-    def set_calibration_length(self, seconds: int) -> None:
-        self.length_s = seconds
+    @property
+    def failure(self) -> str | None:
+        return self.fail
 
-    def start_calibration(self) -> None:
+    def start_calibration(self, duration_s: float) -> None:
         self.started = True
+        self.duration_s = duration_s
 
     def push(self, volts: NDArray[np.float64]) -> None:
         self.pushed += len(volts)
 
-    def result(self) -> EmotionsResult:
+    def result(self) -> EegResult:
         return self.res
 
     def close(self) -> None:
@@ -81,7 +84,7 @@ def test_calm_maps_to_value() -> None:
     proc, engines = make()
     proc.start_calibration("baseline")
     engines[0].percent = 100
-    engines[0].res = EmotionsResult(0.73, True, False)
+    engines[0].res = EegResult(0.73, True, False)
     proc.push(DATA)
     reading = proc.reading()
     assert reading.valid
@@ -92,7 +95,7 @@ def test_artifact_is_invalid() -> None:
     proc, engines = make()
     proc.start_calibration("baseline")
     engines[0].percent = 100
-    engines[0].res = EmotionsResult(0.9, True, True)
+    engines[0].res = EegResult(0.9, True, True)
     proc.push(DATA)
     reading = proc.reading()
     assert (reading.valid, reading.reason) == (False, "artifact")
@@ -102,7 +105,7 @@ def test_no_windows_yet_is_stale() -> None:
     proc, engines = make()
     proc.start_calibration("baseline")
     engines[0].percent = 100
-    engines[0].res = EmotionsResult(0.0, False, False)
+    engines[0].res = EegResult(0.0, False, False)
     proc.push(DATA)
     assert proc.reading().reason == "stale"
 
@@ -160,20 +163,47 @@ def test_empty_push_is_ignored() -> None:
     assert engines[0].pushed == 0
 
 
-def test_baseline_duration_is_passed_to_the_engine_before_start() -> None:
-    proc, engines = make()
+def test_default_duration_comes_from_settings_and_can_be_overridden() -> None:
+    engines: list[FakeEngine] = []
+
+    def factory() -> FakeEngine:
+        engines.append(FakeEngine())
+        return engines[-1]
+
+    proc = EegProcessor(factory, calibration_s=12.0)
+    proc.start_calibration("baseline")
     proc.start_calibration("baseline", 15.0)
-    assert engines[0].length_s == 15
-    assert engines[0].started
+    assert [e.duration_s for e in engines] == [12.0, 15.0]
 
 
-def test_baseline_without_duration_keeps_the_engine_default() -> None:
+def test_engine_failure_fails_calibration_and_closes_engine() -> None:
     proc, engines = make()
     proc.start_calibration("baseline")
-    assert engines[0].length_s is None
+    engines[0].fail = "мало значений"
+    proc.push(DATA)
+    status = proc.calibration_status()
+    assert status is not None
+    assert (status.status, status.reason) == ("failed", "мало значений")
+    assert engines[0].closed
+    assert proc.reading().reason == "not_calibrated"
 
 
-def test_baseline_duration_is_rounded_to_whole_seconds() -> None:
-    proc, engines = make()
-    proc.start_calibration("baseline", 12.4)
-    assert engines[0].length_s == 12
+def test_pyem_passes_whole_seconds_to_the_library() -> None:
+    from typing import Any
+
+    from neurotlon_bridge.processing.emotions import Pyem
+
+    calls: list[tuple[str, int | None]] = []
+
+    class FakeMath:
+        def set_calibration_length(self, seconds: int) -> None:
+            calls.append(("length", seconds))
+
+        def start_calibration(self) -> None:
+            calls.append(("start", None))
+
+    pyem = Pyem.__new__(Pyem)  # без загрузки библиотеки
+    em: Any = FakeMath()
+    pyem._em = em
+    pyem.start_calibration(12.4)
+    assert calls == [("length", 12), ("start", None)]

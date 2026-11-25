@@ -17,7 +17,8 @@ import numpy as np
 from .config import BridgeConfig, required_devices
 from .devices.base import DeviceBackend, DeviceKind
 from .devices.sdk_sensor import SdkSensor
-from .processing.eeg import EegProcessor, EmotionsEngine
+from .processing.alpha import AlphaEngine
+from .processing.eeg import EegEngine, EegProcessor
 from .processing.emg import EmgProcessor
 from .source import (
     EEG_STEPS,
@@ -27,6 +28,7 @@ from .source import (
     CalibrationProgress,
     CalibrationStep,
     Clock,
+    EegMethod,
     Reading,
     Segment,
     SensorState,
@@ -254,16 +256,29 @@ class _EegChannel(_Channel):
             self._proc.reset()
 
 
-EngineFactory = Callable[[], EmotionsEngine]
+EngineFactory = Callable[[], EegEngine]
 
 
-def _default_engine_factory(config: BridgeConfig) -> EngineFactory:
-    def make() -> EmotionsEngine:
-        from .processing.emotions import Pyem
+def _make_alpha(config: BridgeConfig, clock: Clock) -> EegEngine:
+    return AlphaEngine(config.alpha, config.eeg.sampling_rate, clock)
 
-        return Pyem(config.eeg)
 
-    return make
+def _make_emotions(config: BridgeConfig, clock: Clock) -> EegEngine:
+    from .processing.emotions import Pyem  # библиотека нужна только этому методу
+
+    return Pyem(config.eeg)
+
+
+_ENGINE_BUILDERS: dict[EegMethod, Callable[[BridgeConfig, Clock], EegEngine]] = {
+    "alpha": _make_alpha,
+    "emotions": _make_emotions,
+}
+
+
+def make_engine_factory(method: EegMethod, config: BridgeConfig, clock: Clock) -> EngineFactory:
+    """Фабрика движка ЭЭГ выбранного метода; новый объект на каждую калибровку."""
+    build = _ENGINE_BUILDERS[method]
+    return lambda: build(config, clock)
 
 
 class HardwareSource:
@@ -282,6 +297,7 @@ class HardwareSource:
         *,
         threaded: bool = True,
         engine_factory: EngineFactory | None = None,
+        eeg_method: EegMethod = "alpha",
     ) -> None:
         if profile not in PROFILES:
             raise ValueError(f"unknown profile: {profile}")
@@ -290,11 +306,13 @@ class HardwareSource:
         self._backend = backend
         self._threaded = threaded
         self._channels: dict[str, _Channel] = {}
-        factory = engine_factory or _default_engine_factory(config)
+        factory = engine_factory or make_engine_factory(eeg_method, config, clock)
         for signal, serial in plan.items():
             if signal == "eeg":
                 sensor = SdkSensor(serial, "brainbit", backend, clock)
-                self._channels[signal] = _EegChannel(signal, sensor, clock, EegProcessor(factory))
+                self._channels[signal] = _EegChannel(
+                    signal, sensor, clock, EegProcessor(factory, config.eeg.calibration_s)
+                )
             else:
                 sensor = SdkSensor(serial, "callibri", backend, clock)
                 processor = EmgProcessor(config.emg, burst=config.burst)

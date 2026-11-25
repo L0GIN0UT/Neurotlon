@@ -19,6 +19,7 @@ def test_example_file_parses_with_defaults() -> None:
     assert config.devices == {}  # серийные номера в примере пустые
     assert config.emg == BridgeConfig().emg
     assert config.eeg == BridgeConfig().eeg
+    assert config.alpha == BridgeConfig().alpha
     assert config.scan_s == 12.0
 
 
@@ -37,6 +38,14 @@ def test_devices_and_overrides() -> None:
     assert config.eeg.calibration_s == 10
 
 
+def test_alpha_section_overrides_numbers() -> None:
+    config = parse_config({"alpha": {"window_s": 3, "artifact_ptp_uv": 120, "calib_min_values": 8}})
+    assert config.alpha.window_s == 3.0
+    assert config.alpha.artifact_ptp_uv == 120.0
+    assert config.alpha.calib_min_values == 8
+    assert config.alpha.step_s == 0.2
+
+
 @pytest.mark.parametrize(
     "data",
     [
@@ -48,6 +57,21 @@ def test_devices_and_overrides() -> None:
         {"emg": {"settle_s": "5"}},
         {"emg": {"settle_s": True}},
         {"eeg": {"calibration_s": 8.5}},
+        {"alpha": {"window_s": "2"}},
+        {"alpha": {"calib_min_values": 9.5}},
+        {"alpha": {"method": "alpha"}},
+        {"alpha": {"window_s": 0}},
+        {"alpha": {"step_s": -0.2}},
+        {"alpha": {"window_s": 1.0, "step_s": 2.0}},
+        {"alpha": {"band_low_hz": 40, "band_high_hz": 30}},
+        {"alpha": {"band_high_hz": 130}},
+        {"alpha": {"calib_low_pct": 60}},
+        {"alpha": {"calib_high_pct": 101}},
+        {"alpha": {"calib_low_pct": -1}},
+        {"alpha": {"gap_ms": -1}},
+        {"alpha": {"calib_min_values": 0}},
+        {"alpha": {"alpha_low_hz": 14}},
+        {"eeg": {"sampling_rate": 80}},
     ],
 )
 def test_invalid_config_rejected(data: dict[str, object]) -> None:

@@ -14,6 +14,7 @@ from .source import (
     CalibrationProgress,
     CalibrationStep,
     Clock,
+    EegMethod,
     Feature,
     SensorState,
     SignalSource,
@@ -50,8 +51,10 @@ class BridgeServer:
         clock: Clock = time.monotonic,
         calibration_interval_s: float = 0.1,
         write_timeout_s: float = 1.0,
+        eeg_method: EegMethod | None = None,
     ) -> None:
         self._source = source
+        self._eeg_method = eeg_method
         self._host = host
         self._port = port
         self._rate_hz = rate_hz
@@ -112,7 +115,9 @@ class BridgeServer:
             for name in names:  # события до подключения этой игры ей не нужны
                 await asyncio.to_thread(self._source.drain_bursts, name)
             hello = protocol.Hello(
-                tuple((n, self._source.state(n)) for n in names), features=FEATURES
+                tuple((n, self._source.state(n)) for n in names),
+                features=FEATURES,
+                eeg_method=self._eeg_method if "eeg" in names else None,
             )
             await self._write(writer, protocol.encode(hello))
             tracking = _Tracking(

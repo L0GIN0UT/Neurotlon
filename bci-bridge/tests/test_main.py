@@ -1,9 +1,12 @@
+from __future__ import annotations
+
 import json
 from pathlib import Path
 
 import pytest
 
-from neurotlon_bridge.__main__ import main
+from neurotlon_bridge import hardware_source
+from neurotlon_bridge.__main__ import build_parser, main
 from neurotlon_bridge.devices.base import (
     BluetoothUnavailableError,
     DeviceBackend,
@@ -112,3 +115,70 @@ def test_scan_json_is_machine_readable(capsys: pytest.CaptureFixture[str]) -> No
     assert {item["serial"] for item in data} == {"BB-777", "CA-1"}
     assert {item["kind"] for item in data} == {"brainbit", "callibri"}
     assert all(set(item) == {"kind", "name", "serial", "address"} for item in data)
+
+
+class _RecordingServer:
+    """Подмена BridgeServer: запоминает аргументы и сразу завершает работу."""
+
+    instances: list[_RecordingServer] = []  # noqa: RUF012 - тестовая подмена
+
+    def __init__(self, source: object, **kwargs: object) -> None:
+        self.kwargs = kwargs
+        _RecordingServer.instances.append(self)
+
+    async def serve_forever(self) -> None:
+        return None
+
+
+@pytest.fixture
+def recording_server(monkeypatch: pytest.MonkeyPatch) -> list[_RecordingServer]:
+    _RecordingServer.instances = []
+    monkeypatch.setattr("neurotlon_bridge.__main__.BridgeServer", _RecordingServer)
+    return _RecordingServer.instances
+
+
+def test_eeg_method_defaults_to_alpha_and_rejects_unknown() -> None:
+    assert build_parser().parse_args([]).eeg_method == "alpha"
+    assert build_parser().parse_args(["--eeg-method", "emotions"]).eeg_method == "emotions"
+    with pytest.raises(SystemExit):
+        main(["--emulate", "--eeg-method", "fft"])
+
+
+@pytest.mark.parametrize("method", ["alpha", "emotions"])
+def test_emulator_announces_eeg_method(
+    recording_server: list[_RecordingServer], method: str
+) -> None:
+    assert main(["--emulate", "--headless", "--eeg-method", method]) == 0
+    assert recording_server[0].kwargs["eeg_method"] == method
+
+
+def test_emulator_default_method_is_alpha(recording_server: list[_RecordingServer]) -> None:
+    assert main(["--emulate", "--headless"]) == 0
+    assert recording_server[0].kwargs["eeg_method"] == "alpha"
+
+
+@pytest.mark.parametrize("method", ["alpha", "emotions"])
+def test_hardware_passes_method_to_source_and_server(
+    recording_server: list[_RecordingServer],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    method: str,
+) -> None:
+    seen: list[object] = []
+    real = hardware_source.HardwareSource
+
+    class Recording(real):  # type: ignore[valid-type, misc]
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            seen.append(kwargs.get("eeg_method"))
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(hardware_source, "HardwareSource", Recording)
+    config = write_config(tmp_path, '[devices]\neeg = "BB1"\nemg = "C1"\n')
+    backend = FakeBackend([FakeRawSensor("brainbit", "BB1"), FakeRawSensor("callibri", "C1")])
+    code = main(
+        ["--headless", "--config", str(config), "--eeg-method", method],
+        backend_factory=factory_for(backend),
+    )
+    assert code == 0
+    assert seen == [method]
+    assert recording_server[0].kwargs["eeg_method"] == method
