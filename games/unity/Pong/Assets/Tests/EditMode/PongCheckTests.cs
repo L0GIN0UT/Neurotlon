@@ -50,7 +50,7 @@ namespace Neurotlon.Games.Pong.Tests
             Assert.IsFalse(check.LowDone);
         }
 
-        // сценарий проверяющей программы: мышца сжата 0,8 с, потом 0,8 с расслаблена (эмулятор плавно нарастает и спадает)
+        // сценарий проверяющей программы: мышца напряжена 0,8 с, потом 0,8 с расслаблена (эмулятор плавно нарастает и спадает)
         [Test]
         public void TheCheckerScriptedPatternPasses()
         {

@@ -17,6 +17,9 @@ namespace Neurotlon.Games.Pong
         const float ServeTossHeight = 0.20f;     // высота подброса мяча на подаче
         const float EndDelaySeconds = 1.8f;     // пауза после последнего очка, потом результат
         const float HitPulseSeconds = 0.45f;    // длительность удара ракетки при отбитии
+        const int TutorialTargetScore = 99;     // в песочнице обучения розыгрыш не заканчивается
+        const string HighLine = NeurotlonTexts.Tense + " сильно и держите";
+        const string LowLine = NeurotlonTexts.Relax + " полностью и держите";
 
         [Header("Объекты сцены")]
         [SerializeField] Transform ball;
@@ -30,7 +33,11 @@ namespace Neurotlon.Games.Pong
         [SerializeField] float tableTop = 0.76f;
 
         readonly PongTuning tuning = new PongTuning();
-        PongRules rules;
+        readonly PongTutorial tutorialState = new PongTutorial();   // условия шагов обучения у обоих игроков
+        PongRules rules;                         // в обучении здесь песочница (null на шаге «Ракетка»); настоящие правила создаёт OnGameStart
+        bool hasDebugScore;                      // --debug-score: на экране вместо настоящего счёта, в результат не попадает
+        int debugScoreLeft;
+        int debugScoreRight;
         LaunchParticipant playerLeft;
         LaunchParticipant playerRight;
         string signalLeft;
@@ -53,11 +60,15 @@ namespace Neurotlon.Games.Pong
         bool timeExpiredHandled;
         PongCheck checkLeft;                     // демо-проверка перед матчем: у каждого игрока своя, идут одновременно
         PongCheck checkRight;
-        GUIStyle hudName, hudScore, checkStyle;
+        GUIStyle hudName, hudScore, checkStyle, tensionStyle, introStyle;
+        const float MatchIntroSeconds = 3f;
+        float matchIntroLeft;
+        const string TensionLabel = "МЫШЦА";
 
         void Awake()
         {
             ballY = tableTop + BallRadius() + BallArcHeight;
+            hasDebugScore = PongScoreLayout.TryParseDebugScore(Environment.GetCommandLineArgs(), out debugScoreLeft, out debugScoreRight);
             PlaceObjects();
         }
 
@@ -65,7 +76,7 @@ namespace Neurotlon.Games.Pong
         {
             if (Launch == null) return;
             if (playerLeft == null) ResolvePlayers();
-            if (scoreboard != null) scoreboard.Show(NameOf(playerLeft), NameOf(playerRight), ScoreLeft, ScoreRight, Caption(), Hint());
+            if (scoreboard != null) scoreboard.Show(NameOf(playerLeft), NameOf(playerRight), ShownScoreLeft, ShownScoreRight, Caption(), Hint());
         }
 
         // --- что реализует игра ---
@@ -73,23 +84,78 @@ namespace Neurotlon.Games.Pong
         protected override void OnGameStart()
         {
             if (playerLeft == null) ResolvePlayers();
-            var random = new System.Random();
-            rules = new PongRules(tuning, () => (float)random.NextDouble(), Side.Left);
+            rules = CreateRules(tuning);
             rules.Raised += OnRulesEvent;
+            pulseLeft = 0f;
+            pulseRight = 0f;
             zLeft = 0f;
             zRight = 0f;
             targetLeft = 0.5f;
             targetRight = 0.5f;
+            matchIntroLeft = MatchIntroSeconds;                 // «официальное» начало: карточка матча, розыгрыш ещё не идёт
         }
 
-        // Обучение: два коротких шага. Ракетка и так показывает, как работает сигнал, поэтому текста мало.
+        // Обучение: механики понга по очереди, у обоих игроков одновременно. Шаг засчитан, когда механика сработала у обоих.
         protected override string[] TutorialSteps()
         {
-            return new[]
+            return PongTutorial.Texts(tuning.TargetScore);
+        }
+
+        // Песочница: на шаге «Ракетка» мяча нет, на остальных идёт розыгрыш на отдельных правилах (очки в результат не идут).
+        protected override void OnTutorialStepStart(int index)
+        {
+            if (playerLeft == null) ResolvePlayers();
+            tutorialState.Reset();
+            pulseLeft = 0f;
+            pulseRight = 0f;
+            if (index == PongTutorial.PaddleStep)
             {
-                "Сила мышцы двигает вашу ракетку из стороны в сторону",
-                "Отбивайте мяч: побеждает тот, кто первым наберёт " + tuning.TargetScore,
-            };
+                rules = null;
+                return;
+            }
+            PongTuning sandbox = tuning.Clone();
+            sandbox.TargetScore = TutorialTargetScore;
+            rules = CreateRules(sandbox);
+            rules.Raised += OnTutorialRulesEvent;
+            tutorialState.OnRulesEvent(PongEventKind.Serve, rules.Server);     // первую подачу конструктор поднял до подписки
+        }
+
+        protected override bool OnTutorialUpdate(int index, float dt)
+        {
+            float? l = Bridge.Value(signalLeft);
+            float? r = Bridge.Value(signalRight);
+            FollowSignals(l, r, dt);
+            tutorialState.StepSignals(l, r);
+            if (rules != null) rules.Step(dt, zLeft, zRight);
+            pulseLeft = Mathf.Max(0f, pulseLeft - dt);
+            pulseRight = Mathf.Max(0f, pulseRight - dt);
+            PlaceObjects(dt);
+            return tutorialState.IsDone(index);
+        }
+
+        protected override void DrawTutorial(int index)
+        {
+            DrawScoreHeader();
+            DrawTensionBars(false);
+        }
+
+        protected override void OnTutorialEnd()
+        {
+            rules = null;
+            pulseLeft = 0f;
+            pulseRight = 0f;
+        }
+
+        PongRules CreateRules(PongTuning settings)
+        {
+            var random = new System.Random();
+            return new PongRules(settings, () => (float)random.NextDouble(), Side.Left);
+        }
+
+        void OnTutorialRulesEvent(PongEvent e)
+        {
+            OnRulesEvent(e);
+            tutorialState.OnRulesEvent(e.Kind, e.Side);
         }
 
         protected override bool HasCheck { get { return true; } }
@@ -130,6 +196,12 @@ namespace Neurotlon.Games.Pong
         protected override void OnGameUpdate(float dt)
         {
             FollowSignals(Bridge.Value(signalLeft), Bridge.Value(signalRight), dt);
+            if (matchIntroLeft > 0f)
+            {
+                matchIntroLeft -= dt;                           // ракетки уже двигаются, а мяч и счёт ждут конца карточки
+                PlaceObjects(dt);
+                return;
+            }
 
             if (TimeLeft <= 0f && !timeExpiredHandled)
             {
@@ -181,11 +253,50 @@ namespace Neurotlon.Games.Pong
         // Счёт на экране игроков: сверху по центру, между двумя половинами. Для зрителей — табло на стене.
         protected override void DrawGame()
         {
+            DrawScoreHeader();
+            DrawTensionBars(false);
+            DrawMatchIntro();
+        }
+
+        // Карточка начала матча: «МАТЧ», до скольки очков, кто с кем играет и кто подаёт первым. Держится MatchIntroSeconds.
+        void DrawMatchIntro()
+        {
+            if (matchIntroLeft <= 0f || rules == null) return;
+            if (displays != null && !displays.ShowsPlayers) return;
+            if (introStyle == null)
+                introStyle = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter, wordWrap = false, clipping = TextClipping.Overflow };
+            Rect area = displays != null ? displays.PlayerViewArea : new Rect(0f, 0f, Screen.width, Screen.height);
+            float s = Mathf.Clamp(area.height / 1080f, 0.5f, 2.5f);
+            float alpha = Mathf.Clamp01(matchIntroLeft / 0.4f);                  // в конце карточка гаснет
+            var band = new Rect(area.x, area.y + area.height * 0.30f, area.width, area.height * 0.34f);
+            GUI.color = new Color(0f, 0f, 0f, 0.62f * alpha);
+            GUI.DrawTexture(band, Texture2D.whiteTexture);
+            GUI.color = Color.white;
+            float cx = band.center.x;
+            DrawIntroLine(new Rect(area.x, band.y + band.height * 0.04f, area.width, 120f * s), "МАТЧ", Mathf.RoundToInt(100f * s), Color.white, alpha);
+            DrawIntroLine(new Rect(area.x, band.y + band.height * 0.36f, area.width, 56f * s), "До " + tuning.TargetScore + " очков", Mathf.RoundToInt(44f * s), Color.white, alpha);
+            DrawIntroLine(new Rect(area.x, band.y + band.height * 0.56f, area.width, 56f * s), NameOf(playerLeft) + "  против  " + NameOf(playerRight), Mathf.RoundToInt(44f * s), new Color(1f, 0.95f, 0.7f), alpha);
+            string server = NameOf(rules.Server == Side.Left ? playerLeft : playerRight);
+            DrawIntroLine(new Rect(area.x, band.y + band.height * 0.76f, area.width, 50f * s), "Первая подача: " + server, Mathf.RoundToInt(36f * s), new Color(0.75f, 0.9f, 1f), alpha);
+        }
+
+        void DrawIntroLine(Rect rect, string text, int fontSize, Color color, float alpha)
+        {
+            introStyle.fontSize = fontSize;
+            color.a = alpha;
+            introStyle.normal.textColor = color;
+            OutlinedLabel(rect, text, introStyle);
+        }
+
+        // Верх экрана игроков: разделитель половин, цветные метки, имена и счёт. Общий для матча и обучения.
+        void DrawScoreHeader()
+        {
             if (displays != null && !displays.ShowsPlayers) return;     // в виде «только зрители» подсказок игроков нет
             if (hudName == null)
             {
                 hudName = new GUIStyle(GUI.skin.label) { fontSize = 30, fontStyle = FontStyle.Bold, wordWrap = false, clipping = TextClipping.Clip };
-                hudScore = new GUIStyle(GUI.skin.label) { fontSize = 84, fontStyle = FontStyle.Bold, wordWrap = false, alignment = TextAnchor.UpperCenter };
+                hudScore = new GUIStyle(GUI.skin.label) { fontSize = Mathf.RoundToInt(PongScoreLayout.FontSize), fontStyle = FontStyle.Bold, alignment = TextAnchor.UpperCenter };
+                NeurotlonHud.SingleLine(hudScore);
             }
             Rect area = displays != null ? displays.PlayerViewArea : new Rect(0f, 0f, Screen.width, Screen.height);
             float cx = area.x + area.width * 0.5f;
@@ -199,12 +310,16 @@ namespace Neurotlon.Games.Pong
             GUI.color = Color.white;
             hudName.normal.textColor = Color.white;
             hudScore.normal.textColor = Color.white;
-            float nameWidth = Mathf.Max(160f, area.width * 0.2f);
+            // счёт по ширине текста строго по центру; имена отодвинуты на половину его ширины и запас
+            string score = PongScoreLayout.Text(ShownScoreLeft, ShownScoreRight);
+            float scoreWidth = PongScoreLayout.Width(score);
+            float offset = PongScoreLayout.NameOffset(score);
+            float nameWidth = Mathf.Min(Mathf.Max(160f, area.width * 0.2f), area.width * 0.5f - offset - 8f);
             hudName.alignment = TextAnchor.UpperRight;
-            GUI.Label(new Rect(cx - 90f - nameWidth, area.y + 26f, nameWidth, 44f), NameOf(playerLeft), hudName);
+            GUI.Label(new Rect(cx - offset - nameWidth, area.y + 26f, nameWidth, 44f), NameOf(playerLeft), hudName);
             hudName.alignment = TextAnchor.UpperLeft;
-            GUI.Label(new Rect(cx + 90f, area.y + 26f, nameWidth, 44f), NameOf(playerRight), hudName);
-            GUI.Label(new Rect(cx - 85f, area.y + 10f, 170f, 110f), ScoreLeft + ":" + ScoreRight, hudScore);
+            GUI.Label(new Rect(cx + offset, area.y + 26f, nameWidth, 44f), NameOf(playerRight), hudName);
+            GUI.Label(new Rect(cx - scoreWidth * 0.5f, area.y + 10f, scoreWidth, 110f), score, hudScore);
         }
 
         // Экран проверки: у каждого игрока своя половина, два пункта и отметка «готово». Значений сигнала и шкал нет.
@@ -217,6 +332,49 @@ namespace Neurotlon.Games.Pong
             Rect area = displays != null ? displays.PlayerViewArea : new Rect(0f, 0f, Screen.width, Screen.height);
             DrawCheckHalf(new Rect(area.x, area.y, area.width * 0.5f, area.height), playerLeft, checkLeft, checkRight.Passed);
             DrawCheckHalf(new Rect(area.x + area.width * 0.5f, area.y, area.width * 0.5f, area.height), playerRight, checkRight, checkLeft.Passed);
+            DrawTensionBars(true);
+        }
+
+        // Шкалы напряжения в верхних внешних углах на уровне имён: у левого игрока слева (красная), у правого справа
+        // (синяя), обе заполняются к центру. Игрок сам решает, смотреть ли на шкалу. В проверке на шкале отмечены границы
+        // «слабо» и «сильно».
+        void DrawTensionBars(bool showCheckMarks)
+        {
+            if (displays != null && !displays.ShowsPlayers) return;
+            Rect area = displays != null ? displays.PlayerViewArea : new Rect(0f, 0f, Screen.width, Screen.height);
+            const float barH = 30f, margin = 24f, nameTop = 26f, nameHeight = 44f;           // по высоте строки имён (DrawScoreHeader)
+            float barW = Mathf.Clamp(area.width * 0.18f, 160f, 420f);
+            float top = area.y + nameTop + (nameHeight - barH) * 0.5f;
+            DrawTensionBar(new Rect(area.x + margin, top, barW, barH), targetLeft, new Color(0.85f, 0.10f, 0.10f), false, showCheckMarks);
+            DrawTensionBar(new Rect(area.xMax - margin - barW, top, barW, barH), targetRight, new Color(0.12f, 0.38f, 0.90f), true, showCheckMarks);
+        }
+
+        // fromRight: шкала растёт справа налево (у правого игрока), иначе слева направо.
+        void DrawTensionBar(Rect bar, float value, Color fill, bool fromRight, bool marks)
+        {
+            if (tensionStyle == null)
+                tensionStyle = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold, alignment = TextAnchor.UpperCenter, wordWrap = false, clipping = TextClipping.Overflow };
+            tensionStyle.fontSize = 18;
+            tensionStyle.normal.textColor = Color.white;
+            const float edge = 3f;
+            GUI.color = new Color(0f, 0f, 0f, 0.65f);
+            GUI.DrawTexture(new Rect(bar.x - edge, bar.y - edge, bar.width + 2f * edge, bar.height + 2f * edge), Texture2D.whiteTexture);
+            GUI.color = new Color(0.12f, 0.14f, 0.20f, 1f);
+            GUI.DrawTexture(bar, Texture2D.whiteTexture);
+            float filled = bar.width * Mathf.Clamp01(value);
+            GUI.color = fill;
+            GUI.DrawTexture(new Rect(fromRight ? bar.xMax - filled : bar.x, bar.y, filled, bar.height), Texture2D.whiteTexture);
+            if (marks)
+            {
+                GUI.color = Color.white;
+                foreach (float mark in new[] { PongCheck.LowThreshold, PongCheck.HighThreshold })
+                {
+                    float x = fromRight ? bar.xMax - bar.width * mark : bar.x + bar.width * mark;
+                    GUI.DrawTexture(new Rect(x - 1.5f, bar.y - 6f, 3f, bar.height + 12f), Texture2D.whiteTexture);
+                }
+            }
+            GUI.color = Color.white;
+            OutlinedLabel(new Rect(bar.x, bar.yMax + 4f, bar.width, 24f), TensionLabel, tensionStyle);
         }
 
         void DrawCheckHalf(Rect half, LaunchParticipant player, PongCheck check, bool otherPassed)
@@ -229,8 +387,8 @@ namespace Neurotlon.Games.Pong
             var lines = new List<KeyValuePair<string, Color>>();
             Color green = new Color(0.55f, 0.95f, 0.55f);
             lines.Add(new KeyValuePair<string, Color>("ПРОВЕРКА: " + NameOf(player), Color.white));
-            lines.Add(new KeyValuePair<string, Color>(check.HighDone ? "Сожмите мышцу сильно и держите: готово" : "Сожмите мышцу сильно и держите", check.HighDone ? green : Color.white));
-            lines.Add(new KeyValuePair<string, Color>(check.LowDone ? "Расслабьте мышцу полностью и держите: готово" : "Расслабьте мышцу полностью и держите", check.LowDone ? green : Color.white));
+            lines.Add(new KeyValuePair<string, Color>(check.HighDone ? HighLine + ": готово" : HighLine, check.HighDone ? green : Color.white));
+            lines.Add(new KeyValuePair<string, Color>(check.LowDone ? LowLine + ": готово" : LowLine, check.LowDone ? green : Color.white));
             if (check.Passed && !otherPassed) lines.Add(new KeyValuePair<string, Color>("Ждём второго игрока", green));
             float total = gap;
             foreach (var line in lines) total += checkStyle.CalcHeight(new GUIContent(line.Key), width) + gap;
@@ -250,8 +408,9 @@ namespace Neurotlon.Games.Pong
 
         // --- внутреннее ---
 
-        int ScoreLeft { get { return rules != null ? rules.ScoreLeft : 0; } }
-        int ScoreRight { get { return rules != null ? rules.ScoreRight : 0; } }
+        // Счёт для показа: --debug-score подменяет только экран, в BuildResult идут настоящие очки правил.
+        int ShownScoreLeft { get { return hasDebugScore ? debugScoreLeft : rules != null ? rules.ScoreLeft : 0; } }
+        int ShownScoreRight { get { return hasDebugScore ? debugScoreRight : rules != null ? rules.ScoreRight : 0; } }
 
         void ResolvePlayers()
         {
@@ -291,6 +450,7 @@ namespace Neurotlon.Games.Pong
                 case Stage.Finished: return "ИГРА ОКОНЧЕНА";
             }
             if (rules == null) return "";
+            if (matchIntroLeft > 0f) return "МАТЧ";
             if (rules.Phase == PongPhase.Over) return "ПОБЕДА";
             if (rules.Overtime) return "ЗОЛОТОЙ МЯЧ";
             return "ДО " + tuning.TargetScore;
@@ -322,7 +482,7 @@ namespace Neurotlon.Games.Pong
         }
 
         // Где мяч пересечёт линию ракетки относительно неё: +1 справа от игрока (форхенд), -1 слева (бэкхенд).
-        // Игрок слева смотрит вдоль +X, его правая рука — это -Z; игрок справа смотрит вдоль -X, правая рука — +Z.
+        // Игрок слева смотрит вдоль +X, «вправо» для него — это -Z; игрок справа смотрит вдоль -X, «вправо» — +Z.
         float Lateral(Side side, float paddleZ)
         {
             if (rules == null || rules.Phase != PongPhase.Rally) return 0f;
