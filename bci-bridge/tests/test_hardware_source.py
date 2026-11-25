@@ -1,13 +1,23 @@
 import asyncio
 import json
 import time
+from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
 
-from neurotlon_bridge.config import BridgeConfig, ConfigError
+from neurotlon_bridge.calibration_store import (
+    FILE_NAME,
+    CalibrationRecord,
+    CalibrationStore,
+    FileCalibrationStore,
+    MemoryStore,
+)
+from neurotlon_bridge.config import BridgeConfig, CalibrationConfig, ConfigError
 from neurotlon_bridge.devices.fakes import FakeBackend, FakeClock, FakeRawSensor
+from neurotlon_bridge.emulator import EmulatedSource
 from neurotlon_bridge.hardware_source import HardwareSource, make_engine_factory
 from neurotlon_bridge.processing.alpha import AlphaEngine
 from neurotlon_bridge.processing.eeg import EegResult
@@ -62,7 +72,18 @@ class FakeEngine:
 
 
 class Rig:
-    def __init__(self, profile: str, serials: dict[str, str]) -> None:
+    engine_cls: type[FakeEngine] = FakeEngine
+
+    def __init__(
+        self,
+        profile: str,
+        serials: dict[str, str],
+        *,
+        store: CalibrationStore | None = None,
+        wall_clock: Callable[[], float] = time.time,
+        eeg_method: EegMethod = "alpha",
+        calibration: CalibrationConfig | None = None,
+    ) -> None:
         kinds = {"eeg": "brainbit"}
         self.raws = {
             sig: FakeRawSensor(kinds.get(sig, "callibri"), sn)  # type: ignore[arg-type]
@@ -71,9 +92,19 @@ class Rig:
         self.backend = FakeBackend(list(self.raws.values()))
         self.clock = FakeClock(10.0)
         self.engines: list[FakeEngine] = []
-        config = BridgeConfig(devices=serials, emg=FAST_EMG)
+        config = BridgeConfig(
+            devices=serials, emg=FAST_EMG, calibration=calibration or CalibrationConfig()
+        )
         self.src = HardwareSource(
-            profile, config, self.backend, self.clock, threaded=False, engine_factory=self._engine
+            profile,
+            config,
+            self.backend,
+            self.clock,
+            threaded=False,
+            engine_factory=self._engine,
+            eeg_method=eeg_method,
+            store=store,
+            wall_clock=wall_clock,
         )
         self.rng = np.random.default_rng(7)
         self.src.start()
@@ -84,7 +115,7 @@ class Rig:
             time.sleep(0.01)
 
     def _engine(self) -> FakeEngine:
-        self.engines.append(FakeEngine())
+        self.engines.append(self.engine_cls())
         return self.engines[-1]
 
     def run(self, seconds: float, sigmas: dict[str, float]) -> None:
@@ -599,3 +630,488 @@ def test_source_uses_selected_method(monkeypatch: pytest.MonkeyPatch, method: Ee
     expected = 0.5 if method == "emotions" else 25 / (5 * 250)
     assert status.progress == pytest.approx(expected, abs=0.01)
     src.close()
+
+
+# --- калибровка: hello.calibrated и сохранение на диск ---
+
+
+class PersistentFakeEngine(FakeEngine):
+    """Движок, умеющий выгружать и принимать границы (как `AlphaEngine`)."""
+
+    LOW, HIGH = 0.1, 0.4
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.bounds: tuple[float, float] | None = None
+
+    @property
+    def calibrated(self) -> bool:
+        return self.bounds is not None or super().calibrated
+
+    def export_bounds(self) -> tuple[float, float] | None:
+        if self.bounds is None and super().calibrated:
+            self.bounds = (self.LOW, self.HIGH)
+        return self.bounds
+
+    def restore_bounds(self, low: float, high: float) -> None:
+        if not low < high:
+            raise ValueError("границы")
+        self.bounds = (low, high)
+
+
+class PersistentRig(Rig):
+    engine_cls = PersistentFakeEngine
+
+
+class WallClock:
+    def __init__(self, now: float = 1_000_000.0) -> None:
+        self.now = now
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def calibrate_eeg(rig: Rig) -> None:
+    rig.src.start_calibration("eeg", "baseline")
+    rig.run(0.1, {"eeg": 0})
+
+
+def stored(tmp_path: Path) -> dict[str, Any]:
+    data: dict[str, Any] = json.loads((tmp_path / FILE_NAME).read_text(encoding="utf-8"))
+    return data
+
+
+def wait_until(cond: Callable[[], bool], timeout_s: float = 5.0) -> bool:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if cond():
+            return True
+        time.sleep(0.01)
+    return cond()
+
+
+def test_emulator_needs_no_calibration() -> None:
+    source = EmulatedSource("darts", time.monotonic)
+    assert [source.is_calibrated(s) for s in source.signals()] == [False, False]
+    assert [source.state(s) for s in source.signals()] == ["emulated", "emulated"]
+    with pytest.raises(ValueError):
+        source.is_calibrated("gsr")
+
+
+def test_unknown_signal_is_an_error() -> None:
+    rig = Rig("pong", PONG)
+    with pytest.raises(ValueError):
+        rig.src.is_calibrated("eeg")
+    rig.src.close()
+
+
+def test_is_calibrated_follows_steps() -> None:
+    rig = Rig("darts", DARTS)
+    assert not rig.src.is_calibrated("emg")
+    assert not rig.src.is_calibrated("eeg")
+    rig.src.start_calibration("emg", "rest")
+    rig.run(1.2, {"emg": REST})
+    assert not rig.src.is_calibrated("emg")  # покой есть, максимума нет
+    rig.src.start_calibration("emg", "contract")
+    rig.run(1.6, {"emg": BURST})
+    rig.run(0.2, {"emg": REST})
+    assert rig.src.is_calibrated("emg")
+    assert not rig.src.is_calibrated("eeg")
+    rig.src.start_calibration("eeg", "baseline")
+    assert not rig.src.is_calibrated("eeg")  # идёт
+    rig.run(0.1, {"eeg": 0})
+    assert rig.src.is_calibrated("eeg")
+    rig.src.reset()
+    assert not rig.src.is_calibrated("emg")
+    assert not rig.src.is_calibrated("eeg")
+    rig.src.close()
+
+
+def test_calibration_survives_sensor_reconnect() -> None:
+    rig = Rig("pong", PONG)
+    rig.calibrate_emg("emg_left")
+    rig.raws["emg_left"].emit_state(False)
+    rig.src.step()
+    rig.raws["emg_left"].emit_state(True)
+    rig.src.step()
+    assert rig.src.is_calibrated("emg_left")
+    assert not rig.src.is_calibrated("emg_right")
+    rig.src.close()
+
+
+def test_restarting_one_signal_keeps_the_other_calibrated() -> None:
+    rig = Rig("pong", PONG)
+    rig.calibrate_emg("emg_left")
+    rig.calibrate_emg("emg_right")
+    rig.src.start_calibration("emg_left", "rest")
+    assert not rig.src.is_calibrated("emg_left")
+    assert rig.src.is_calibrated("emg_right")
+    rig.src.close()
+
+
+def test_no_store_means_nothing_is_written(tmp_path: Path) -> None:
+    rig = Rig("pong", PONG)
+    rig.calibrate_emg("emg_left")
+    assert list(tmp_path.iterdir()) == []
+    rig.src.close()
+
+
+def test_successful_steps_are_saved(tmp_path: Path) -> None:
+    clock = WallClock()
+    rig = PersistentRig("darts", DARTS, store=FileCalibrationStore(tmp_path), wall_clock=clock)
+    assert not (tmp_path / FILE_NAME).exists()
+    rig.calibrate_emg("emg")
+    data = stored(tmp_path)
+    assert set(data["signals"]) == {"emg"}
+    emg = data["signals"]["emg"]
+    assert 0 <= emg["rest"] < emg["peak"]
+    assert emg["calibrated_at"] == clock.now
+    assert data["eeg_method"] == "alpha"
+    calibrate_eeg(rig)
+    eeg = stored(tmp_path)["signals"]["eeg"]
+    assert (eeg["low"], eeg["high"]) == (0.1, 0.4)
+    assert eeg["fs"] == 250.0
+    rig.src.close()
+
+
+def test_file_is_not_rewritten_without_changes() -> None:
+    class CountingStore(MemoryStore):
+        saves = 0
+
+        def save(self, record: CalibrationRecord) -> None:
+            self.saves += 1
+            super().save(record)
+
+    store = CountingStore()
+    rig = Rig("pong", PONG, store=store)
+    rig.calibrate_emg("emg_left")
+    assert store.saves == 1
+    rig.run(1.0, {"emg_left": REST})
+    assert store.saves == 1
+    rig.src.close()
+
+
+def test_new_step_failed_step_and_reset_erase(tmp_path: Path) -> None:
+    rig = PersistentRig("darts", DARTS, store=FileCalibrationStore(tmp_path))
+    rig.calibrate_emg("emg")
+    calibrate_eeg(rig)
+    assert set(stored(tmp_path)["signals"]) == {"emg", "eeg"}
+    # новый шаг ЭМГ делает прежнюю шкалу недействительной, ЭЭГ остаётся
+    rig.src.start_calibration("emg", "cycle", (Segment("relax", 2.0), Segment("tense", 2.0)))
+    assert set(stored(tmp_path)["signals"]) == {"eeg"}
+    rig.run(4.4, {"emg": REST})  # сокращения нет: шаг проваливается
+    status = rig.src.calibration_status("emg")
+    assert status is not None and status.status == "failed"
+    assert set(stored(tmp_path)["signals"]) == {"eeg"}
+    rig.src.reset()
+    assert not (tmp_path / FILE_NAME).exists()
+    rig.src.close()
+
+
+def test_failed_contract_erases_the_signal(tmp_path: Path) -> None:
+    rig = Rig("pong", PONG, store=FileCalibrationStore(tmp_path))
+    rig.calibrate_emg("emg_left")
+    assert (tmp_path / FILE_NAME).exists()
+    rig.src.start_calibration("emg_left", "contract")  # покой остался, максимум сброшен
+    assert not (tmp_path / FILE_NAME).exists()
+    rig.run(1.8, {"emg_left": REST})  # сокращения нет
+    status = rig.src.calibration_status("emg_left")
+    assert status is not None and status.status == "failed"
+    assert not (tmp_path / FILE_NAME).exists()
+    rig.src.close()
+
+
+def test_calibration_survives_process_restart(tmp_path: Path) -> None:
+    clock = WallClock()
+    first = PersistentRig("darts", DARTS, store=FileCalibrationStore(tmp_path), wall_clock=clock)
+    first.calibrate_emg("emg")
+    calibrate_eeg(first)
+    first.src.close()
+    saved_at = clock.now
+    clock.now += 600  # мост перезапускался десять минут
+    second = PersistentRig("darts", DARTS, store=FileCalibrationStore(tmp_path), wall_clock=clock)
+    assert second.src.is_calibrated("emg")
+    assert second.src.is_calibrated("eeg")
+    # шкала применяется: покой даёт около нуля, сокращение около единицы
+    second.run(1.0, {"emg": REST, "eeg": 0})
+    rest = second.src.read(0)["emg"]
+    assert rest.valid and rest.value < 0.15
+    second.run(1.0, {"emg": BURST, "eeg": 0})
+    assert second.src.read(0)["emg"].value > 0.5
+    engine = second.engines[0]
+    assert isinstance(engine, PersistentFakeEngine)
+    assert engine.bounds == (0.1, 0.4)
+    # восстановленная калибровка остаётся в файле, время калибровки прежнее
+    assert stored(tmp_path)["signals"]["emg"]["calibrated_at"] == saved_at
+    second.src.close()
+
+
+def test_restored_emg_scale_equals_the_saved_one(tmp_path: Path) -> None:
+    first = Rig("pong", PONG, store=FileCalibrationStore(tmp_path))
+    first.calibrate_emg("emg_left")
+    saved = stored(tmp_path)["signals"]["emg_left"]
+    first.src.close()
+    second = Rig("pong", PONG, store=FileCalibrationStore(tmp_path))
+    assert second.src.is_calibrated("emg_left")
+    assert not second.src.is_calibrated("emg_right")
+    assert stored(tmp_path)["signals"]["emg_left"] == saved
+    second.src.close()
+
+
+def test_restored_calibration_gives_bursts(tmp_path: Path) -> None:
+    first = Rig("pong", PONG, store=FileCalibrationStore(tmp_path))
+    first.calibrate_emg("emg_left")
+    first.src.close()
+    second = Rig("pong", PONG, store=FileCalibrationStore(tmp_path))
+    second.run(1.0, {"emg_left": REST})
+    second.src.drain_bursts("emg_left")
+    second.run(0.6, {"emg_left": BURST})
+    assert second.src.drain_bursts("emg_left")
+    second.src.close()
+
+
+def test_expired_file_is_ignored_and_erased(tmp_path: Path) -> None:
+    clock = WallClock()
+    first = Rig("pong", PONG, store=FileCalibrationStore(tmp_path), wall_clock=clock)
+    first.calibrate_emg("emg_left")
+    first.src.close()
+    clock.now += 4 * 3600 + 1
+    second = Rig("pong", PONG, store=FileCalibrationStore(tmp_path), wall_clock=clock)
+    assert not second.src.is_calibrated("emg_left")
+    assert not (tmp_path / FILE_NAME).exists()
+    second.src.close()
+
+
+def test_ttl_comes_from_config(tmp_path: Path) -> None:
+    clock = WallClock()
+    first = Rig("pong", PONG, store=FileCalibrationStore(tmp_path), wall_clock=clock)
+    first.calibrate_emg("emg_left")
+    first.src.close()
+    clock.now += 2 * 3600
+    short = Rig(
+        "pong",
+        PONG,
+        store=FileCalibrationStore(tmp_path),
+        wall_clock=clock,
+        calibration=CalibrationConfig(ttl_h=1.0),
+    )
+    assert not short.src.is_calibrated("emg_left")
+    short.src.close()
+
+
+def test_corrupt_file_is_ignored_and_erased(tmp_path: Path) -> None:
+    (tmp_path / FILE_NAME).write_text("{оборвано", encoding="utf-8")
+    rig = Rig("pong", PONG, store=FileCalibrationStore(tmp_path))
+    assert not rig.src.is_calibrated("emg_left")
+    assert not (tmp_path / FILE_NAME).exists()
+    rig.src.close()
+
+
+def test_other_eeg_method_is_ignored_and_erased(tmp_path: Path) -> None:
+    first = PersistentRig("darts", DARTS, store=FileCalibrationStore(tmp_path))
+    first.calibrate_emg("emg")
+    calibrate_eeg(first)
+    first.src.close()
+    second = PersistentRig(
+        "darts", DARTS, store=FileCalibrationStore(tmp_path), eeg_method="emotions"
+    )
+    assert not second.src.is_calibrated("emg")
+    assert not second.src.is_calibrated("eeg")
+    assert not (tmp_path / FILE_NAME).exists()
+    second.src.close()
+
+
+def test_file_with_a_foreign_signal_is_ignored(tmp_path: Path) -> None:
+    first = Rig("pong", PONG, store=FileCalibrationStore(tmp_path))
+    first.calibrate_emg("emg_left")
+    first.src.close()
+    second = PersistentRig("darts", DARTS, store=FileCalibrationStore(tmp_path))
+    assert not second.src.is_calibrated("emg")
+    assert not (tmp_path / FILE_NAME).exists()
+    second.src.close()
+
+
+@pytest.mark.parametrize(
+    "scale",
+    [
+        {"kind": "emg", "rest": 9.0, "peak": 3.0, "fs": 1000.0, "calibrated_at": 999_999.0},
+        {"kind": "emg", "rest": 3.0, "peak": 3.0, "fs": 1000.0, "calibrated_at": 999_999.0},
+        {"kind": "emg", "rest": 1.0, "peak": 1e999, "fs": 1000.0, "calibrated_at": 999_999.0},
+        {"kind": "eeg", "low": 0.1, "high": 0.4, "fs": 250.0, "calibrated_at": 999_999.0},
+    ],
+)
+def test_file_with_wrong_values_is_ignored(tmp_path: Path, scale: dict[str, Any]) -> None:
+    payload = {"schema_version": 1, "eeg_method": None, "signals": {"emg_left": scale}}
+    (tmp_path / FILE_NAME).write_text(json.dumps(payload), encoding="utf-8")
+    rig = Rig("pong", PONG, store=FileCalibrationStore(tmp_path), wall_clock=WallClock())
+    assert not rig.src.is_calibrated("emg_left")
+    assert not (tmp_path / FILE_NAME).exists()
+    rig.src.close()
+
+
+def test_engine_without_export_is_not_saved_nor_declared(tmp_path: Path) -> None:
+    """Движок без выгрузки параметров (как `Pyem`): ЭМГ сохраняется, ЭЭГ нет."""
+    first = Rig("darts", DARTS, store=FileCalibrationStore(tmp_path), eeg_method="emotions")
+    first.calibrate_emg("emg")
+    calibrate_eeg(first)
+    assert first.src.is_calibrated("eeg")
+    assert set(stored(tmp_path)["signals"]) == {"emg"}
+    first.src.close()
+    second = Rig("darts", DARTS, store=FileCalibrationStore(tmp_path), eeg_method="emotions")
+    assert second.src.is_calibrated("emg")
+    assert not second.src.is_calibrated("eeg")
+    second.src.close()
+
+
+def test_broken_disk_does_not_stop_the_bridge() -> None:
+    class Broken(MemoryStore):
+        def load(self) -> CalibrationRecord | None:
+            raise OSError("диск")
+
+        def save(self, record: CalibrationRecord) -> None:
+            raise OSError("диск")
+
+        def clear(self) -> None:
+            raise OSError("диск")
+
+    rig = Rig("pong", PONG, store=Broken())
+    rig.calibrate_emg("emg_left")
+    assert rig.src.is_calibrated("emg_left")  # калибровка живёт в памяти, мост работает
+    rig.src.reset()
+    assert not rig.src.is_calibrated("emg_left")
+    rig.src.close()
+
+
+def test_threaded_steps_save_without_deadlock(tmp_path: Path) -> None:
+    raw = FakeRawSensor("callibri", "T-1")
+    bb = FakeRawSensor("brainbit", "B-1")
+    config = BridgeConfig(devices={"emg": "T-1", "eeg": "B-1"}, emg=FAST_EMG)
+    store = FileCalibrationStore(tmp_path)
+    src = HardwareSource(
+        "darts", config, FakeBackend([raw, bb]), engine_factory=PersistentFakeEngine, store=store
+    )
+    src.start()
+    try:
+        src.start_calibration("eeg", "baseline")
+        deadline = time.monotonic() + 5
+        while not src.is_calibrated("eeg") and time.monotonic() < deadline:
+            bb.emit_samples([[1e-6] * 4] * 6)
+            time.sleep(0.02)
+        assert src.is_calibrated("eeg")
+        assert wait_until(lambda: (tmp_path / FILE_NAME).exists())
+    finally:
+        src.close()
+
+
+# --- hello.calibrated по сокету: калибровка не зависит от соединения ---
+
+
+async def _hello(port: int) -> dict[str, Any]:
+    """`hello` нового клиента; слот ещё занят прежним - пробуем снова."""
+    deadline = time.monotonic() + 3
+    while True:
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+        line = await asyncio.wait_for(reader.readline(), 3)
+        writer.close()
+        await writer.wait_closed()
+        if line or time.monotonic() > deadline:
+            hello: dict[str, Any] = json.loads(line)
+            return hello
+        await asyncio.sleep(0.02)
+
+
+def test_hello_lists_calibrated_signals_for_each_new_client(tmp_path: Path) -> None:
+    rig = PersistentRig("darts", DARTS, store=FileCalibrationStore(tmp_path))
+    rig.calibrate_emg("emg")
+
+    async def scenario() -> list[dict[str, Any]]:
+        server = BridgeServer(rig.src, port=0, eeg_method="alpha")
+        await server.start()
+        try:
+            first = await _hello(server.port)  # клиент отключился...
+            calibrate_eeg(rig)  # ...калибровка продолжилась без него
+            second = await _hello(server.port)  # ...новый клиент её видит
+            return [first, second]
+        finally:
+            await server.stop()
+
+    first, second = asyncio.run(scenario())
+    rig.src.close()
+    assert "calibration_state" in first["features"]
+    assert first["calibrated"] == ["emg"]
+    assert second["calibrated"] == ["eeg", "emg"]
+
+
+def test_hello_after_bridge_restart_lists_restored_signals(tmp_path: Path) -> None:
+    first = Rig("pong", PONG, store=FileCalibrationStore(tmp_path))
+    first.calibrate_emg("emg_left")
+    first.src.close()
+    second = Rig("pong", PONG, store=FileCalibrationStore(tmp_path))
+
+    async def scenario() -> dict[str, Any]:
+        server = BridgeServer(second.src, port=0)
+        await server.start()
+        try:
+            return await _hello(server.port)
+        finally:
+            await server.stop()
+
+    hello = asyncio.run(scenario())
+    second.src.close()
+    assert hello["calibrated"] == ["emg_left"]
+
+
+def test_reset_over_the_wire_clears_hello_and_file(tmp_path: Path) -> None:
+    rig = Rig("pong", PONG, store=FileCalibrationStore(tmp_path))
+    rig.calibrate_emg("emg_left")
+
+    async def scenario() -> dict[str, Any]:
+        server = BridgeServer(rig.src, port=0)
+        await server.start()
+        try:
+            reader, writer = await asyncio.open_connection("127.0.0.1", server.port)
+            await reader.readline()
+            writer.write(b'{"type":"reset"}\n')
+            await writer.drain()
+            deadline = time.monotonic() + 3
+            while rig.src.is_calibrated("emg_left") and time.monotonic() < deadline:
+                await asyncio.sleep(0.01)
+            writer.close()
+            await writer.wait_closed()
+            return await _hello(server.port)
+        finally:
+            await server.stop()
+
+    hello = asyncio.run(scenario())
+    rig.src.close()
+    assert hello["calibrated"] == []
+    assert not (tmp_path / FILE_NAME).exists()
+
+
+def test_restore_never_raises_from_the_constructor() -> None:
+    class Exploding(MemoryStore):
+        def load(self) -> CalibrationRecord:
+            raise RuntimeError("неожиданно")
+
+    rig = Rig("pong", PONG, store=Exploding())
+    assert not rig.src.is_calibrated("emg_left")
+    rig.src.close()
+
+
+def test_changed_sampling_rate_does_not_refresh_the_calibration_time(tmp_path: Path) -> None:
+    from neurotlon_bridge.calibration_store import EmgScale
+
+    clock = WallClock()
+    rig = Rig("pong", PONG, store=FileCalibrationStore(tmp_path), wall_clock=clock)
+    rig.calibrate_emg("emg_left")
+    first = stored(tmp_path)["signals"]["emg_left"]
+    clock.now += 3600
+    channel = rig.src._channel("emg_left")
+    original = channel.export_scale
+    channel.export_scale = lambda: EmgScale(first["rest"], first["peak"], 500.0)  # type: ignore[method-assign]
+    rig.src._sync_store()
+    channel.export_scale = original  # type: ignore[method-assign]
+    after = stored(tmp_path)["signals"]["emg_left"]
+    assert after["fs"] == 500.0
+    assert after["calibrated_at"] == first["calibrated_at"]  # TTL не «молодеет»
+    rig.src.close()

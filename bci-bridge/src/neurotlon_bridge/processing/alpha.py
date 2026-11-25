@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import math
 from collections import deque
 from dataclasses import dataclass
 from typing import Literal
@@ -179,6 +180,15 @@ class AlphaEngine:
         self._bounds = None
         self._failure = None
         self._started = True
+
+    def export_bounds(self) -> tuple[float, float] | None:
+        return self._bounds
+
+    def restore_bounds(self, low: float, high: float) -> None:
+        if not (math.isfinite(low) and math.isfinite(high) and low < high):
+            raise ValueError("границы калибровки: нужны конечные числа, low < high")
+        self._bounds = (low, high)
+        self._failure = None
 
     def push(self, volts: NDArray[np.float64]) -> None:
         """Форма (n, 4), столбцы O1, O2, T3, T4, вольты."""

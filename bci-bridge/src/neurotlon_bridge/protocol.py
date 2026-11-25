@@ -45,6 +45,7 @@ class Hello:
     protocol: int = PROTOCOL_VERSION
     features: tuple[Feature, ...] | None = None
     eeg_method: EegMethod | None = None
+    calibrated: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -121,6 +122,8 @@ def to_dict(msg: Message) -> dict[str, Any]:
                 hello["features"] = list(msg.features)
             if msg.eeg_method is not None:
                 hello["eeg_method"] = msg.eeg_method
+            if msg.calibrated is not None:
+                hello["calibrated"] = list(msg.calibrated)
             return hello
         case Sample():
             return {
@@ -308,7 +311,19 @@ def _decode_hello(data: dict[str, Any]) -> Hello:
     eeg_method = (
         cast(EegMethod, method) if isinstance(method, str) and method in _EEG_METHODS else None
     )
-    return Hello(tuple(items), int(_number(data.get("protocol"), "protocol")), features, eeg_method)
+    raw_calibrated = data.get("calibrated")
+    calibrated = (
+        tuple(s for s in raw_calibrated if isinstance(s, str) and s in _SIGNALS)
+        if isinstance(raw_calibrated, list)
+        else None
+    )
+    return Hello(
+        tuple(items),
+        int(_number(data.get("protocol"), "protocol")),
+        features,
+        eeg_method,
+        calibrated,
+    )
 
 
 def _decode_burst(data: dict[str, Any]) -> Burst | None:

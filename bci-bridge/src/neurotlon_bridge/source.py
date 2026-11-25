@@ -13,7 +13,7 @@ CalibrationStatus = Literal["running", "done", "failed"]
 Phase = Literal["tense", "relax"]
 EegMethod = Literal["emotions", "alpha"]
 EEG_METHODS: tuple[EegMethod, ...] = get_args(EegMethod)  # сверяется со схемой в тестах
-Feature = Literal["burst", "emg_cycle", "baseline_duration"]
+Feature = Literal["burst", "emg_cycle", "baseline_duration", "calibration_state"]
 
 # Границы `calibrate.segments` и `calibrate.duration_s` (shared/bridge-protocol.schema.json;
 # сумму длин схема выразить не может, её проверяет `protocol.calibrate_problem`).
@@ -106,6 +106,14 @@ class SignalSource(Protocol):
 
     def drain_bursts(self, signal: str) -> list[BurstEvent]:
         """События резкого сокращения с прошлого вызова; у сигналов без ЭМГ пусто."""
+        ...
+
+    def is_calibrated(self, signal: str) -> bool:
+        """Шкала сигнала готова: ЭМГ имеет `rest` и `peak`, движок ЭЭГ откалиброван.
+
+        Эмулятору калибровка не нужна (его значения действительны всегда): он отвечает False,
+        а игра различает такой сигнал по `state: emulated`.
+        """
         ...
 
     def reset(self) -> None: ...

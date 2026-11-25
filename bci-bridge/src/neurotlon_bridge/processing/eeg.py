@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 import numpy as np
 from numpy.typing import NDArray
@@ -61,6 +61,17 @@ class EegEngine(Protocol):
     def close(self) -> None: ...
 
 
+@runtime_checkable
+class PersistentEngine(Protocol):
+    """Движок, чью калибровку можно сохранить и вернуть (`alpha`; `emotions` внутри библиотеки)."""
+
+    def export_bounds(self) -> tuple[float, float] | None:
+        """(low, high) готовой калибровки; нет - None."""
+        ...
+
+    def restore_bounds(self, low: float, high: float) -> None: ...
+
+
 class EegProcessor:
     """Один канал ЭЭГ. Не потокобезопасен: вызывающий сериализует доступ."""
 
@@ -98,6 +109,35 @@ class EegProcessor:
         else:
             progress = min(1.0, max(0.0, engine.progress))
             self._status = CalibrationProgress("baseline", "running", progress)
+
+    @property
+    def calibrated(self) -> bool:
+        engine = self._engine
+        return engine is not None and engine.calibrated
+
+    def export_calibration(self) -> tuple[float, float] | None:
+        """Границы шкалы для сохранения; движок не умеет или не откалиброван - None."""
+        engine = self._engine
+        if engine is None or not engine.calibrated or not isinstance(engine, PersistentEngine):
+            return None
+        return engine.export_bounds()
+
+    def restore_calibration(self, low: float, high: float) -> bool:
+        """Новый движок с готовой шкалой; False, если метод не умеет восстанавливаться."""
+        engine = self._factory()
+        if not isinstance(engine, PersistentEngine):
+            engine.close()
+            return False
+        try:
+            engine.restore_bounds(low, high)
+        except ValueError:
+            engine.close()
+            return False
+        self._close_engine()
+        self._engine = engine
+        self._result = None
+        self._status = None
+        return True
 
     def abort_calibration(self, reason: str) -> None:
         if self._status is not None and self._status.status == "running":

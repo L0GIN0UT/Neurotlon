@@ -423,7 +423,7 @@ def test_hello_announces_features(env: Env) -> None:
     try:
         hello = conn.next_message()
         assert isinstance(hello, protocol.Hello)
-        assert hello.features == ("burst", "emg_cycle", "baseline_duration")
+        assert hello.features == ("burst", "emg_cycle", "baseline_duration", "calibration_state")
     finally:
         conn.close()
 

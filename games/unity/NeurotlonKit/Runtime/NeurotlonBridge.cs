@@ -31,6 +31,7 @@ namespace Neurotlon
         public HelloSignal[] signals;
         public string[] features;
         public string eeg_method;
+        public string[] calibrated;
     }
 
     [Serializable]
@@ -178,6 +179,7 @@ namespace Neurotlon
         readonly Dictionary<string, long> lastBurstTime = new Dictionary<string, long>();
         string[] features = new string[0];
         string eegMethod;
+        string[] calibrated = new string[0];
         TcpClient client;
         Thread thread;
         volatile bool stopping;
@@ -216,6 +218,14 @@ namespace Neurotlon
         // Метод ЭЭГ из hello (emotions / alpha), только для отладки; null, если мост не сообщил.
         public string EegMethod { get { return eegMethod; } }
 
+        // Шкала сигнала готова по hello.calibrated; у старого моста (нет calibration_state) всегда false.
+        // Эмулируемый сигнал здесь не числится: его состояние датчика emulated.
+        public bool Calibrated(string signal)
+        {
+            return Supports(NeurotlonProtocol.FeatureCalibrationState)
+                && Array.IndexOf(calibrated, signal) >= 0;
+        }
+
         public void Start()
         {
             if (thread != null) return;
@@ -243,6 +253,7 @@ namespace Neurotlon
                 calibrations.Clear();
                 features = new string[0];
                 eegMethod = null;
+                calibrated = new string[0];
                 ClearBursts();
                 return;
             }
@@ -356,6 +367,7 @@ namespace Neurotlon
         public bool Reset()
         {
             calibrations.Clear();
+            calibrated = new string[0];
             return Send(JsonUtility.ToJson(new ResetMessage { type = NeurotlonProtocol.MessageReset }));
         }
 
@@ -400,6 +412,7 @@ namespace Neurotlon
             ClearBursts();
             features = hello.features ?? new string[0];
             eegMethod = string.IsNullOrEmpty(hello.eeg_method) ? null : hello.eeg_method;
+            calibrated = hello.calibrated ?? new string[0];
             if (hello.signals == null) return;
             states.Clear();
             foreach (var s in hello.signals) states[s.name] = s.state;

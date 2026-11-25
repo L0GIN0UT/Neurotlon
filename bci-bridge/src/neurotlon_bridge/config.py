@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .calibration_store import DEFAULT_TTL_H
 from .processing.alpha import AlphaConfig
 from .processing.burst import BurstConfig
 from .processing.eeg import EegConfig
@@ -18,10 +19,26 @@ from .source import PROFILES
 CONFIG_NAME = "bridge.toml"
 DEVICE_KEYS = ("eeg", "emg", "emg_left", "emg_right")
 DEFAULT_SCAN_S = 12.0
+MAX_TTL_H = 24.0 * 7
 
 
 class ConfigError(Exception):
     """Ошибка настроек; сообщение по-русски, для оператора."""
+
+
+@dataclass(frozen=True)
+class CalibrationConfig:
+    """Раздел `[calibration]`: сколько часов сохранённой калибровке можно верить."""
+
+    ttl_h: float = DEFAULT_TTL_H
+
+    def __post_init__(self) -> None:
+        if not 0 < self.ttl_h < MAX_TTL_H:
+            raise ValueError(f"ttl_h: нужно число больше 0 и меньше {MAX_TTL_H:g}")
+
+    @property
+    def ttl_s(self) -> float:
+        return self.ttl_h * 3600.0
 
 
 @dataclass(frozen=True)
@@ -32,6 +49,7 @@ class BridgeConfig:
     eeg: EegConfig = field(default_factory=EegConfig)
     burst: BurstConfig = field(default_factory=BurstConfig)
     alpha: AlphaConfig = field(default_factory=AlphaConfig)
+    calibration: CalibrationConfig = field(default_factory=CalibrationConfig)
 
 
 def default_config_path() -> Path | None:
@@ -62,7 +80,7 @@ def load_config(path: Path | None) -> BridgeConfig:
 
 
 def parse_config(data: dict[str, Any]) -> BridgeConfig:
-    unknown = set(data) - {"devices", "emg", "eeg", "burst", "alpha"}
+    unknown = set(data) - {"devices", "emg", "eeg", "burst", "alpha", "calibration"}
     if unknown:
         raise ConfigError(f"неизвестные разделы: {', '.join(sorted(unknown))}")
     devices_raw = dict(data.get("devices", {}))
@@ -84,6 +102,7 @@ def parse_config(data: dict[str, Any]) -> BridgeConfig:
         eeg=_section(EegConfig, data.get("eeg", {}), "eeg"),
         burst=_section(BurstConfig, data.get("burst", {}), "burst"),
         alpha=_section(AlphaConfig, data.get("alpha", {}), "alpha"),
+        calibration=_section(CalibrationConfig, data.get("calibration", {}), "calibration"),
     )
     if config.alpha.band_high_hz >= config.eeg.sampling_rate / 2:
         raise ConfigError("[alpha] band_high_hz должна быть меньше половины [eeg] sampling_rate")

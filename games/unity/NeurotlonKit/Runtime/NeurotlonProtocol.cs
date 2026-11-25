@@ -26,6 +26,7 @@ namespace Neurotlon
         public const string FeatureBurst = "burst";
         public const string FeatureEmgCycle = "emg_cycle";
         public const string FeatureBaselineDuration = "baseline_duration";
+        public const string FeatureCalibrationState = "calibration_state";
 
         // Метод обработки ЭЭГ (EegMethod)
         public const string EegMethodEmotions = "emotions";

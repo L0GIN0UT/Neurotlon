@@ -13,7 +13,8 @@ import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from .config import ConfigError, load_config, required_devices
+from .calibration_store import FileCalibrationStore
+from .config import ConfigError, default_config_path, load_config, required_devices
 from .devices.base import DeviceBackend, DeviceError
 from .devices.scan import format_devices, scan_devices
 from .emulator import EmulatedSource
@@ -44,6 +45,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--config", type=Path, help="путь к bridge.toml (по умолчанию рядом)")
+    parser.add_argument(
+        "--state-dir",
+        type=Path,
+        help="каталог для calibration.json (по умолчанию рядом с bridge.toml)",
+    )
     parser.add_argument("--headless", action="store_true", help="без окна")
     parser.add_argument(
         "--json", action="store_true", help="с --scan: список датчиков в JSON (для лаунчера)"
@@ -119,6 +125,14 @@ def _emulate(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _state_dir(args: argparse.Namespace) -> Path:
+    """Каталог данных моста: `--state-dir`, иначе папка с `bridge.toml`."""
+    if args.state_dir is not None:
+        return Path(args.state_dir)
+    config_file = args.config or default_config_path()
+    return config_file.parent if config_file is not None else Path.cwd()
+
+
 def _hardware(args: argparse.Namespace, factory: BackendFactory) -> int:
     from .hardware_source import HardwareSource
 
@@ -135,7 +149,10 @@ def _hardware(args: argparse.Namespace, factory: BackendFactory) -> int:
         except DeviceError:
             backend.close()
             raise
-        source = HardwareSource(args.profile, config, backend, eeg_method=args.eeg_method)
+        store = FileCalibrationStore(_state_dir(args))
+        source = HardwareSource(
+            args.profile, config, backend, eeg_method=args.eeg_method, store=store
+        )
     except DeviceError as exc:
         print(f"Ошибка: {exc}", file=sys.stderr)
         return EXIT_DEVICES

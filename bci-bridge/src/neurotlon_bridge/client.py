@@ -47,6 +47,7 @@ class BridgeClient:
         self._calibrations: dict[str, CalibrationProgress] = {}
         self._features: tuple[Feature, ...] = ()
         self._eeg_method: EegMethod | None = None
+        self._calibrated: frozenset[str] = frozenset()
         self._bursts: deque[protocol.Burst] = deque(maxlen=MAX_PENDING_BURSTS)
         self._sock: socket.socket | None = None
         self._stop = threading.Event()
@@ -90,6 +91,14 @@ class BridgeClient:
         with self._lock:
             return self._eeg_method
 
+    def calibrated(self, signal: str) -> bool:
+        """Шкала сигнала готова по `hello.calibrated`; у старого моста всегда False.
+
+        Список обновляется только новым `hello`: ход самой калибровки виден в `calibration`.
+        """
+        with self._lock:
+            return signal in self._calibrated
+
     def bursts(self) -> list[protocol.Burst]:
         """События резких сокращений с прошлого вызова, в порядке прихода."""
         with self._lock:
@@ -111,6 +120,7 @@ class BridgeClient:
     def reset(self) -> bool:
         with self._lock:
             self._calibrations.clear()
+            self._calibrated = frozenset()
         return self._send(protocol.Reset())
 
     def close(self) -> None:
@@ -158,6 +168,7 @@ class BridgeClient:
                     self._calibrations.clear()
                     self._features = ()
                     self._eeg_method = None
+                    self._calibrated = frozenset()
                     self._bursts.clear()
                 sock.close()
             self._stop.wait(self._reconnect_s)
@@ -196,6 +207,7 @@ class BridgeClient:
                     self._states = dict(msg.signals)
                     self._features = msg.features or ()
                     self._eeg_method = msg.eeg_method
+                    self._calibrated = frozenset(msg.calibrated or ())
                     self._bursts.clear()
                 case protocol.Sample():
                     for name, reading in msg.signals.items():
