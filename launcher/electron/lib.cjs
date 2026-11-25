@@ -244,6 +244,19 @@ function createLog(file, { maxBytes = LOG_MAX_BYTES, now = () => new Date() } = 
   }
 }
 
+/**
+ * Горячие клавиши окна: Ctrl+Q — выход, Ctrl+Alt+S — перезапуск с настройкой.
+ * Клавиша берётся по физическому коду, не зависящему от раскладки; `key` — запасной вариант.
+ */
+function shortcutAction(input) {
+  if (input.type !== 'keyDown' || !input.control) return null
+  const code = input.code || ''
+  const key = (input.key || '').toLowerCase()
+  if (code === 'KeyQ' || (!code && (key === 'q' || key === 'й'))) return 'quit'
+  if (input.alt && (code === 'KeyS' || (!code && (key === 's' || key === 'ы')))) return 'setup'
+  return null
+}
+
 module.exports = {
   AUTO_RETRIES,
   EXIT_RESTART,
@@ -264,6 +277,7 @@ module.exports = {
   parseReadyLine,
   resolveInside,
   selectOrphans,
+  shortcutAction,
   shouldAutoRetry,
   splashScript,
   splitCommand,

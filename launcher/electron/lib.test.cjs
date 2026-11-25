@@ -202,3 +202,19 @@ test('systemExe builds absolute System32 paths with a fallback root', () => {
   assert.equal(lib.systemExe(w('D:', 'Win'), 'taskkill.exe'), w('D:', 'Win', 'System32', 'taskkill.exe'))
   assert.equal(lib.systemExe(undefined, 'a.exe'), w('C:', 'Windows', 'System32', 'a.exe'))
 })
+
+test('shortcutAction ignores the keyboard layout', () => {
+  const down = (o) => ({ type: 'keyDown', control: true, alt: false, key: '', code: '', ...o })
+  assert.equal(lib.shortcutAction(down({ code: 'KeyQ', key: 'й' })), 'quit')
+  assert.equal(lib.shortcutAction(down({ code: 'KeyQ', key: 'q' })), 'quit')
+  assert.equal(lib.shortcutAction(down({ code: 'KeyQ', key: 'q', alt: true })), 'quit')
+  assert.equal(lib.shortcutAction(down({ key: 'й' })), 'quit')
+  for (const key of ['ы', 's', 'ś']) {
+    assert.equal(lib.shortcutAction(down({ code: 'KeyS', key, alt: true })), 'setup')
+  }
+  assert.equal(lib.shortcutAction(down({ key: 'ы', alt: true })), 'setup')
+  assert.equal(lib.shortcutAction(down({ code: 'KeyS' })), null)
+  assert.equal(lib.shortcutAction(down({ code: 'KeyQ', control: false })), null)
+  assert.equal(lib.shortcutAction(down({ code: 'KeyQ', type: 'keyUp' })), null)
+  assert.equal(lib.shortcutAction(down({ code: 'KeyW', key: 'w', alt: true })), null)
+})
