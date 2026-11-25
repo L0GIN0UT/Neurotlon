@@ -14,6 +14,7 @@ import pygame
 
 from neurotlon_bridge.source import Reading
 from neurotlon_games.sdk import GameApp, Phase, ResultEntry, Signals, completed
+from neurotlon_games.sdk.app import CALIBRATION_RESET_REASON, NOT_CALIBRATED_REASON
 from neurotlon_games.sdk.testing import FakeBridge, make_launch, make_signals
 
 
@@ -88,7 +89,7 @@ def test_full_flow_writes_finished_result(tmp_path: Path) -> None:
     assert phase_of(game) is Phase.CONNECTING
     to_playing(game)
     assert game.started_calls == 1
-    assert [c[1] for c in bridge.calibrate_calls] == ["cycle", "baseline"]
+    assert not hasattr(bridge, "calibrate_calls")  # игра калибровку не запускает
     advance(game, 9.5)
     assert phase_of(game) is Phase.PLAYING
     assert not (tmp_path / "result.json").exists()
@@ -164,11 +165,10 @@ def test_enter_without_confirmation_does_nothing(tmp_path: Path) -> None:
     assert phase_of(game) is Phase.PLAYING
 
 
-def test_escape_during_calibration_can_abort(tmp_path: Path) -> None:
-    game, bridge = make_game(tmp_path)
-    bridge.auto_calibrate = False
+def test_escape_during_countdown_can_abort(tmp_path: Path) -> None:
+    game, _ = make_game(tmp_path)
     advance(game, 1)
-    assert phase_of(game) is Phase.CALIBRATING
+    assert phase_of(game) is Phase.COUNTDOWN
     game.tick(0.1, [key(pygame.K_ESCAPE)])
     game.tick(0.1, [key(pygame.K_RETURN)])
     assert read_result(tmp_path)["status"] == "aborted"
@@ -237,16 +237,90 @@ def test_no_bridge_aborts_after_timeout(tmp_path: Path) -> None:
     assert "мост" in data["reason"]
 
 
-def test_calibration_failure_aborts_with_reason(tmp_path: Path) -> None:
+# --- готовность калибровки ---
+
+
+def test_uncalibrated_real_sensors_abort_before_the_game(tmp_path: Path) -> None:
     game, bridge = make_game(tmp_path)
-    bridge.auto_calibrate = False
-    advance(game, 0.5)
-    for _ in range(3):
-        bridge.fail_next("emg", "cycle", "нет контакта")
-        advance(game, 0.3)
+    bridge.make_real(calibrated=False)
+    game.tick(0.1)
+    assert game.done
+    assert game.started_calls == 0
     data = read_result(tmp_path)
     assert data["status"] == "aborted"
-    assert "нет контакта" in data["reason"]
+    assert data["entries"] == []
+    assert data["reason"] == NOT_CALIBRATED_REASON
+    assert "лаунчер" in data["reason"]
+
+
+def test_one_uncalibrated_sensor_is_enough_to_abort(tmp_path: Path) -> None:
+    game, bridge = make_game(tmp_path, "pong")
+    bridge.make_real(calibrated=False)
+    bridge.calibrated_names = {"emg_left"}
+    game.tick(0.1)
+    assert read_result(tmp_path)["reason"] == NOT_CALIBRATED_REASON
+
+
+def test_calibrated_real_sensors_go_to_the_game(tmp_path: Path) -> None:
+    game, bridge = make_game(tmp_path)
+    bridge.make_real(calibrated=True)
+    to_playing(game)
+    assert game.started_calls == 1
+    assert not (tmp_path / "result.json").exists()
+
+
+def test_emulated_sensors_play_without_calibration(tmp_path: Path) -> None:
+    game, bridge = make_game(tmp_path)
+    assert bridge.calibrated_names == set()
+    to_playing(game)
+    assert game.started_calls == 1
+
+
+def test_old_bridge_without_calibration_state_plays(tmp_path: Path) -> None:
+    launch = make_launch("darts", tmp_path / "result.json", 10)
+    signals, bridge = make_signals(launch, features=())
+    bridge.make_real(calibrated=False)
+    game = Probe(launch, signals)
+    to_playing(game)
+    assert game.started_calls == 1
+
+
+def test_calibration_reset_for_two_seconds_aborts(tmp_path: Path) -> None:
+    game, bridge = make_game(tmp_path)
+    bridge.make_real(calibrated=True)
+    to_playing(game)
+    advance(game, 1)
+    bridge.lose_calibration()
+    advance(game, 1.9)
+    assert phase_of(game) is Phase.PLAYING
+    advance(game, 0.5)
+    assert game.done
+    data = read_result(tmp_path)
+    assert data["status"] == "aborted"
+    assert data["reason"] == CALIBRATION_RESET_REASON
+
+
+def test_short_calibration_gap_does_not_abort(tmp_path: Path) -> None:
+    game, bridge = make_game(tmp_path)
+    bridge.make_real(calibrated=True)
+    to_playing(game)
+    bridge.lose_calibration()
+    advance(game, 1.5)
+    bridge.set_value("emg", 0.5)
+    bridge.set_value("eeg", 0.5)
+    advance(game, 3)  # счётчик сбросился: снова меньше двух секунд подряд
+    bridge.lose_calibration()
+    advance(game, 1.5)
+    assert phase_of(game) is Phase.PLAYING
+
+
+def test_sensor_lost_is_not_calibration_loss(tmp_path: Path) -> None:
+    game, bridge = make_game(tmp_path)
+    bridge.make_real(calibrated=True)
+    to_playing(game)
+    bridge.readings["emg"] = Reading(0.0, False, "stale")
+    advance(game, 5)
+    assert phase_of(game) is Phase.SENSOR_LOST  # ждём датчик 30 с, а не прерываем за 2 с
 
 
 def test_invalid_game_result_becomes_aborted(tmp_path: Path) -> None:
@@ -263,7 +337,6 @@ def test_invalid_game_result_becomes_aborted(tmp_path: Path) -> None:
 def test_render_every_phase(tmp_path: Path) -> None:
     surface = pygame.Surface((640, 360))
     game, bridge = make_game(tmp_path)
-    bridge.auto_calibrate = False
     painted: set[Phase] = set()
 
     def snap() -> None:
@@ -275,8 +348,6 @@ def test_render_every_phase(tmp_path: Path) -> None:
     for _ in range(3):
         game.tick(0.1)
         snap()
-    bridge.auto_calibrate = True
-    game.calibration.start()
     to_playing(game)
     snap()
     game.tick(0.1, [key(pygame.K_ESCAPE)])
@@ -290,7 +361,7 @@ def test_render_every_phase(tmp_path: Path) -> None:
     game.tick(0.1, [pygame.event.Event(pygame.QUIT)])
     snap()
     assert {
-        Phase.CALIBRATING,
+        Phase.COUNTDOWN,
         Phase.PLAYING,
         Phase.CONFIRM_ABORT,
         Phase.SENSOR_LOST,

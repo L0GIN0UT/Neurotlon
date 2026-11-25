@@ -4,28 +4,15 @@ from pathlib import Path
 
 import pytest
 
-from neurotlon_bridge.source import CalibrationProgress, Feature, Reading
+from neurotlon_bridge.source import Reading
 from neurotlon_games.sdk import (
-    Calibration,
     LaunchError,
     LaunchInfo,
     ResultError,
     ResultWriter,
     Timer,
     completed,
-    instruction,
     not_completed,
-    phases_for,
-)
-from neurotlon_games.sdk.calibration import (
-    STEP_DURATION_S,
-    TEXT_BASELINE,
-    TEXT_NO_SIGNAL,
-    TEXT_RELEASE,
-    TEXT_REST,
-    TEXT_SQUEEZE,
-    TEXT_WEAK,
-    reason_text,
 )
 from neurotlon_games.sdk.testing import SESSION_ID, FakeBridge, make_launch, make_signals
 
@@ -242,117 +229,7 @@ def test_wait_connected_times_out_then_succeeds() -> None:
     assert signals.wait_connected(0.1, clock=lambda: now[0], sleep=sleep) is False
 
 
-# --- Calibration ---
-
-
-def test_phases_match_protocol() -> None:
-    assert [(p.step, p.signals) for p in phases_for("darts")] == [
-        ("rest", ("emg",)),
-        ("contract", ("emg",)),
-        ("baseline", ("eeg",)),
-    ]
-    assert [p.step for p in phases_for("pong")] == ["rest", "contract"]
-    assert phases_for("pong")[0].signals == ("emg_left", "emg_right")
-
-
-def test_phases_use_cycle_when_bridge_announces_it() -> None:
-    assert [(p.step, p.signals) for p in phases_for("darts", emg_cycle=True)] == [
-        ("cycle", ("emg",)),
-        ("baseline", ("eeg",)),
-    ]
-    pong = phases_for("pong", emg_cycle=True)
-    assert [(p.step, p.signals) for p in pong] == [("cycle", ("emg_left", "emg_right"))]
-
-
-def test_calibration_picks_cycle_only_with_emg_cycle_feature() -> None:
-    launch = make_launch("darts")
-    legacy = [("emg", "rest"), ("emg", "contract"), ("eeg", "baseline")]
-    cases: list[tuple[tuple[Feature, ...], list[tuple[str, str]]]] = [
-        (("burst", "emg_cycle"), [("emg", "cycle"), ("eeg", "baseline")]),
-        (("burst",), legacy),
-        ((), legacy),
-    ]
-    for features, steps in cases:
-        signals, bridge = make_signals(launch, features=features)
-        calibration = Calibration.for_launch(signals, launch)
-        run_calibration(calibration)
-        assert calibration.state == "done"
-        assert bridge.calibrate_calls == steps
-
-
-def test_cycle_pong_runs_on_both_sensors() -> None:
-    launch = make_launch("pong")
-    signals, bridge = make_signals(launch)
-    calibration = Calibration.for_launch(signals, launch)
-    run_calibration(calibration)
-    assert bridge.calibrate_calls == [("emg_left", "cycle"), ("emg_right", "cycle")]
-
-
-def test_cycle_text_and_countdown_follow_bridge_phase() -> None:
-    launch = make_launch("darts")
-    signals, bridge = make_signals(launch)
-    bridge.auto_calibrate = False
-    calibration = Calibration.for_launch(signals, launch)
-    calibration.start()
-    calibration.update(0.1)
-    assert calibration.text == TEXT_SQUEEZE  # до первого сообщения моста
-    bridge.progress["emg"] = CalibrationProgress("cycle", "running", 0.3, None, 2, "relax", 3.5)
-    calibration.update(0.1)
-    assert calibration.text == TEXT_REST
-    assert calibration.cycle_phase == "relax"
-    assert calibration.phase_left_s == 3.5
-    bridge.progress["emg"] = CalibrationProgress("cycle", "running", 0.5, None, 3, "tense", 4.0)
-    calibration.update(0.1)
-    assert calibration.text == TEXT_SQUEEZE
-    assert calibration.progress == 0.5
-
-
-def test_instruction_for_cycle_uses_phase() -> None:
-    assert instruction("cycle", 0.3, "tense") == TEXT_SQUEEZE
-    assert instruction("cycle", 0.3, "relax") == TEXT_REST
-    assert instruction("cycle", 0.0) == TEXT_SQUEEZE
-
-
-def test_cycle_failure_shows_human_reason_and_retries() -> None:
-    launch = make_launch("darts")
-    signals, bridge = make_signals(launch)
-    bridge.auto_calibrate = False
-    calibration = Calibration.for_launch(signals, launch)
-    calibration.start()
-    calibration.update(0.1)
-    bridge.fail_next("emg", "cycle", "сокращение слабое, нет отличия от покоя")
-    calibration.update(0.1)
-    assert calibration.retrying
-    assert calibration.retry_reason == TEXT_WEAK
-    calibration.update(0.1)
-    assert bridge.calibrate_calls == [("emg", "cycle"), ("emg", "cycle")]
-    bridge.progress["emg"] = CalibrationProgress("cycle", "failed", 0.0, "странная причина")
-    calibration.update(0.1)
-    assert calibration.state == "failed"
-    assert calibration.failure_reason == "странная причина"
-
-
-def test_reason_text_maps_known_reasons_only() -> None:
-    assert reason_text("нет данных в покое") == TEXT_NO_SIGNAL
-    assert reason_text("нет данных при напряжении") == TEXT_NO_SIGNAL
-    assert reason_text("мост сломался") == "мост сломался"
-
-
-def test_baseline_is_twelve_seconds_with_a_dot() -> None:
-    assert STEP_DURATION_S["baseline"] == 12.0
-    assert STEP_DURATION_S["cycle"] == 20.0
-    launch = make_launch("darts")
-    signals, bridge = make_signals(launch)
-    bridge.auto_calibrate = False
-    calibration = Calibration.for_launch(signals, launch)
-    calibration.start()
-    calibration.update(0.1)
-    assert not calibration.shows_dot
-    bridge.progress["emg"] = CalibrationProgress("cycle", "done", 1.0)
-    calibration.update(0.1)
-    calibration.update(0.1)
-    assert calibration.shows_dot
-    assert calibration.text == TEXT_BASELINE
+# --- готовность калибровки ---
 
 
 def test_signals_supports_reads_bridge_features() -> None:
@@ -361,153 +238,45 @@ def test_signals_supports_reads_bridge_features() -> None:
     assert not signals.supports("emg_cycle")
 
 
-def test_instruction_texts_follow_12_second_rhythm() -> None:
-    assert instruction("rest", 0.3) == TEXT_REST
-    assert instruction("baseline", 0.3) == TEXT_BASELINE
-    assert TEXT_REST == "Расслабьте мышцу с датчиком"
-    assert TEXT_BASELINE == "Расслабьтесь и смотрите на точку на экране"
-    by_second = {
-        0.5: TEXT_SQUEEZE,
-        2.9: TEXT_SQUEEZE,
-        3.5: TEXT_RELEASE,
-        4.5: TEXT_SQUEEZE,
-        7.5: TEXT_RELEASE,
-        8.5: TEXT_SQUEEZE,
-        11.5: TEXT_RELEASE,
-    }
-    for second, text in by_second.items():
-        assert instruction("contract", second / 12) == text, second
+def test_emulated_sensors_need_no_calibration() -> None:
+    signals, bridge = make_signals(make_launch("darts"))
+    assert bridge.states == {"eeg": "emulated", "emg": "emulated"}
+    assert not signals.calibrated("emg")
+    assert signals.uncalibrated() == []
 
 
-def state_of(calibration: Calibration) -> str:
-    return calibration.state
+def test_real_sensors_are_ready_only_when_calibrated() -> None:
+    signals, bridge = make_signals(make_launch("darts"))
+    bridge.make_real(calibrated=False)
+    assert signals.uncalibrated() == ["eeg", "emg"]
+    bridge.calibrated_names = {"emg"}
+    assert signals.calibrated("emg")
+    assert signals.uncalibrated() == ["eeg"]
+    bridge.make_real(calibrated=True)
+    assert signals.uncalibrated() == []
 
 
-def run_calibration(calibration: Calibration, ticks: int = 50) -> None:
-    calibration.start()
-    for _ in range(ticks):
-        calibration.update(0.1)
-        if calibration.finished:
-            return
+def test_pong_needs_both_emg_signals_calibrated() -> None:
+    signals, bridge = make_signals(make_launch("pong"))
+    bridge.make_real(calibrated=False)
+    bridge.calibrated_names = {"emg_left"}
+    assert signals.uncalibrated() == ["emg_right"]
 
 
-def test_calibration_runs_all_steps_in_order() -> None:
-    launch = make_launch("darts")
-    signals, bridge = make_signals(launch, features=())
-    calibration = Calibration.for_launch(signals, launch)
-    run_calibration(calibration)
-    assert calibration.state == "done"
-    assert bridge.calibrate_calls == [("emg", "rest"), ("emg", "contract"), ("eeg", "baseline")]
-    assert calibration.total_progress == 1.0
+def test_old_bridge_without_calibration_state_is_not_checked() -> None:
+    signals, bridge = make_signals(make_launch("darts"), features=())
+    bridge.make_real(calibrated=False)
+    assert signals.uncalibrated() == []
 
 
-def test_calibration_pong_runs_both_sensors_together() -> None:
-    launch = make_launch("pong")
-    signals, bridge = make_signals(launch, features=())
-    calibration = Calibration.for_launch(signals, launch)
-    run_calibration(calibration)
-    assert calibration.state == "done"
-    assert bridge.calibrate_calls == [
-        ("emg_left", "rest"),
-        ("emg_right", "rest"),
-        ("emg_left", "contract"),
-        ("emg_right", "contract"),
-    ]
-
-
-def test_calibration_progress_and_text_follow_bridge() -> None:
-    launch = make_launch("darts")
-    signals, bridge = make_signals(launch, features=())
-    bridge.auto_calibrate = False
-    calibration = Calibration.for_launch(signals, launch)
-    calibration.start()
-    calibration.update(0.1)
-    assert calibration.phase_number == 1
-    assert calibration.text == TEXT_REST
-    bridge.progress["emg"] = CalibrationProgress("rest", "running", 0.4)
-    calibration.update(0.1)
-    assert calibration.progress == 0.4
-    bridge.progress["emg"] = CalibrationProgress("rest", "done", 1.0)
-    calibration.update(0.1)
-    bridge.progress["emg"] = CalibrationProgress("contract", "running", 0.5)
-    calibration.update(0.1)
-    assert calibration.phase_number == 2
-    assert calibration.text == TEXT_SQUEEZE  # 6 с от начала: вторая секунда второго сжатия
-    assert 0 < calibration.total_progress < 1
-
-
-def test_calibration_retries_once_then_reports() -> None:
-    launch = make_launch("darts")
-    signals, bridge = make_signals(launch, features=())
-    bridge.auto_calibrate = False
-    calibration = Calibration.for_launch(signals, launch)
-    calibration.start()
-    calibration.update(0.1)
-    bridge.fail_next("emg", "rest", "нет контакта")
-    calibration.update(0.1)
-    assert state_of(calibration) == "running"
-    assert calibration.retrying
-    # прежний `failed` от первой попытки за новый сбой не считается
-    calibration.update(0.1)
-    assert bridge.calibrate_calls == [("emg", "rest"), ("emg", "rest")]
-    assert state_of(calibration) == "running"
-    bridge.progress["emg"] = CalibrationProgress("rest", "failed", 0.0, "снова нет контакта")
-    calibration.update(0.1)
-    assert state_of(calibration) == "failed"
-    assert calibration.failure_reason == "снова нет контакта"
-
-
-def test_calibration_retry_can_succeed() -> None:
-    launch = make_launch("pong")
-    signals, bridge = make_signals(launch, features=())
-    bridge.auto_calibrate = False
-    calibration = Calibration.for_launch(signals, launch)
-    calibration.start()
-    calibration.update(0.1)
-    bridge.fail_next("emg_left", "rest")
-    bridge.progress["emg_right"] = CalibrationProgress("rest", "running", 0.5)
-    calibration.update(0.1)
-    assert calibration.retrying
-    calibration.update(0.1)  # повторная отправка
-    for name in ("emg_left", "emg_right"):
-        bridge.progress[name] = CalibrationProgress("rest", "done", 1.0)
-    calibration.update(0.1)
-    assert calibration.phase_number == 2
-
-
-def test_calibration_waits_for_bridge_and_times_out() -> None:
-    launch = make_launch("pong")
-    signals, bridge = make_signals(launch, features=())
-    bridge.is_connected = False
-    calibration = Calibration.for_launch(signals, launch)
-    calibration.start()
-    for _ in range(50):
-        calibration.update(0.1)
-    assert state_of(calibration) == "running"
-    assert bridge.calibrate_calls == []
-    bridge.is_connected = True
-    bridge.auto_calibrate = True
-    run_calibration_continue(calibration)
-    assert state_of(calibration) == "done"
-
-
-def run_calibration_continue(calibration: Calibration) -> None:
-    for _ in range(50):
-        calibration.update(0.1)
-
-
-def test_calibration_without_answer_fails_after_retry() -> None:
-    launch = make_launch("pong")
-    signals, bridge = make_signals(launch, features=())
-    bridge.auto_calibrate = False  # мост молчит: прогресс остаётся 0
-    calibration = Calibration.for_launch(signals, launch)
-    calibration.start()
-    for _ in range(2000):
-        calibration.update(1.0)
-        if calibration.finished:
-            break
-    assert calibration.state == "failed"
-    assert "мост" in (calibration.failure_reason or "")
+def test_calibration_lost_follows_not_calibrated_readings() -> None:
+    signals, bridge = make_signals(make_launch("darts"))
+    assert signals.calibration_lost() == []
+    bridge.readings["emg"] = Reading(0.0, False, "artifact")
+    assert signals.calibration_lost() == []
+    bridge.readings["emg"] = Reading(0.0, False, "not_calibrated")
+    assert signals.calibration_lost() == ["emg"]
+    assert signals.lost_signals() == []  # это не потеря датчика
 
 
 def test_sdk_import_does_not_load_pygame() -> None:

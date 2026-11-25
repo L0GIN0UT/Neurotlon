@@ -77,6 +77,8 @@ def test_bridge_records_what_the_game_does() -> None:
             while not (client.connected and bridge.source.reads) and time.monotonic() < deadline:
                 time.sleep(0.01)
             assert bridge.source.reads > 0
+            assert client.calibrated("emg_left") and client.calibrated("emg_right")
+            assert client.sensor_state("emg_left") == "connected"
             client.calibrate("emg_left", "rest")
             deadline = time.monotonic() + 5
             while not bridge.source.calibrations and time.monotonic() < deadline:
@@ -113,13 +115,15 @@ def test_stub_passes(discipline: str) -> None:
     report = check(discipline, STUB)
     assert report.passed, report.format()
     assert statuses(report)["мост"] == "PASS"
-    assert statuses(report)["калибровка"] == "WARN"  # заглушка не калибруется
+    assert statuses(report)["калибровка"] == "PASS"  # заглушка сама не калибруется
+    assert statuses(report)["без калибровки"] == "PASS"  # заглушка без калибровки прерывается
 
 
 def test_template_darts_passes_with_calibration() -> None:
     report = check("darts", TEMPLATE, time_scale=20, bridge_speed=50)
     assert report.passed, report.format()
     assert statuses(report)["калибровка"] == "PASS"
+    assert statuses(report)["без калибровки"] == "PASS"
     assert statuses(report)["записи"] == "PASS"
 
 
@@ -177,7 +181,9 @@ def test_broken_game_fails_with_clear_message(
 def test_hanging_game_is_killed_after_grace() -> None:
     started = time.monotonic()
     # срок выхода = duration_s + grace_s = 10 - 9.5 с; дольше нельзя ждать в тестах
-    report = check("darts", [*FAKE, "--mode", "hang"], grace_s=-9.5, duration_s=10)
+    report = check(
+        "darts", [*FAKE, "--mode", "hang"], grace_s=-9.5, duration_s=10, uncalibrated_test=False
+    )
     assert time.monotonic() - started < 30
     assert statuses(report)["выход"] == "FAIL"
     assert "убита" in details(report, "выход")
@@ -194,6 +200,87 @@ def test_missing_executable_fails() -> None:
     report = check("darts", ["definitely-not-a-game-binary"])
     assert not report.passed
     assert statuses(report) == {"запуск": "FAIL"}
+
+
+# --- калибровка ---
+
+
+@pytest.mark.parametrize("discipline", ["darts", "pong"])
+def test_game_sees_calibrated_real_sensors_and_aborts_without_calibration(discipline: str) -> None:
+    report = check(discipline, [*FAKE, "--mode", "strict"])
+    assert report.passed, report.format()
+    assert statuses(report)["статус"] == "PASS"  # с калибровкой игра дошла до конца
+    assert statuses(report)["без калибровки"] == "PASS"
+    assert "калибр" in details(report, "без калибровки")
+    assert statuses(report)["калибровка"] == "PASS"
+
+
+def test_game_that_calibrates_itself_gets_a_warning() -> None:
+    report = check("darts", [*FAKE, "--mode", "calibrates"])
+    assert statuses(report)["калибровка"] == "WARN"
+    assert "emg/cycle" in details(report, "калибровка")
+    assert "лаунчер" in details(report, "калибровка")
+
+
+def test_uncalibrated_run_is_skipped_when_the_game_did_not_start() -> None:
+    report = check("darts", ["definitely-not-a-game-binary"])
+    assert "без калибровки" not in statuses(report)
+
+
+def test_game_that_plays_without_calibration_fails() -> None:
+    report = check("darts", [*FAKE, "--mode", "ok"])
+    assert statuses(report)["без калибровки"] == "FAIL", report.format()
+    assert not report.passed
+
+
+def test_game_that_hangs_without_calibration_fails() -> None:
+    report = check("darts", [*FAKE, "--mode", "strict-hang"], uncalibrated_wait_s=3.0)
+    assert statuses(report)["без калибровки"] == "FAIL", report.format()
+    assert "aborted" in details(report, "без калибровки")
+    assert not report.passed
+
+
+def test_game_that_crashes_without_calibration_fails() -> None:
+    report = check("darts", [*FAKE, "--mode", "crash"], uncalibrated_test=True)
+    assert statuses(report)["выход"] == "FAIL"
+    assert statuses(report)["без калибровки"] == "FAIL"
+    assert "упала" in details(report, "без калибровки")
+
+
+def test_uncalibrated_test_can_be_turned_off() -> None:
+    report = check("darts", STUB, uncalibrated_test=False)
+    assert "без калибровки" not in statuses(report)
+
+
+@pytest.mark.parametrize("discipline", ["darts", "football", "pong"])
+def test_calibration_plan_equals_launcher_plan(discipline: str) -> None:
+    from neurotlon_games.check.harness import calibration_plan
+    from neurotlon_launcher.calibration import plan_for
+
+    launcher = tuple((step.kind, step.signals) for step in plan_for(discipline))
+    assert calibration_plan(discipline) == launcher
+
+
+def test_calibration_plan_matches_launcher_steps() -> None:
+    from neurotlon_games.check.harness import calibration_plan
+
+    assert calibration_plan("darts") == (("cycle", ("emg",)), ("baseline", ("eeg",)))
+    assert calibration_plan("football") == (("cycle", ("emg",)), ("baseline", ("eeg",)))
+    assert calibration_plan("pong") == (("cycle", ("emg_left", "emg_right")),)
+
+
+def test_check_bridge_without_calibration_reports_not_calibrated() -> None:
+    with CheckBridge("darts", speed=100, calibrate=False) as bridge:
+        client = BridgeClient("127.0.0.1", bridge.port)
+        try:
+            deadline = time.monotonic() + 5
+            while not (client.connected and client.latest("emg")) and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert not client.calibrated("emg") and not client.calibrated("eeg")
+            reading = client.latest("emg")
+            assert reading is not None and reading.reason == "not_calibrated"
+        finally:
+            client.close()
 
 
 # --- CLI ---

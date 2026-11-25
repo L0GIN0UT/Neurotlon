@@ -448,7 +448,6 @@ namespace Neurotlon.Games.Pong
             switch (CurrentStage)
             {
                 case Stage.Connecting: return "ПОДКЛЮЧЕНИЕ";
-                case Stage.Calibrating: return "КАЛИБРОВКА";
                 case Stage.Tutorial: return "ОБУЧЕНИЕ";
                 case Stage.Check: return "ПРОВЕРКА";
                 case Stage.Countdown: return "ПРИГОТОВЬТЕСЬ";

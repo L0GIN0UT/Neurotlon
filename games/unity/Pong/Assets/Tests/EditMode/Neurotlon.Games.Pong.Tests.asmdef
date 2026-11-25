@@ -3,6 +3,7 @@
     "rootNamespace": "Neurotlon.Games.Pong.Tests",
     "references": [
         "Neurotlon.Games.Pong",
+        "Neurotlon.Kit",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"
     ],
