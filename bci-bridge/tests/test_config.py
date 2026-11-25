@@ -172,8 +172,8 @@ def test_emg_cycle_keys_reject_bad_values(emg: dict[str, object]) -> None:
         parse_config({"emg": emg})
 
 
-def test_baseline_default_is_twelve_seconds() -> None:
-    assert BridgeConfig().eeg.calibration_s == 12
+def test_baseline_default_is_twenty_seconds() -> None:
+    assert BridgeConfig().eeg.calibration_s == 20
 
 
 # --- два вида записи [devices] ---

@@ -24,8 +24,8 @@ KEY_MAPS: dict[str, dict[str, str]] = {
 }
 
 HINTS: dict[str, str] = {
-    "eeg_up": "W: расслабление больше",
-    "eeg_down": "S: расслабление меньше",
+    "eeg_up": "W: сосредоточение больше",
+    "eeg_down": "S: сосредоточение меньше",
     "eeg_artifact": "A: артефакт ЭЭГ",
     "emg": "Пробел: сокращение мышцы",
     "emg_left": "Левый Shift / Q: левая мышца",

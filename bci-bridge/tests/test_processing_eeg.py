@@ -207,3 +207,30 @@ def test_pyem_passes_whole_seconds_to_the_library() -> None:
     pyem._em = em
     pyem.start_calibration(12.4)
     assert calls == [("length", 12), ("start", None)]
+
+
+def test_emotions_output_is_attention_not_relaxation() -> None:
+    """`emotions`: eeg = rel_attention / 100, как у `alpha` высокое значение - сосредоточен."""
+    from types import SimpleNamespace
+
+    from neurotlon_bridge.processing.emotions import Pyem
+
+    class FakeLib:
+        def calibration_finished(self) -> bool:
+            return True
+
+        def read_mental_data_arr_size(self) -> int:
+            return 1
+
+        def read_average_mental_data(self, _n: int) -> SimpleNamespace:
+            return SimpleNamespace(rel_attention=80.0, rel_relaxation=20.0)
+
+        def is_both_sides_artifacted(self) -> bool:
+            return False
+
+    engine = object.__new__(Pyem)
+    engine._em = FakeLib()
+    engine._started = True
+    result = engine.result()
+    assert result.has_data and not result.artifact
+    assert result.concentration == pytest.approx(0.8)

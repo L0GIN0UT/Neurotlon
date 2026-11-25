@@ -6,7 +6,7 @@ from neurotlon_bridge.processing.alpha import (
     AlphaConfig,
     AlphaEngine,
     calibration_bounds,
-    calm_value,
+    concentration_value,
     relative_alpha,
     window_artifact,
 )
@@ -106,11 +106,13 @@ def test_engine_rejects_band_above_nyquist() -> None:
         AlphaEngine(AlphaConfig(band_high_hz=130.0), FS, FakeClock())
 
 
-def test_calm_value_clipped() -> None:
-    assert calm_value(0.2, 0.2, 0.6) == 0.0
-    assert calm_value(0.4, 0.2, 0.6) == pytest.approx(0.5)
-    assert calm_value(0.9, 0.2, 0.6) == 1.0
-    assert calm_value(0.0, 0.2, 0.6) == 0.0
+def test_concentration_value_is_inverted_and_clipped() -> None:
+    # low = 5-й перцентиль (мало альфы) даёт 1, high = медиана покоя даёт 0
+    assert concentration_value(0.2, 0.2, 0.6) == 1.0
+    assert concentration_value(0.4, 0.2, 0.6) == pytest.approx(0.5)
+    assert concentration_value(0.6, 0.2, 0.6) == 0.0
+    assert concentration_value(0.9, 0.2, 0.6) == 0.0
+    assert concentration_value(0.0, 0.2, 0.6) == 1.0
 
 
 def test_not_calibrated_has_no_result() -> None:
@@ -139,11 +141,11 @@ def test_calibration_done_after_duration_samples_and_scale_direction() -> None:
     feed(engine, clock, tone(10, 3.0, amp_uv=25, noise_uv=1))
     relaxed = engine.result()
     assert relaxed.has_data and not relaxed.artifact
-    assert relaxed.calm == pytest.approx(1.0)  # много альфы: расслаблен
+    assert relaxed.concentration == pytest.approx(0.0)  # много альфы: расслаблен, не сосредоточен
     feed(engine, clock, tone(20, 3.0, amp_uv=25, noise_uv=1))
     tense = engine.result()
     assert tense.has_data and not tense.artifact
-    assert tense.calm == pytest.approx(0.0)  # альфы нет
+    assert tense.concentration == pytest.approx(1.0)  # альфы нет: сосредоточен
 
 
 def test_too_few_values_fails_calibration() -> None:
