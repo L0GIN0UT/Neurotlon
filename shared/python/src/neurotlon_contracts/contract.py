@@ -49,6 +49,26 @@ def _launch_defs() -> dict[str, Any]:
     return defs
 
 
+class SchemaUnavailableError(Exception):
+    """Схема из `shared/` не найдена или повреждена; сообщение по-русски."""
+
+
+BRIDGE_SCHEMA_MISSING = "не найдена схема протокола моста (shared/bridge-protocol.schema.json)"
+
+
+@cache
+def eeg_methods() -> tuple[str, ...]:
+    """Методы обработки ЭЭГ из `bridge-protocol.schema.json` (`EegMethod`)."""
+    try:
+        text = (shared_dir() / "bridge-protocol.schema.json").read_text(encoding="utf-8")
+        methods = json.loads(text)["$defs"]["EegMethod"]["enum"]
+        if not methods or not all(isinstance(m, str) for m in methods):
+            raise ValueError("empty enum")
+    except (OSError, KeyError, TypeError, ValueError) as exc:
+        raise SchemaUnavailableError(BRIDGE_SCHEMA_MISSING) from exc
+    return tuple(methods)
+
+
 def launch_validator(name: str) -> Draft202012Validator:
     """Валидатор определения (`Launch`, `Result`, ...) из game-launch.schema.json."""
     return Draft202012Validator({"$ref": f"#/$defs/{name}", "$defs": _launch_defs()})

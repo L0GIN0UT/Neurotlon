@@ -119,6 +119,13 @@ export const SETUP = {
   ],
   sensorsSerialUnknown: 'серийный номер неизвестен: впишите с наклейки на корпусе',
   sensorsSerial: 'Серийный номер',
+  eegMethod: 'Метод ЭЭГ',
+  eegMethodAlpha: 'Относительная альфа (способ из нейробиатлона)',
+  eegMethodEmotions: 'NeuroSDK Emotions',
+  eegMethodHint: {
+    alpha: 'Доля альфа-ритма по затылочным каналам, шкала по калибровке с открытыми глазами.',
+    emotions: 'Расслабление из библиотеки NeuroSDK Emotions.',
+  } as Record<string, string>,
   sensorsNeedCheck: 'Нажмите «Проверить подключение»: станция сообщит, какие датчики нужны.',
   sensorsDeviceKind: { brainbit: 'BrainBit', callibri: 'Callibri' } as Record<string, string>,
   roles: {

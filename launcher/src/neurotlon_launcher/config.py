@@ -10,10 +10,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from neurotlon_contracts.contract import SchemaUnavailableError, eeg_methods
+
 DISCIPLINES = ("darts", "football", "pong")
 DEFAULT_BRIDGE_HOST = "127.0.0.1"
 DEFAULT_BRIDGE_PORT = 8765
 DEFAULT_FALLBACK_DURATION_S = 240
+DEFAULT_EEG_METHOD = "alpha"  # метод ЭЭГ нового стенда (значения: bridge-protocol.schema.json)
 
 log = logging.getLogger(__name__)
 
@@ -50,6 +53,7 @@ class LauncherConfig:
     ca_file: Path | None = None
     allow_insecure_http: bool = False
     fallback_duration_s: int = DEFAULT_FALLBACK_DURATION_S
+    eeg_method: str = DEFAULT_EEG_METHOD  # передаётся мосту аргументом --eeg-method
 
     def read_token(self) -> str:
         try:
@@ -120,6 +124,13 @@ def parse_config(data: dict[str, Any], base_dir: Path) -> LauncherConfig:
     mode = bridge.get("mode", "external")
     if mode not in ("external", "hardware", "emulate"):
         raise ConfigError("в [bridge] mode — external, hardware или emulate")
+    eeg_method = bridge.get("eeg_method", DEFAULT_EEG_METHOD)
+    try:
+        allowed = eeg_methods()
+    except SchemaUnavailableError as exc:
+        raise ConfigError(str(exc)) from exc
+    if eeg_method not in allowed:
+        raise ConfigError(f"в [bridge] eeg_method — одно из: {', '.join(allowed)}")
     camera = data.get("camera_index", 0)
     if not isinstance(camera, int) or isinstance(camera, bool) or camera < 0:
         raise ConfigError("camera_index должен быть целым числом, не меньше 0")
@@ -161,4 +172,5 @@ def parse_config(data: dict[str, Any], base_dir: Path) -> LauncherConfig:
         ca_file=path_of(ca_file) if ca_file else None,
         allow_insecure_http=insecure,
         fallback_duration_s=fallback,
+        eeg_method=eeg_method,
     )

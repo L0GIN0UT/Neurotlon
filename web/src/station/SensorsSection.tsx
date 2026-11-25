@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Icon } from './Icon.tsx'
 import { Notice } from './Notice.tsx'
+import { EEG_METHODS } from './eegMethods.ts'
 import { Select } from './Select.tsx'
 import type { SelectOption } from './Select.tsx'
 import * as t from './texts.ts'
@@ -67,6 +68,20 @@ export function SensorsSection({
         onChange={(sensors) => setFields((f) => ({ ...f, sensors }))}
       />
       <span className="setup-hint">{t.SETUP.sensorsModeHint[fields.sensors] ?? ''}</span>
+      {fields.sensors !== '' && state.roles.includes('eeg') && (
+        <div className="setup-field" data-testid="eeg-method">
+          <span className="setup-label" id="setup-eeg-method-label">
+            {t.SETUP.eegMethod}
+          </span>
+          <Select
+            labelId="setup-eeg-method-label"
+            value={fields.eeg_method}
+            options={EEG_METHODS}
+            onChange={(eeg_method) => setFields((f) => ({ ...f, eeg_method }))}
+          />
+          <span className="setup-hint">{t.SETUP.eegMethodHint[fields.eeg_method] ?? ''}</span>
+        </div>
+      )}
       {hardware && (
         <div className="sensors-panel">
           <div className="sensors-scan">

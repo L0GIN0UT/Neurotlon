@@ -28,6 +28,7 @@ export interface SetupFormView {
   camera: string
   sensors: string
   devices: Record<string, string>
+  eeg_method: string
 }
 
 export interface SensorDevice {

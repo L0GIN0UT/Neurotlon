@@ -11,7 +11,7 @@ import threading
 from typing import Any
 
 from . import texts
-from .config import ConfigError
+from .config import DEFAULT_EEG_METHOD, ConfigError
 from .sensors import SCAN_SECONDS, SensorDevice, roles_for
 from .setup import CheckResult, SetupForm, SetupService
 from .web_bridge import LiveState
@@ -31,6 +31,10 @@ def form_from(value: Any) -> SetupForm | None:
         if not isinstance(item, str) or len(item) > 4096:
             return None
         fields[key] = item
+    method = value.get("eeg_method", DEFAULT_EEG_METHOD)
+    if not isinstance(method, str) or len(method) > 64:
+        return None
+    fields["eeg_method"] = method
     raw_devices = value.get("devices", {})
     if not isinstance(raw_devices, dict) or len(raw_devices) > 8:
         return None
@@ -82,6 +86,7 @@ class SetupStation(LiveState):
                             "camera",
                             "sensors",
                             "devices",
+                            "eeg_method",
                         )
                     },
                     "has_token": defaults["has_token"],

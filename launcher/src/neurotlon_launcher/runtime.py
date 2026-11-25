@@ -17,7 +17,7 @@ from .machine import StationMachine
 from .outbox import Outbox
 from .recovery import recover_active
 from .sender import Sender
-from .sensors import BridgeProcess, BridgeStatus
+from .sensors import BridgeProcess, BridgeStatus, roles_for
 from .startup import check_discipline
 from .status import StationStatus
 
@@ -71,6 +71,8 @@ class StationRuntime:
             log.info("bridge: not launched (mode=%s, exe=%r)", config.bridge_mode, exe)
             return None
         args = [exe, "--profile", discipline, "--port", str(config.bridge_port)]
+        if "eeg" in roles_for(discipline):
+            args += ["--eeg-method", config.eeg_method]
         if config.bridge_mode == "emulate":
             args += ["--emulate", "--auto", "--headless"]  # сигналы идут по сценарию, без окна
         else:
