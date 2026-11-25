@@ -1,7 +1,7 @@
-"""Обработка ЭЭГ (BrainBit): расслабление 0…1 из библиотеки Emotions.
+"""Обработка ЭЭГ (BrainBit): расслабление 0…1 одним из двух методов.
 
-Сама библиотека спрятана за `EmotionsEngine`, поэтому логика тестируется с подделкой.
-Реальная обёртка — `processing/emotions.py`.
+Метод спрятан за `EegEngine`: `processing/emotions.py` (библиотека Emotions) и
+`processing/alpha.py` (относительная альфа). Логика тестируется с подделкой.
 """
 
 from __future__ import annotations
@@ -29,31 +29,34 @@ class EegConfig:
 
 
 @dataclass(frozen=True)
-class EmotionsResult:
+class EegResult:
     calm: float  # 0..1
-    has_data: bool  # есть хотя бы одно окно после калибровки
-    artifact: bool  # артефакты с обеих сторон: значение использовать нельзя
+    has_data: bool  # есть актуальное значение после калибровки (нет: окно не набрано, обрыв)
+    artifact: bool  # артефакты: значение использовать нельзя
 
 
-class EmotionsEngine(Protocol):
-    """Что нам нужно от Emotions. Калибровка делается один раз на объект."""
+class EegEngine(Protocol):
+    """Метод расчёта расслабления. Калибровка делается один раз на объект."""
 
     @property
     def calibrated(self) -> bool: ...
 
     @property
-    def calibration_percent(self) -> int: ...
-
-    def set_calibration_length(self, seconds: int) -> None:
-        """Длительность калибровки; вызывается до `start_calibration`."""
+    def progress(self) -> float:
+        """Ход калибровки 0…1."""
         ...
 
-    def start_calibration(self) -> None: ...
+    @property
+    def failure(self) -> str | None:
+        """Причина провала калибровки (по-русски) или None."""
+        ...
+
+    def start_calibration(self, duration_s: float) -> None: ...
 
     def push(self, volts: NDArray[np.float64]) -> None:
         """Форма (n, 4), столбцы O1, O2, T3, T4, вольты."""
 
-    def result(self) -> EmotionsResult: ...
+    def result(self) -> EegResult: ...
 
     def close(self) -> None: ...
 
@@ -61,11 +64,12 @@ class EmotionsEngine(Protocol):
 class EegProcessor:
     """Один канал ЭЭГ. Не потокобезопасен: вызывающий сериализует доступ."""
 
-    def __init__(self, factory: Callable[[], EmotionsEngine]) -> None:
+    def __init__(self, factory: Callable[[], EegEngine], calibration_s: float = 12.0) -> None:
         self._factory = factory
-        self._engine: EmotionsEngine | None = None
+        self._calibration_s = calibration_s
+        self._engine: EegEngine | None = None
         self._status: CalibrationProgress | None = None
-        self._result: EmotionsResult | None = None
+        self._result: EegResult | None = None
 
     def start_calibration(self, step: CalibrationStep, duration_s: float | None = None) -> None:
         """`duration_s=None` — длительность из настроек (`EegConfig.calibration_s`)."""
@@ -73,9 +77,7 @@ class EegProcessor:
             raise ValueError(f"шаг {step} не подходит для ЭЭГ")
         self._close_engine()  # новый объект на каждую калибровку
         engine = self._factory()
-        if duration_s is not None:
-            engine.set_calibration_length(max(1, round(duration_s)))
-        engine.start_calibration()
+        engine.start_calibration(self._calibration_s if duration_s is None else duration_s)
         self._engine = engine
         self._result = None
         self._status = CalibrationProgress("baseline", "running", 0.0)
@@ -85,12 +87,17 @@ class EegProcessor:
         if engine is None or len(volts) == 0:
             return
         engine.push(volts)
+        failure = engine.failure
+        if failure is not None:
+            self._status = CalibrationProgress("baseline", "failed", 0.0, failure)
+            self._close_engine()
+            return
         self._result = engine.result()
         if engine.calibrated:
             self._status = CalibrationProgress("baseline", "done", 1.0)
         else:
-            percent = min(100, max(0, engine.calibration_percent))
-            self._status = CalibrationProgress("baseline", "running", percent / 100.0)
+            progress = min(1.0, max(0.0, engine.progress))
+            self._status = CalibrationProgress("baseline", "running", progress)
 
     def abort_calibration(self, reason: str) -> None:
         if self._status is not None and self._status.status == "running":

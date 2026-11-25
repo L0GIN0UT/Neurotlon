@@ -106,6 +106,10 @@ def test_future_phase_is_dropped_not_fatal() -> None:
     assert protocol.decode(line) == protocol.Calibration("emg", "cycle", "running")
 
 
+def test_eeg_methods_match_schema() -> None:
+    assert set(source.EEG_METHODS) == set(SCHEMA["$defs"]["EegMethod"]["enum"])
+
+
 def test_limits_match_schema() -> None:
     defs = SCHEMA["$defs"]
     segments = defs["Calibrate"]["properties"]["segments"]

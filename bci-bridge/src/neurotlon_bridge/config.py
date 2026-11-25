@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .processing.alpha import AlphaConfig
 from .processing.burst import BurstConfig
 from .processing.eeg import EegConfig
 from .processing.emg import EmgConfig
@@ -30,6 +31,7 @@ class BridgeConfig:
     emg: EmgConfig = field(default_factory=EmgConfig)
     eeg: EegConfig = field(default_factory=EegConfig)
     burst: BurstConfig = field(default_factory=BurstConfig)
+    alpha: AlphaConfig = field(default_factory=AlphaConfig)
 
 
 def default_config_path() -> Path | None:
@@ -60,7 +62,7 @@ def load_config(path: Path | None) -> BridgeConfig:
 
 
 def parse_config(data: dict[str, Any]) -> BridgeConfig:
-    unknown = set(data) - {"devices", "emg", "eeg", "burst"}
+    unknown = set(data) - {"devices", "emg", "eeg", "burst", "alpha"}
     if unknown:
         raise ConfigError(f"неизвестные разделы: {', '.join(sorted(unknown))}")
     devices_raw = dict(data.get("devices", {}))
@@ -75,13 +77,17 @@ def parse_config(data: dict[str, Any]) -> BridgeConfig:
             raise ConfigError(f"[devices] {key}: нужна строка с серийным номером")
         if str(value).strip():
             devices[key] = str(value).strip()
-    return BridgeConfig(
+    config = BridgeConfig(
         devices=devices,
         scan_s=float(scan_s),
         emg=_section(EmgConfig, data.get("emg", {}), "emg"),
         eeg=_section(EegConfig, data.get("eeg", {}), "eeg"),
         burst=_section(BurstConfig, data.get("burst", {}), "burst"),
+        alpha=_section(AlphaConfig, data.get("alpha", {}), "alpha"),
     )
+    if config.alpha.band_high_hz >= config.eeg.sampling_rate / 2:
+        raise ConfigError("[alpha] band_high_hz должна быть меньше половины [eeg] sampling_rate")
+    return config
 
 
 def _section[T](cls: type[T], raw: dict[str, Any], name: str) -> T:

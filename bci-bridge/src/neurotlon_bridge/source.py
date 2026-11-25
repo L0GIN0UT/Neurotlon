@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Literal, Protocol
+from typing import Literal, Protocol, get_args
 
 SensorState = Literal["connecting", "connected", "disconnected", "emulated"]
 InvalidReason = Literal["artifact", "no_contact", "disconnected", "stale", "not_calibrated"]
@@ -12,6 +12,7 @@ CalibrationStep = Literal["rest", "contract", "cycle", "baseline"]
 CalibrationStatus = Literal["running", "done", "failed"]
 Phase = Literal["tense", "relax"]
 EegMethod = Literal["emotions", "alpha"]
+EEG_METHODS: tuple[EegMethod, ...] = get_args(EegMethod)  # сверяется со схемой в тестах
 Feature = Literal["burst", "emg_cycle", "baseline_duration"]
 
 # Границы `calibrate.segments` и `calibrate.duration_s` (shared/bridge-protocol.schema.json;
