@@ -2,17 +2,23 @@ import { useMemo } from 'react'
 import type { BridgeConfig } from './bridge.ts'
 import {
   activeStep,
+  calibrationStage,
+  countdownDigit,
   failedSignals,
   isPong,
+  livePhase,
   partOf,
   phaseHint,
   phaseWord,
   secondsLeft,
   segmentFills,
+  sensorName,
+  sensorStateText,
   sensorText,
   sensorTone,
   statusText,
   stepFor,
+  stepKind,
   stepSubtitle,
   stepTitle,
   trackSignals,
@@ -169,7 +175,7 @@ function StepPanel({ step, state }: { step: CalibrationStepView; state: Calibrat
       </div>
     )
   }
-  const mood = step.status === 'running' && step.phase ? step.phase : 'wait'
+  const mood = livePhase(step) ?? 'wait'
   return (
     <div className={`phase phase-${mood}`}>
       <div className="phase-live" aria-live="polite" aria-atomic="true">
@@ -184,6 +190,81 @@ function StepPanel({ step, state }: { step: CalibrationStepView; state: Calibrat
           <PlayerLane player={state.players[1]} index={1} signal="emg_right" state={state} step={step} />
         </div>
       )}
+    </div>
+  )
+}
+
+/** Стадия «подключаем»: статус каждого датчика, без кнопок калибровки. */
+function ConnectingPanel({ state, send }: { state: CalibratingState; send: Send }) {
+  return (
+    <div className="calib-running calib-connecting" data-testid="calib-connecting">
+      <div className="spinner" aria-hidden />
+      <h2 className="calib-big-title" aria-live="polite">
+        {t.CALIB.connectingTitle}
+      </h2>
+      <p className="lead">{t.CALIB.connectingLead}</p>
+      {state.sensors.length > 0 && (
+        <ul className="connect-list">
+          {state.sensors.map((sensor) => (
+            <li key={sensor.signal} className="connect-row card">
+              <strong>{sensorName(sensor)}</strong>
+              <Chip tone={sensorTone(sensor)} icon="dot">
+                {sensorStateText(sensor)}
+              </Chip>
+            </li>
+          ))}
+        </ul>
+      )}
+      {state.connect_error && (
+        <div className="calib-fail" role="alert" data-testid="connect-error">
+          <p className="calib-fail-reason card">{state.connect_error}</p>
+        </div>
+      )}
+      <div className="calib-actions calib-actions-end">
+        <BackButton send={send} />
+        {state.connect_error && (
+          <button
+            type="button"
+            className="go"
+            data-primary=""
+            autoFocus
+            onClick={() => send({ action: 'calibration_restart' })}
+          >
+            {t.CALIB.retry}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** Стадия «приготовьтесь»: крупная цифра отсчёта 5…1 перед шагом. */
+function CountdownPanel({
+  step,
+  state,
+  send,
+}: {
+  step: CalibrationStepView | null
+  state: CalibratingState
+  send: Send
+}) {
+  const kind = step ? stepKind(step) : null
+  const digit = countdownDigit(state)
+  return (
+    <div className="calib-running calib-countdown" data-testid="calib-countdown">
+      <h2 className="calib-big-title">
+        {kind ? t.CALIB.countdownLead(t.CALIB.countdownKind[kind] ?? '') : t.CALIB.getReady}
+      </h2>
+      <div className="big-digit-live" aria-live="polite" aria-atomic="true" aria-label={t.CALIB.countdownLabel}>
+        {digit !== null && (
+          <span key={digit} className="big-digit" data-testid="big-digit">
+            {digit}
+          </span>
+        )}
+      </div>
+      <div className="calib-actions calib-actions-end">
+        <BackButton send={send} />
+      </div>
     </div>
   )
 }
@@ -327,7 +408,7 @@ function CheckPanel({
                   className="ghost slim"
                   onClick={() => send({ action: 'calibration_retry', value: muscle.id })}
                 >
-                  {t.CALIB.recalibrateMuscle}
+                  {t.CALIB.recalibrateEmg}
                 </button>
               )}
           {brain && (
@@ -336,7 +417,7 @@ function CheckPanel({
               className="ghost slim"
               onClick={() => send({ action: 'calibration_retry', value: brain.id })}
             >
-              {t.CALIB.recalibrateBrain}
+              {t.CALIB.recalibrateEeg}
             </button>
           )}
         </div>
@@ -388,10 +469,16 @@ export function CalibrationScreen({
   const failed = state.steps.find((s) => s.status === 'failed')
   const lost = state.link === 'lost'
 
+  const stage = calibrationStage(state)
+  const review = stage === 'review'
+  const connecting = stage === 'connecting' && !state.ready
+
   let main
   if (lost) main = <LostPanel send={send} />
   else if (failed) main = <FailedPanel step={failed} send={send} />
-  else if (state.ready) main = <CheckPanel state={state} config={config} send={send} />
+  else if (review) main = <CheckPanel state={state} config={config} send={send} />
+  else if (connecting && (state.sensors.length > 0 || state.connect_error)) main = <ConnectingPanel state={state} send={send} />
+  else if (stage === 'countdown') main = <CountdownPanel step={active} state={state} send={send} />
   else if (active) {
     main = (
       <div className="calib-running">
@@ -414,17 +501,17 @@ export function CalibrationScreen({
     <div className="calib" data-link={state.link}>
       <header className="calib-top">
         <h1>{t.CALIB.title}</h1>
-        <TopChips state={state} />
+        {!connecting && <TopChips state={state} />}
       </header>
       <div className="calib-body">
         <ol className="calib-steps" aria-label={t.CALIB.steps}>
           {state.steps.map((step) => (
-            <StepCard key={step.id} step={step} active={step === active && !state.ready} send={send} />
+            <StepCard key={step.id} step={step} active={step === active && !review} send={send} />
           ))}
         </ol>
         <section className="calib-main">{main}</section>
       </div>
-      {active && !state.ready && !failed && !lost && (
+      {active && stage === 'running' && !failed && !lost && (
         <p className="sr-only" role="status">
           {`${stepTitle(active)}: ${statusText(active)}. ${stepSubtitle(active)}`}
         </p>

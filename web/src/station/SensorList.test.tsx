@@ -129,12 +129,24 @@ describe('SensorList', () => {
     expect(row.textContent).toContain('не нужен этой станции')
   })
 
-  it('disables connecting until the check has told which sensors are needed', () => {
-    render(<SensorList sensors={view('scanning', [entry({})])} roles={[]} send={vi.fn()} />)
+  it('shows the found devices at once and disables connecting until the roles are known', () => {
+    render(<SensorList sensors={view('scanning', [entry({})])} roles={[]} rolesKnown={false} send={vi.fn()} />)
+    expect(screen.getAllByTestId('sensor-found')).toHaveLength(1)
     const button = screen.getByRole('button', { name: 'Подключить' }) as HTMLButtonElement
     expect(button.disabled).toBe(true)
-    expect(button.title).toContain('Проверить подключение')
-    expect(screen.getAllByText(/Нажмите «Проверить подключение»/).length).toBeGreaterThan(0)
+    expect(button.title).toContain('Введите токен станции')
+    expect(screen.getAllByText(/Введите токен станции: станет понятно, какие датчики нужны/).length).toBeGreaterThan(0)
+  })
+
+  it('treats an old launcher without roles_known as known when it sent roles', () => {
+    render(<SensorList sensors={view('scanning', [entry({})])} roles={DARTS} send={vi.fn()} />)
+    expect((screen.getByRole('button', { name: 'Подключить' }) as HTMLButtonElement).disabled).toBe(false)
+    expect(screen.queryByText(/Введите токен станции/)).toBeNull()
+  })
+
+  it('offers connecting as before once the roles are known', () => {
+    render(<SensorList sensors={view('scanning', [entry({})])} roles={DARTS} rolesKnown send={vi.fn()} />)
+    expect((screen.getByRole('button', { name: 'Подключить' }) as HTMLButtonElement).disabled).toBe(false)
   })
 
   it('shows assigned roles with status text, battery and a muscle level bar', () => {

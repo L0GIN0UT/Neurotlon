@@ -123,9 +123,12 @@ function CameraPicker({ value, onChange }: { value: string; onChange: (label: st
 export function SetupScreen({
   state,
   send,
+  commandError = null,
 }: {
   state: SetupState
   send: (command: Command) => void
+  /** Текст отказа ядра на последнюю команду (например, «подключить» до ввода токена). */
+  commandError?: string | null
 }) {
   const [fields, setFields] = useState<SetupFields>(() => {
     const { devices: _legacy, ...form } = state.form
@@ -141,6 +144,20 @@ export function SetupScreen({
   useEffect(() => {
     if (state.phase === 'ok' || state.error) actions.current?.scrollIntoView?.({ block: 'end', behavior: 'smooth' })
   }, [state.phase, state.error])
+  // Токен, адрес или сертификат изменились: ядро само (с задержкой) проверит токен и узнает роли.
+  const formKey = `${fields.server_url}
+${fields.token}
+${fields.ca_file}`
+  const lastForm = useRef(formKey)
+  const latest = useRef({ fields, send })
+  useEffect(() => {
+    latest.current = { fields, send }
+  })
+  useEffect(() => {
+    if (lastForm.current === formKey) return
+    lastForm.current = formKey
+    latest.current.send({ action: 'setup_form', value: latest.current.fields })
+  }, [formKey])
   const set = (key: keyof SetupFields) => (value: string) => setFields((f) => ({ ...f, [key]: value }))
 
   const pick = (kind: 'game' | 'cert', key: 'game_path' | 'ca_file') => {
@@ -188,7 +205,13 @@ export function SetupScreen({
           action={pick('game', 'game_path')}
         />
         <CameraPicker value={fields.camera} onChange={set('camera')} />
-        <SensorsSection state={state} fields={fields} setFields={setFields} send={send} />
+        <SensorsSection
+          state={state}
+          fields={fields}
+          setFields={setFields}
+          send={send}
+          notice={commandError}
+        />
         <Field
           label={t.SETUP.cert}
           hint={t.SETUP.certHint}

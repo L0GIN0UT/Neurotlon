@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { readBridgeConfig, sendCommand } from './bridge.ts'
+import { postCommand, readBridgeConfig, sendCommand } from './bridge.ts'
 import { commandForKey, screenKey } from './flow.ts'
 import { accentFor, hintsFor, initials, RESULT_STEP, stepOf } from './model.ts'
 import { splitResultLine, STEPS } from './texts.ts'
@@ -122,6 +122,32 @@ describe('bridge', () => {
       body: JSON.stringify({ action: 'type_char', value: '7' }),
     })
     expect(await sendCommand(config, { action: 'cancel' })).toBe(false)
+  })
+})
+
+describe('postCommand', () => {
+  afterEach(() => vi.unstubAllGlobals())
+  const config = { url: 'http://127.0.0.1:8799', token: 'secret' }
+  const refuse = (json: () => Promise<unknown>) =>
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, json }))
+
+  it('returns the text the launcher sends in the 400 body', async () => {
+    refuse(() => Promise.resolve({ error: 'Введите токен станции' }))
+    expect(await postCommand(config, { action: 'cancel' })).toEqual({ ok: false, error: 'Введите токен станции' })
+  })
+
+  it('has no text when the body is empty, not JSON, or has no error string', async () => {
+    refuse(() => Promise.reject(new Error('no body')))
+    expect(await postCommand(config, { action: 'cancel' })).toEqual({ ok: false, error: null })
+    refuse(() => Promise.resolve({ error: 5 }))
+    expect(await postCommand(config, { action: 'cancel' })).toEqual({ ok: false, error: null })
+    refuse(() => Promise.resolve({ error: '  ' }))
+    expect(await postCommand(config, { action: 'cancel' })).toEqual({ ok: false, error: null })
+  })
+
+  it('reports success without an error', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }))
+    expect(await postCommand(config, { action: 'cancel' })).toEqual({ ok: true, error: null })
   })
 })
 

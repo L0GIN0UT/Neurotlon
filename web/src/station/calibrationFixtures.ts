@@ -3,7 +3,7 @@ import type { CalibratingState } from './calibration.ts'
 import type { CalibrationStepView } from './types.ts'
 
 export const step = (over: Partial<CalibrationStepView> = {}): CalibrationStepView => ({
-  id: 'emg-cycle',
+  id: 'emg',
   step: 'cycle',
   signals: ['emg'],
   status: 'pending',
@@ -13,23 +13,28 @@ export const step = (over: Partial<CalibrationStepView> = {}): CalibrationStepVi
   phase: null,
   phase_left_s: null,
   reason_text: null,
+  stage: 'waiting',
+  countdown_s: null,
+  title: 'Калибровка ЭМГ',
   ...over,
 })
 
 export const baselineStep = (over: Partial<CalibrationStepView> = {}): CalibrationStepView =>
-  step({ id: 'eeg-baseline', step: 'baseline', signals: ['eeg'], segments_total: 1, ...over })
+  step({ id: 'eeg', title: 'Калибровка ЭЭГ', step: 'baseline', signals: ['eeg'], segments_total: 1, ...over })
 
 export const calibrating = (over: Partial<CalibratingState> = {}): CalibratingState => ({
   kind: 'calibrating',
   players: [],
   link: 'live',
   sensors: [
-    { signal: 'eeg', state: 'connected', battery: 84 },
-    { signal: 'emg', state: 'connected', battery: 61 },
+    { signal: 'eeg', title: 'ЭЭГ', status: 'connected', state: 'ok', battery: 84 },
+    { signal: 'emg', title: 'ЭМГ', status: 'connected', state: 'ok', battery: 61 },
   ],
   eeg_method: 'alpha',
   steps: [step(), baselineStep()],
-  current: 'emg-cycle',
+  current: 'emg',
   ready: false,
+  stage: over.stage ?? (over.ready ? 'review' : over.steps?.length === 0 ? 'connecting' : 'running'),
+  connect_error: null,
   ...over,
 })

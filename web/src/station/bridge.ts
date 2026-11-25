@@ -23,17 +23,37 @@ export function readBridgeConfig(win: Pick<Window, 'stationBridge' | 'location'>
   return { url: `http://127.0.0.1:${port}`, token }
 }
 
-export async function sendCommand(config: BridgeConfig, command: Command): Promise<boolean> {
+export interface CommandResult {
+  ok: boolean
+  /** Понятный текст отказа: ядро присылает его в теле 400 как `{"error": "..."}`. */
+  error: string | null
+}
+
+export async function postCommand(config: BridgeConfig, command: Command): Promise<CommandResult> {
   try {
     const response = await fetch(`${config.url}/api/command`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Station-Token': config.token },
       body: JSON.stringify(command),
     })
-    return response.ok
+    if (response.ok) return { ok: true, error: null }
+    let error: string | null = null
+    try {
+      const body: unknown = await response.json()
+      if (typeof body === 'object' && body !== null && 'error' in body && typeof body.error === 'string') {
+        error = body.error.trim() || null
+      }
+    } catch {
+      // тела нет или это не JSON: отказ без текста
+    }
+    return { ok: false, error }
   } catch {
-    return false
+    return { ok: false, error: null }
   }
+}
+
+export async function sendCommand(config: BridgeConfig, command: Command): Promise<boolean> {
+  return (await postCommand(config, command)).ok
 }
 
 export type Connection = 'connecting' | 'live' | 'lost'

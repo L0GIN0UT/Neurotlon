@@ -23,11 +23,14 @@ export function SensorsSection({
   fields,
   setFields,
   send,
+  notice = null,
 }: {
   state: SetupState
   fields: SetupFields
   setFields: (update: (fields: SetupFields) => SetupFields) => void
   send: (command: Command) => void
+  /** Отказ ядра на последнюю команду: показываем под списком, не молча. */
+  notice?: string | null
 }) {
   if (!state.sensors_available) return null
 
@@ -57,7 +60,15 @@ export function SensorsSection({
           <span className="setup-hint">{t.SETUP.eegMethodHint[fields.eeg_method] ?? ''}</span>
         </div>
       )}
-      {fields.sensors === 'hardware' && <SensorList sensors={state.sensors} roles={state.roles} send={send} />}
+      {fields.sensors === 'hardware' && (
+        <SensorList
+          sensors={state.sensors}
+          roles={state.roles}
+          rolesKnown={state.roles_known ?? state.roles.length > 0}
+          send={send}
+          notice={notice}
+        />
+      )}
     </div>
   )
 }
