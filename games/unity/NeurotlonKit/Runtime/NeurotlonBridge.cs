@@ -71,20 +71,6 @@ namespace Neurotlon
     }
 
     [Serializable]
-    public class CalibrationMessage
-    {
-        public string type;
-        public string signal;
-        public string step;
-        public string status;
-        public float progress;
-        public string reason;
-        public int segment;
-        public string phase;
-        public float phase_left_s;
-    }
-
-    [Serializable]
     public class BurstMessage
     {
         public string type;
@@ -94,54 +80,12 @@ namespace Neurotlon
         public float rise;
     }
 
-    [Serializable]
-    public class CalibrateSegment
-    {
-        public string phase;
-        public float s;
-    }
-
-    [Serializable]
-    public class CalibrateMessage
-    {
-        public string type;
-        public string signal;
-        public string step;
-        public CalibrateSegment[] segments;
-        public float duration_s;
-    }
-
-    [Serializable]
-    public class ResetMessage
-    {
-        public string type;
-    }
-
     // Последнее значение сигнала. Использовать можно, только если Valid.
     public struct SignalReading
     {
         public float Value;
         public bool Valid;
         public string Reason;
-    }
-
-    public class CalibrationProgress
-    {
-        public string Step;
-        public string Status;
-        public float Progress;
-        public string Reason;
-        // Только у шага cycle: фаза tense/relax, номер отрезка с единицы, сколько секунд фазе осталось.
-        public string Phase;
-        public int Segment;
-        public float PhaseLeftSeconds;
-
-        public bool SameAs(CalibrationProgress other)
-        {
-            return other != null && Step == other.Step && Status == other.Status
-                && Mathf.Approximately(Progress, other.Progress) && Reason == other.Reason
-                && Phase == other.Phase && Segment == other.Segment;
-        }
     }
 
     // Событие резкого сокращения в очереди игры.
@@ -172,8 +116,6 @@ namespace Neurotlon
         readonly Dictionary<string, SignalReading> readings = new Dictionary<string, SignalReading>();
         readonly Dictionary<string, double> receivedAt = new Dictionary<string, double>();
         readonly Dictionary<string, string> states = new Dictionary<string, string>();
-        readonly Dictionary<string, CalibrationProgress> calibrations =
-            new Dictionary<string, CalibrationProgress>();
         readonly Dictionary<string, Queue<QueuedBurst>> bursts = new Dictionary<string, Queue<QueuedBurst>>();
         readonly Dictionary<string, int> lastBurstSeq = new Dictionary<string, int>();
         readonly Dictionary<string, long> lastBurstTime = new Dictionary<string, long>();
@@ -250,7 +192,6 @@ namespace Neurotlon
                 readings.Clear();
                 receivedAt.Clear();
                 states.Clear();
-                calibrations.Clear();
                 features = new string[0];
                 eegMethod = null;
                 calibrated = new string[0];
@@ -289,12 +230,6 @@ namespace Neurotlon
         {
             string state;
             return states.TryGetValue(signal, out state) ? state : null;
-        }
-
-        public CalibrationProgress Calibration(string signal)
-        {
-            CalibrationProgress progress;
-            return calibrations.TryGetValue(signal, out progress) ? progress : null;
         }
 
         // Забрать ОДНО свежее необработанное событие burst сигнала. Событие старше StaleSeconds по времени
@@ -345,32 +280,6 @@ namespace Neurotlon
             return lost;
         }
 
-        // --- команды ---
-
-        // Строка, которая уходит мосту. Без segments и duration_s: JsonUtility пишет пустой массив и ноль,
-        // мост считает их отсутствующими (ритм и длительность по умолчанию).
-        public static string CalibrateJson(string signal, string step)
-        {
-            return JsonUtility.ToJson(new CalibrateMessage
-            {
-                type = NeurotlonProtocol.MessageCalibrate,
-                signal = signal,
-                step = step,
-            });
-        }
-
-        public bool Calibrate(string signal, string step)
-        {
-            return Send(CalibrateJson(signal, step));
-        }
-
-        public bool Reset()
-        {
-            calibrations.Clear();
-            calibrated = new string[0];
-            return Send(JsonUtility.ToJson(new ResetMessage { type = NeurotlonProtocol.MessageReset }));
-        }
-
         public void Dispose()
         {
             stopping = true;
@@ -393,9 +302,6 @@ namespace Neurotlon
                     case NeurotlonProtocol.MessageHello: ApplyHello(JsonUtility.FromJson<HelloMessage>(line)); break;
                     case NeurotlonProtocol.MessageSample: ApplySample(JsonUtility.FromJson<SampleMessage>(line)); break;
                     case NeurotlonProtocol.MessageSensor: ApplySensor(JsonUtility.FromJson<SensorMessage>(line)); break;
-                    case NeurotlonProtocol.MessageCalibration:
-                        ApplyCalibration(JsonUtility.FromJson<CalibrationMessage>(line));
-                        break;
                     case NeurotlonProtocol.MessageBurst: ApplyBurst(JsonUtility.FromJson<BurstMessage>(line)); break;
                     // неизвестные сообщения игра игнорирует
                 }
@@ -473,41 +379,7 @@ namespace Neurotlon
             if (!string.IsNullOrEmpty(sensor.signal)) states[sensor.signal] = sensor.state;
         }
 
-        void ApplyCalibration(CalibrationMessage msg)
-        {
-            if (string.IsNullOrEmpty(msg.signal)) return;
-            float progress = msg.status == NeurotlonProtocol.CalibStatusDone ? 1f : msg.progress;
-            calibrations[msg.signal] = new CalibrationProgress
-            {
-                Step = msg.step,
-                Status = msg.status,
-                Progress = Mathf.Clamp01(progress),
-                Reason = string.IsNullOrEmpty(msg.reason) ? null : msg.reason,
-                Phase = string.IsNullOrEmpty(msg.phase) ? null : msg.phase,
-                Segment = msg.segment,
-                PhaseLeftSeconds = msg.phase_left_s,
-            };
-        }
-
         // --- фоновый поток ---
-
-        bool Send(string json)
-        {
-            lock (sendLock)
-            {
-                if (client == null || !client.Connected) return false;
-                try
-                {
-                    byte[] data = Encoding.UTF8.GetBytes(json + "\n");
-                    client.GetStream().Write(data, 0, data.Length);
-                    return true;
-                }
-                catch (Exception)
-                {
-                    return false;
-                }
-            }
-        }
 
         void Run()
         {

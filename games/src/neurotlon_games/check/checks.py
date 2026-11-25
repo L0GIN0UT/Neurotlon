@@ -38,15 +38,17 @@ from neurotlon_launcher.game import (
 )
 
 from ..sdk.app import TIME_SCALE_ENV
-from ..sdk.calibration import STEP_DURATION_S, Phase, phases_for
-from .harness import BRIDGE_FEATURES, CheckBridge
+from .harness import CheckBridge, CheckBridgeError
 
 Status = Literal["PASS", "FAIL", "WARN", "SKIP"]
 POLL_S = 0.05
 TEST_PLAYERS = (Player("NT03", "Тест Один"), Player("NT14", "Тест Два"))
 BURST_DISCIPLINES = frozenset({"darts", "football"})  # игры, где бросок и удар запускает burst
-BURST_SETTLE_S = 0.5  # запас после калибровки: отсчёт и начало игры
+BURST_SETTLE_S = 3.5  # запас от первого чтения игрой: отсчёт «3-2-1» и начало игры
+PLAY_TAIL_S = 3.0  # после конца зачётной части: экран «Игра окончена» и выход
+ABORT_SETTLE_S = 3.0  # потерю датчиков имитируем, когда игра уже читала мост столько секунд
 LOST_ABORT_S = 30.0  # правило GameApp: через столько игра сама прерывается без датчика
+UNCALIBRATED_WAIT_S = 40.0  # игре без калибровки на то, чтобы запуститься и выйти с aborted
 
 
 @dataclass(frozen=True)
@@ -92,6 +94,8 @@ class Options:
     abort_test: bool = False
     abort_wait_s: float | None = None
     keep_dir: Path | None = None
+    uncalibrated_test: bool = True
+    uncalibrated_wait_s: float = UNCALIBRATED_WAIT_S
 
 
 def resolve_command(command: Sequence[str]) -> tuple[str, ...]:
@@ -135,27 +139,38 @@ def run_check(opts: Options) -> Report:
     scale = None if opts.time_scale == 1.0 else f"{opts.time_scale:g}"
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         data_dir = opts.keep_dir or Path(tmp)
-        with CheckBridge(opts.discipline, opts.bridge_speed) as bridge, _env(TIME_SCALE_ENV, scale):
-            runner = SubprocessGameRunner(
-                command,
-                None,
-                data_dir,
-                bridge.host,
-                bridge.port,
-                fullscreen=False,
-                grace_s=opts.grace_s,
-            )
-            started = time.monotonic()
-            runner.start(request)
-            outcome, abort_sent = _wait(runner, bridge, opts)
-            finished = time.monotonic()
-            elapsed = finished - started
-            bursts = _bursts_in_play(bridge, finished)
+        try:
+            # мост сам калибрует сигналы до запуска игры, как лаунчер на стенде
+            with (
+                CheckBridge(opts.discipline, opts.bridge_speed) as bridge,
+                _env(TIME_SCALE_ENV, scale),
+            ):
+                runner = SubprocessGameRunner(
+                    command,
+                    None,
+                    data_dir,
+                    bridge.host,
+                    bridge.port,
+                    fullscreen=False,
+                    grace_s=opts.grace_s,
+                )
+                started = time.monotonic()
+                runner.start(request)
+                outcome, abort_sent = _wait(runner, bridge, opts)
+                finished = time.monotonic()
+                elapsed = finished - started
+                bursts = _bursts_in_play(bridge, finished, opts)
+        except CheckBridgeError as exc:
+            report.add("FAIL", "мост", f"мост проверки не откалибровал сигналы: {exc}")
+            return report
         folder = session_dir(data_dir, request.session_id)
         _evaluate(report, opts, request, bridge, bursts, outcome, abort_sent, elapsed, folder)
         log = folder / "game.log"
         if not report.passed and log.exists():
             report.log_tail = _tail(log)
+        launched = any(c.name == "запуск" and c.status == "PASS" for c in report.checks)
+        if opts.uncalibrated_test and not opts.abort_test and launched:
+            _check_uncalibrated(report, opts, command, data_dir, scale)
         if opts.keep_dir:
             report.add("PASS", "файлы", f"сохранены в {folder}")
     return report
@@ -166,37 +181,28 @@ def _tail(path: Path, lines: int = 15) -> str:
     return "\n".join(text.splitlines()[-lines:])
 
 
-def _phases(discipline: str) -> tuple[Phase, ...]:
-    """Шаги калибровки, которых ждёт игра от этого моста (он объявляет `emg_cycle`)."""
-    return phases_for(discipline, emg_cycle="emg_cycle" in BRIDGE_FEATURES)
+def _bursts_in_play(bridge: CheckBridge, end: float, opts: Options) -> int:
+    """События `burst`, отданные игре в зачётной части.
 
-
-def _bursts_in_play(bridge: CheckBridge, end: float) -> int:
-    """События `burst`, отданные игре после конца калибровки и до выхода игры."""
-    source = bridge.source
-    if not source.calibrations or source.last_calibration_at is None:
-        return 0  # игра не калибровалась: момент начала игры неизвестен
-    last_step = source.calibrations[-1][1]
-    calibrated = source.last_calibration_at + STEP_DURATION_S[last_step] / source.speed
-    return source.bursts_between(calibrated + BURST_SETTLE_S, end)
-
-
-def _abort_due(bridge: CheckBridge, expected_steps: int, now: float) -> bool:
-    """Когда обрывать мост в проверке потери датчиков: игра уже вошла в игру."""
+    Начало игры мост не видит (после первого чтения идут обучение и отсчёт, у Unity до минуты),
+    поэтому окно считаем от конца: зачётная часть длится `duration_s` и заканчивается за
+    `PLAY_TAIL_S` до выхода. Раньше первого чтения с запасом на отсчёт окно не начинается."""
     first = bridge.source.first_read_at
-    if first is None or now - first < 1.5:
-        return False
-    steps = len(bridge.source.calibrations)
-    last = bridge.source.last_calibration_at
-    if steps == 0:
-        return True
-    return steps >= expected_steps and last is not None and now - last >= 1.5
+    if first is None:
+        return 0  # игра не читала мост: момент начала игры неизвестен
+    play_from = end - opts.duration_s / opts.time_scale - PLAY_TAIL_S
+    return bridge.source.bursts_between(max(first + BURST_SETTLE_S, play_from), end)
+
+
+def _abort_due(bridge: CheckBridge, now: float) -> bool:
+    """Когда обрывать мост в проверке потери датчиков: игра уже читает сигналы."""
+    first = bridge.source.first_read_at
+    return first is not None and now - first >= ABORT_SETTLE_S
 
 
 def _wait(
     runner: SubprocessGameRunner, bridge: CheckBridge, opts: Options
 ) -> tuple[GameOutcome, bool]:
-    expected = sum(len(p.signals) for p in _phases(opts.discipline))
     abort_at: float | None = None
     abort_wait = opts.abort_wait_s or (LOST_ABORT_S / opts.time_scale + 15.0)
     try:
@@ -205,7 +211,7 @@ def _wait(
             if outcome is not None:
                 return outcome, abort_at is not None
             now = time.monotonic()
-            if opts.abort_test and abort_at is None and _abort_due(bridge, expected, now):
+            if opts.abort_test and abort_at is None and _abort_due(bridge, now):
                 bridge.stop_serving()
                 abort_at = now
             if abort_at is not None and now - abort_at > abort_wait:
@@ -233,7 +239,7 @@ def _evaluate(
         return
     report.add("PASS", "запуск", "процесс запущен с --launch <launch.json>")
     _check_bridge(report, bridge)
-    _check_calibration(report, opts, bridge)
+    _check_calibration(report, bridge)
     if opts.abort_test:
         _check_abort(report, outcome, abort_sent)
         return
@@ -261,20 +267,18 @@ def _check_bridge(report: Report, bridge: CheckBridge) -> None:
         )
 
 
-def _check_calibration(report: Report, opts: Options, bridge: CheckBridge) -> None:
-    expected = [(s, p.step) for p in _phases(opts.discipline) for s in p.signals]
-    done = bridge.source.calibrations
-    if not done:
-        report.add("WARN", "калибровка", "игра не запускала калибровку (на стенде она нужна)")
-    elif all(step in done for step in expected):
-        report.add("PASS", "калибровка", "пройдены все шаги: " + _steps(expected))
+def _check_calibration(report: Report, bridge: CheckBridge) -> None:
+    """Калибровку проводит лаунчер: игра её не запускает (`calibrate` от игры нежелателен)."""
+    sent = bridge.source.calibrations
+    if not sent:
+        report.add("PASS", "калибровка", "датчики откалиброваны до игры, игра их не калибрует")
     else:
-        missing = [step for step in expected if step not in done]
-        report.add("WARN", "калибровка", "не запущены шаги: " + _steps(missing))
-
-
-def _steps(steps: Sequence[tuple[str, str]]) -> str:
-    return ", ".join(f"{signal}/{step}" for signal, step in steps)
+        steps = ", ".join(f"{signal}/{step}" for signal, step in sent)
+        report.add(
+            "WARN",
+            "калибровка",
+            f"игра запускала калибровку ({steps}): её проводит лаунчер, игре калибровать нечего",
+        )
 
 
 def _check_duration(report: Report, opts: Options, elapsed: float) -> None:
@@ -392,3 +396,77 @@ def _check_burst(report: Report, opts: Options, bursts: int, raw: list[dict[str,
             f"мост прислал {bursts} событий burst, а игра не набрала очков: "
             "нет реакции на резкое сокращение мышцы",
         )
+
+
+def _check_uncalibrated(
+    report: Report,
+    opts: Options,
+    command: tuple[str, ...],
+    data_dir: Path,
+    scale: str | None,
+) -> None:
+    """Игра на реальных датчиках без калибровки не должна играть: `aborted` с понятной причиной."""
+    name = "без калибровки"
+    request = GameRequest(
+        uuid.uuid4(),
+        opts.discipline,
+        opts.duration_s,
+        TEST_PLAYERS[: 2 if opts.discipline == "pong" else 1],
+        opts.max_points,
+    )
+    with (
+        CheckBridge(opts.discipline, opts.bridge_speed, calibrate=False) as bridge,
+        _env(TIME_SCALE_ENV, scale),
+    ):
+        runner = SubprocessGameRunner(
+            command,
+            None,
+            data_dir,
+            bridge.host,
+            bridge.port,
+            fullscreen=False,
+            grace_s=opts.grace_s,
+        )
+        runner.start(request)
+        outcome = _wait_for_exit(runner, opts.uncalibrated_wait_s)
+    if isinstance(outcome, Aborted):
+        if "калибр" in outcome.reason.lower():
+            report.add("PASS", name, f"игра вышла с aborted: {outcome.reason}")
+        else:
+            report.add(
+                "WARN",
+                name,
+                f"игра вышла с aborted, но причина не про калибровку: {outcome.reason}",
+            )
+    elif isinstance(outcome, Crashed) and outcome.detail.startswith(DETAIL_TIMEOUT):
+        report.add(
+            "FAIL",
+            name,
+            f"игра не вышла за {opts.uncalibrated_wait_s:g} с без калибровки: "
+            "должна сразу записать aborted",
+        )
+    elif isinstance(outcome, Crashed):
+        report.add("FAIL", name, f"игра без калибровки упала: {outcome.detail}")
+    else:
+        report.add(
+            "FAIL",
+            name,
+            "игра без калибровки дошла до конца: на реальных датчиках она должна "
+            "записать aborted (датчики не откалиброваны)",
+        )
+
+
+def _wait_for_exit(runner: SubprocessGameRunner, wait_s: float) -> GameOutcome:
+    deadline = time.monotonic() + wait_s
+    try:
+        while True:
+            outcome = runner.poll()
+            if outcome is not None:
+                return outcome
+            if time.monotonic() > deadline:
+                runner.stop()
+                return Crashed(f"{DETAIL_TIMEOUT} без калибровки")
+            time.sleep(POLL_S)
+    except BaseException:
+        runner.stop()
+        raise

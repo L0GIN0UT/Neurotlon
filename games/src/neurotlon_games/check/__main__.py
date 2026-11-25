@@ -10,17 +10,19 @@ from pathlib import Path
 
 from neurotlon_bridge.source import PROFILES
 
-from .checks import Options, run_check
+from .checks import UNCALIBRATED_WAIT_S, Options, run_check
 
 EXIT_PASS = 0
 EXIT_FAIL = 1
 EXIT_USAGE = 2
 
 DESCRIPTION = """\
-Запускает игру так же, как лаунчер стенда, с эмулированным мостом, который сам двигает
-сигналы, и проверяет: запуск, подключение к мосту, калибровку, выход вовремя, result.json
-(схема, session_id, правила сервера, один победитель в понге). Код выхода 0 только если
-нет ни одного FAIL. Команда игры задаётся после `--`, лаунчер допишет к ней `--launch <путь>`.
+Запускает игру так же, как лаунчер стенда, с эмулированным мостом, который сам калибрует
+сигналы до запуска игры (как лаунчер) и двигает их, и проверяет: запуск, подключение к мосту,
+что игра сама не калибрует, выход вовремя, result.json (схема, session_id, правила сервера,
+один победитель в понге). Вторым запуском проверяет игру без калибровки: она должна сразу
+записать aborted (FAIL, если зависла). Код выхода 0 только если нет ни одного FAIL.
+Команда игры задаётся после `--`, лаунчер допишет к ней `--launch <путь>`.
 
 Пример: neurotlon-game-check --discipline pong -- python -m neurotlon_games.template
 """
@@ -68,6 +70,17 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="вместо обычной проверки оборвать мост: прервётся ли игра (необязательно)",
     )
+    parser.add_argument(
+        "--no-uncalibrated-test",
+        action="store_true",
+        help="не запускать игру второй раз без калибровки (по умолчанию запускается)",
+    )
+    parser.add_argument(
+        "--uncalibrated-wait-s",
+        type=float,
+        default=UNCALIBRATED_WAIT_S,
+        help=f"сколько ждать выхода игры без калибровки (по умолчанию {UNCALIBRATED_WAIT_S:g})",
+    )
     parser.add_argument("--abort-wait-s", type=float, default=None, help="сколько ждать выхода")
     parser.add_argument(
         "--keep", type=Path, default=None, help="папка, куда сохранить файлы сессии"
@@ -94,6 +107,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error("после `--` нужна команда запуска игры")
     if args.duration_s < 10 or args.time_scale <= 0 or args.bridge_speed <= 0:
         parser.error("duration-s не меньше 10, time-scale и bridge-speed больше 0")
+    if args.uncalibrated_wait_s <= 0:
+        parser.error("uncalibrated-wait-s больше 0")
     if args.max_points is not None and not 1 <= args.max_points <= 1000:
         parser.error("max-points от 1 до 1000")
     options = Options(
@@ -107,6 +122,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         abort_test=args.abort_test,
         abort_wait_s=args.abort_wait_s,
         keep_dir=args.keep,
+        uncalibrated_test=not args.no_uncalibrated_test,
+        uncalibrated_wait_s=args.uncalibrated_wait_s,
     )
     print(f"Проверка игры: {args.discipline}, duration_s={args.duration_s}", flush=True)
     report = run_check(options)

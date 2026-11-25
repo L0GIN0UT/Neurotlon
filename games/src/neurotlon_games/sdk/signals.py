@@ -7,13 +7,7 @@ from collections.abc import Callable, Sequence
 from typing import Protocol
 
 from neurotlon_bridge.client import BridgeClient
-from neurotlon_bridge.source import (
-    CalibrationProgress,
-    CalibrationStep,
-    Feature,
-    Reading,
-    SensorState,
-)
+from neurotlon_bridge.source import Feature, Reading, SensorState
 
 from .launch import LaunchInfo
 
@@ -31,14 +25,10 @@ class Bridge(Protocol):
 
     def sensor_state(self, signal: str) -> SensorState | None: ...
 
-    def calibration(self, signal: str) -> CalibrationProgress | None: ...
-
     @property
     def features(self) -> tuple[Feature, ...]: ...
 
-    def calibrate(self, signal: str, step: CalibrationStep) -> bool: ...
-
-    def reset(self) -> bool: ...
+    def calibrated(self, signal: str) -> bool: ...
 
     def close(self) -> None: ...
 
@@ -78,6 +68,36 @@ class Signals:
         """Объявил ли мост функцию в `hello.features`; у старого моста всегда `False`."""
         return feature in self._bridge.features
 
+    def calibrated(self, signal: str) -> bool:
+        """Шкала сигнала готова по `hello.calibrated`; у старого моста всегда `False`.
+
+        Эмулируемый сигнал здесь не числится: его состояние датчика `emulated`.
+        """
+        return self._bridge.calibrated(signal)
+
+    def uncalibrated(self) -> list[str]:
+        """Сигналы игры без калибровки; пусто, если калибровка не требуется.
+
+        Требуется, только если мост объявил `calibration_state`: у старого моста проверить
+        нечего. Сигнал в порядке, если он в `hello.calibrated` или его датчик `emulated`.
+        """
+        if not self.supports("calibration_state"):
+            return []
+        return [
+            n
+            for n in self._names
+            if not self._bridge.calibrated(n) and self._bridge.sensor_state(n) != "emulated"
+        ]
+
+    def calibration_lost(self) -> list[str]:
+        """Сигналы, которые мост сейчас помечает `not_calibrated` (калибровку стёрли)."""
+        lost: list[str] = []
+        for name in self._names:
+            reading = self._bridge.latest(name)
+            if reading is not None and reading.reason == "not_calibrated":
+                lost.append(name)
+        return lost
+
     def lost_signals(self) -> list[str]:
         """Сигналы, которых нет: мост не отвечает, датчик отключён или данные устарели."""
         if not self._bridge.connected:
@@ -108,17 +128,6 @@ class Signals:
             if clock() >= deadline:
                 return False
             sleep(0.02)
-
-    # --- калибровка (используется `Calibration`) ---
-
-    def calibrate(self, signal: str, step: CalibrationStep) -> bool:
-        return self._bridge.calibrate(signal, step)
-
-    def calibration(self, signal: str) -> CalibrationProgress | None:
-        return self._bridge.calibration(signal)
-
-    def reset(self) -> bool:
-        return self._bridge.reset()
 
     def close(self) -> None:
         self._bridge.close()

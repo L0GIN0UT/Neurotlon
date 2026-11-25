@@ -9,14 +9,17 @@ namespace Neurotlon
     // Дартс и футбол: eeg + emg, один игрок. Понг: emg_left + emg_right, побеждает набравший больше.
     //
     // Что заменить в настоящей игре: OnGameStart / OnGameUpdate (механика, читайте Bridge.Value(...)),
-    // BuildResult (очки и победитель). Подключение к мосту, калибровку, обучение, проверку, отсчёт, таймер, Esc,
+    // BuildResult (очки и победитель). Подключение к мосту, проверку калибровки, обучение, проверку, отсчёт, таймер, Esc,
     // потерю датчика и запись result.json делает этот класс.
     //
-    // Порядок: подключение → калибровка → обучение (TutorialSteps) → демо-проверка (HasCheck, OnCheckUpdate, PassCheck) →
+    // Калибровку датчиков проводит лаунчер до запуска игры; игра её не проводит, а проверяет готовность
+    // (NeurotlonReadiness) и без неё сразу пишет aborted.
+    //
+    // Порядок: подключение и проверка готовности → обучение (TutorialSteps) → демо-проверка (HasCheck, OnCheckUpdate, PassCheck) →
     // отсчёт → игра. Очки обучения и проверки в результат не попадают: игра сама заводит для проверки отдельное состояние.
     public class NeurotlonGame : MonoBehaviour
     {
-        public enum Stage { Connecting, Calibrating, Tutorial, Check, Countdown, Playing, SensorLost, ConfirmAbort, Finished }
+        public enum Stage { Connecting, Tutorial, Check, Countdown, Playing, SensorLost, ConfirmAbort, Finished }
 
         public const float ConnectTimeoutSeconds = 15f;
         public const float CountdownSeconds = 3f;
@@ -26,13 +29,11 @@ namespace Neurotlon
         public const float TutorialStepSeconds = NeurotlonTutorial.StepSeconds;     // на одну попытку шага обучения
         public const float CheckHelpSeconds = 90f;                 // проверка не пройдена за это время: «Позовите волонтёра»
         public const int CheckHelpFailures = 3;                    // или столько неудачных попыток
-        public const float PrepLimitSeconds = 360f;                // калибровка, обучение, проверка и отсчёт вместе: не больше 6 минут
+        public const float PrepLimitSeconds = 360f;                // обучение, проверка и отсчёт вместе: не больше 6 минут
         public const float HardLimitAfterDurationSeconds = 405f;   // лаунчер убивает игру через duration_s + 420 с: уходим раньше
 
         public NeurotlonLaunch Launch { get; private set; }
         public NeurotlonBridge Bridge { get; private set; }
-        public NeurotlonCalibration Calibration { get; private set; }
-        Texture2D dotTexture;
         public Stage CurrentStage { get; private set; }
         public float TimeLeft { get; private set; }
 
@@ -53,6 +54,7 @@ namespace Neurotlon
         bool checkPassed;
         bool aborted;
         string startupError;
+        readonly NeurotlonCalibrationWatch calibrationWatch = new NeurotlonCalibrationWatch();
         List<string> lostNames = new List<string>();
         GUIStyle big, medium, small, tutorialStyle;
 
@@ -75,7 +77,6 @@ namespace Neurotlon
             Screen.fullScreen = Launch.Fullscreen;
             Bridge = new NeurotlonBridge(Launch.BridgeHost, Launch.BridgePort);
             Bridge.Start();
-            Calibration = new NeurotlonCalibration(Bridge, Launch.Discipline);
             TimeLeft = Launch.DurationSeconds;
             startedAt = Time.realtimeSinceStartup;
             countdownLeft = CountdownSeconds;
@@ -105,10 +106,10 @@ namespace Neurotlon
                 Abort(failedTest ? "демо-проверка не пройдена" : "игра прервана оператором");
             }
             CheckFuses();
+            WatchCalibration(dt);
             switch (CurrentStage)
             {
                 case Stage.Connecting: TickConnecting(dt); break;
-                case Stage.Calibrating: TickCalibrating(dt); break;
                 case Stage.Tutorial: TickTutorial(dt); break;
                 case Stage.Check: TickCheck(dt); break;
                 case Stage.Countdown: TickCountdown(dt); break;
@@ -252,24 +253,33 @@ namespace Neurotlon
         {
             if (Bridge.IsReady(Launch.Signals))
             {
-                Calibration.Start();
-                CurrentStage = Stage.Calibrating;
+                // калибровку провёл лаунчер: нет её на реальных датчиках, играть нельзя
+                if (NeurotlonReadiness.Uncalibrated(Bridge, Launch.Signals).Count > 0)
+                {
+                    Abort(NeurotlonReadiness.NotCalibratedReason);
+                    return;
+                }
+                BeginTutorial();
                 return;
             }
             waited += dt;
             if (waited >= ConnectTimeoutSeconds) Abort("нет связи с BCI-мостом");
         }
 
-        void TickCalibrating(float dt)
+        // Мост перезапустился и калибровку не вернул: not_calibrated в sample дольше двух секунд. Обрыв связи и stale
+        // сюда не входят: это потеря датчика (SensorLost, 30 с).
+        void WatchCalibration(float dt)
         {
-            Calibration.Update(dt);
-            if (Calibration.State == NeurotlonCalibration.CalibrationState.Failed)
+            bool watching = CurrentStage == Stage.Tutorial || CurrentStage == Stage.Check || CurrentStage == Stage.Countdown
+                || CurrentStage == Stage.Playing || CurrentStage == Stage.SensorLost;
+            if (!watching)
             {
-                Abort("калибровка не удалась: " + Calibration.FailureReason);
+                calibrationWatch.Reset();
+                return;
             }
-            else if (Calibration.State == NeurotlonCalibration.CalibrationState.Done)
+            if (calibrationWatch.Update(dt, NeurotlonReadiness.CalibrationLost(Bridge, Launch.Signals)))
             {
-                BeginTutorial();
+                Abort(NeurotlonReadiness.CalibrationResetReason);
             }
         }
 
@@ -340,7 +350,7 @@ namespace Neurotlon
             if (checkPassed) CurrentStage = Stage.Countdown;
         }
 
-        // Предохранители. Подготовка (калибровка, обучение, проверка, отсчёт): не дольше PrepLimitSeconds, иначе игра
+        // Предохранители. Подготовка (обучение, проверка, отсчёт): не дольше PrepLimitSeconds, иначе игра
         // уйдёт с aborted. Вся игра: не дольше duration_s + HardLimitAfterDurationSeconds. Лаунчер убивает процесс на 420 с,
         // мы выходим раньше и пишем результат (в зачётной части) или aborted (в подготовке).
         void CheckFuses()
@@ -471,33 +481,6 @@ namespace Neurotlon
                 case Stage.Connecting:
                     Label(cx, cy, "Подключение к датчикам…", big);
                     break;
-                case Stage.Calibrating:
-                    Label(cx, Screen.height * 0.25f,
-                        "Калибровка: шаг " + Calibration.PhaseNumber + " из " + Calibration.PhaseCount, medium);
-                    if (Calibration.ShowsDot)
-                    {
-                        Label(cx, Screen.height * 0.38f, Calibration.Text, big);
-                        DrawDot(cx, cy);
-                    }
-                    else
-                    {
-                        Label(cx, cy, Calibration.Text, big);
-                        if (Calibration.CyclePhase != null)
-                        {
-                            Label(cx, cy + 90f, Mathf.CeilToInt(Calibration.PhaseLeftSeconds).ToString(), medium);
-                        }
-                    }
-                    GUI.Box(new Rect(cx - Screen.width / 4f, Screen.height * 0.66f, Screen.width / 2f * Calibration.Progress, 24),
-                        GUIContent.none);
-                    if (Calibration.Retrying)
-                    {
-                        Label(cx, Screen.height * 0.75f, NeurotlonCalibration.TextRetry, small);
-                        if (!string.IsNullOrEmpty(Calibration.RetryReason))
-                        {
-                            Label(cx, Screen.height * 0.80f, Calibration.RetryReason, small);
-                        }
-                    }
-                    break;
                 case Stage.Tutorial:
                     DrawTutorial(tutorial.Index);
                     DrawTutorialBanner();
@@ -601,34 +584,6 @@ namespace Neurotlon
         }
 
         // Надпись по центру (cx, cy): ширина 90 % экрана, высота по тексту, длинные фразы переносятся и не обрезаются.
-        // Белая точка по центру экрана: на неё смотрят во время baseline.
-        void DrawDot(float cx, float cy)
-        {
-            if (dotTexture == null) dotTexture = MakeDotTexture();
-            float size = Mathf.Max(24f, Screen.height * 0.04f);
-            GUI.DrawTexture(new Rect(cx - size / 2f, cy - size / 2f, size, size), dotTexture);
-        }
-
-        static Texture2D MakeDotTexture()
-        {
-            const int side = 64;
-            var texture = new Texture2D(side, side, TextureFormat.RGBA32, false) { hideFlags = HideFlags.HideAndDontSave };
-            var pixels = new Color32[side * side];
-            float radius = side / 2f;
-            for (int y = 0; y < side; y++)
-            {
-                for (int x = 0; x < side; x++)
-                {
-                    float dx = x + 0.5f - radius, dy = y + 0.5f - radius;
-                    byte alpha = (byte)Mathf.Clamp(Mathf.RoundToInt((radius - Mathf.Sqrt(dx * dx + dy * dy)) * 255f), 0, 255);
-                    pixels[y * side + x] = new Color32(255, 255, 255, alpha);
-                }
-            }
-            texture.SetPixels32(pixels);
-            texture.Apply();
-            return texture;
-        }
-
         void Label(float cx, float cy, string text, GUIStyle style)
         {
             float width = Screen.width * 0.9f;

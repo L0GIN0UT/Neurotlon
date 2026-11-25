@@ -59,16 +59,28 @@ def spawn_child(pid_file: Path) -> None:
     pid_file.write_text(str(child.pid), encoding="utf-8")
 
 
-def connect_bridge(host: str, port: int, wait_s: float = 5.0) -> None:
-    """Подключиться к мосту, дождаться связи и отключиться."""
-    from neurotlon_bridge.client import BridgeClient
+def connect_bridge(
+    host: str, port: int, wait_s: float = 5.0, discipline: str | None = None
+) -> bool:
+    """Подключиться к мосту, дождаться связи и отключиться.
 
+    Возвращает `True`, если нужны откалиброванные сигналы дисциплины, а их нет (правило готовности:
+    мост объявил `calibration_state`, сигнал не в `calibrated` и не `emulated`)."""
+    from neurotlon_bridge.client import BridgeClient
+    from neurotlon_bridge.source import PROFILES
+
+    names = PROFILES.get(discipline or "", ())
     client = BridgeClient(host, port)
     try:
         deadline = time.monotonic() + wait_s
-        while not client.connected and time.monotonic() < deadline:
+        while time.monotonic() < deadline:
+            if client.connected and all(client.sensor_state(n) is not None for n in names):
+                break
             time.sleep(0.02)
         time.sleep(0.3)
+        if "calibration_state" not in client.features:
+            return False
+        return any(not client.calibrated(n) and client.sensor_state(n) != "emulated" for n in names)
     finally:
         client.close()
 
@@ -96,7 +108,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.spawn_child:
         spawn_child(Path(launch["result_path"]).parent / "child.pid")
     if args.connect:
-        connect_bridge(launch["bridge"]["host"], launch["bridge"]["port"])
+        not_ready = connect_bridge(
+            launch["bridge"]["host"], launch["bridge"]["port"], discipline=launch["discipline"]
+        )
+        if not_ready:  # те же правила, что у игр: без калибровки играть нельзя
+            write_atomic(
+                Path(launch["result_path"]),
+                {
+                    **build_result(launch, random.Random(args.seed), True),
+                    "reason": "датчики не откалиброваны: пройдите калибровку в лаунчере",
+                },
+            )
+            return 0
     time.sleep(max(args.seconds, 0.0))
     if args.crash:
         print("stub: simulated crash", file=sys.stderr)

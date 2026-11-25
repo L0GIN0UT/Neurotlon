@@ -1,7 +1,7 @@
 """Unity-кит нельзя собрать в CI, поэтому сверяем его с контрактами по тексту .cs-файлов.
 
-Имена полей классов сообщений, значения констант, шаги и тексты калибровки должны совпадать
-со схемами в `shared/` и с Python-SDK. Расхождение значит, что игра на Unity перестанет
+Имена полей классов сообщений, значения констант, причины и сроки проверки калибровки должны
+совпадать со схемами в `shared/` и с Python-SDK. Расхождение значит, что игра на Unity перестанет
 понимать мост или лаунчер.
 """
 
@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 
 from neurotlon_bridge import client as bridge_client
-from neurotlon_games.sdk import app, calibration
+from neurotlon_games.sdk import app
 
 ROOT = Path(__file__).resolve().parents[2]
 RUNTIME = ROOT / "games" / "unity" / "NeurotlonKit" / "Runtime"
@@ -68,11 +68,7 @@ CLASS_TO_SCHEMA: dict[str, tuple[dict[str, set[str]], set[str]]] = {
     "SampleSignals": (BRIDGE_CS, set(BD["SignalName"]["enum"])),
     "SampleMessage": (BRIDGE_CS, props(BD["Sample"])),
     "SensorMessage": (BRIDGE_CS, props(BD["Sensor"])),
-    "CalibrationMessage": (BRIDGE_CS, props(BD["Calibration"])),
-    "CalibrateMessage": (BRIDGE_CS, props(BD["Calibrate"])),
-    "CalibrateSegment": (BRIDGE_CS, props(BD["Segment"])),
     "BurstMessage": (BRIDGE_CS, props(BD["Burst"])),
-    "ResetMessage": (BRIDGE_CS, props(BD["Reset"])),
 }
 
 
@@ -166,57 +162,59 @@ def number(consts_map: dict[str, str], key: str) -> float:
     return float(consts_map[key].strip().rstrip("f"))
 
 
-def test_calibration_matches_python_sdk() -> None:
-    text = source("NeurotlonCalibration.cs")
-    floats = consts(text, "float")
-    steps = calibration.STEP_DURATION_S
-    assert number(floats, "RestSeconds") == steps["rest"]
-    assert number(floats, "ContractSeconds") == steps["contract"]
-    assert number(floats, "CycleSeconds") == steps["cycle"]
-    assert number(floats, "BaselineSeconds") == steps["baseline"]
-    assert number(floats, "SqueezeSeconds") == calibration.SQUEEZE_S
-    assert number(floats, "PauseSeconds") == calibration.PAUSE_S
-    assert number(floats, "TimeoutFactor") == calibration.TIMEOUT_FACTOR
-    assert number(floats, "TimeoutExtraSeconds") == calibration.TIMEOUT_EXTRA_S
-    assert int(consts(text, "int")["Retries"]) == calibration.RETRIES
+def test_game_does_not_calibrate_in_the_kit() -> None:
+    """Калибровку проводит лаунчер: в ките нет шагов калибровки и команд `calibrate`."""
+    assert not (RUNTIME / "NeurotlonCalibration.cs").exists()
+    for name in sorted(p.name for p in RUNTIME.glob("*.cs")):
+        text = source(name)
+        assert "NeurotlonCalibration " not in text, name
+        assert "CalibrateJson" not in text, name
+        assert "Stage.Calibrating" not in text, name
+    stages = re.search(r"enum Stage \{([^}]*)\}", source("NeurotlonGame.cs"))
+    assert stages is not None
+    order = [name.strip() for name in stages.group(1).split(",")]
+    assert order == [
+        "Connecting",
+        "Tutorial",
+        "Check",
+        "Countdown",
+        "Playing",
+        "SensorLost",
+        "ConfirmAbort",
+        "Finished",
+    ]
 
 
-def test_calibration_texts_match_python_sdk() -> None:
-    # тексты калибровки в ките ссылаются на общие формулировки NeurotlonTexts: раскрываем ссылки
-    shared = {k: unquote(v) for k, v in consts(source("NeurotlonTexts.cs"), "string").items()}
-
-    def resolve(value: str) -> str:
-        value = value.strip()
-        return (
-            shared[value.split(".", 1)[1]]
-            if value.startswith("NeurotlonTexts.")
-            else unquote(value)
-        )
-
-    strings = {
-        k: resolve(v) for k, v in consts(source("NeurotlonCalibration.cs"), "string").items()
-    }
+def test_readiness_reasons_match_python_sdk() -> None:
+    strings = {k: unquote(v) for k, v in consts(source("NeurotlonReadiness.cs"), "string").items()}
     assert strings == {
-        "TextRest": calibration.TEXT_REST,
-        "TextSqueeze": calibration.TEXT_SQUEEZE,
-        "TextRelease": calibration.TEXT_RELEASE,
-        "TextBaseline": calibration.TEXT_BASELINE,
-        "TextRetry": calibration.TEXT_RETRY,
-        "TextWeak": calibration.TEXT_WEAK,
-        "TextNoSignal": calibration.TEXT_NO_SIGNAL,
+        "NotCalibratedReason": app.NOT_CALIBRATED_REASON,
+        "CalibrationResetReason": app.CALIBRATION_RESET_REASON,
     }
+    assert len(strings["NotCalibratedReason"]) <= LD["Result"]["properties"]["reason"]["maxLength"]
 
 
-def test_calibration_phases_match_python_sdk() -> None:
-    text = source("NeurotlonCalibration.cs")
-    # cycle (если мост объявил emg_cycle) или rest + contract, затем baseline для eeg+emg
-    order = re.findall(r"new Phase\(NeurotlonProtocol\.Step(\w+)", text)
-    assert order == ["Cycle", "Rest", "Contract", "Baseline"]
-    assert [p.step for p in calibration.phases_for("pong")] == ["rest", "contract"]
-    assert [p.step for p in calibration.phases_for("darts")] == ["rest", "contract", "baseline"]
-    cycle = calibration.phases_for("darts", emg_cycle=True)
-    assert [p.step for p in cycle] == ["cycle", "baseline"]
-    assert [p.step for p in calibration.phases_for("pong", emg_cycle=True)] == ["cycle"]
+def test_readiness_follows_the_protocol_contract() -> None:
+    """Готовность по `hello.calibrated` и `calibration_state`, потеря по `not_calibrated`."""
+    text = source("NeurotlonReadiness.cs")
+    for name in ("FeatureCalibrationState", "SensorStateEmulated", "InvalidNotCalibrated"):
+        assert f"NeurotlonProtocol.{name}" in text
+    assert "calibration_state" in BD["Feature"]["enum"]
+    assert "calibrated" in props(BD["Hello"])
+    assert "not_calibrated" in BD["InvalidReason"]["enum"]
+    assert "NeurotlonReadiness.Uncalibrated(" in source("NeurotlonGame.cs")
+    assert "bool Calibrated(string signal)" in source("NeurotlonBridge.cs")
+
+
+def test_calibration_loss_timing_matches_python_game_app() -> None:
+    floats = consts(source("NeurotlonReadiness.cs"), "float")
+    assert number(floats, "CalibrationLostSeconds") == app.GameApp.calibration_lost_abort_s
+
+
+def test_unity_texts_keep_only_shared_player_phrases() -> None:
+    names = set(consts(source("NeurotlonTexts.cs"), "string"))
+    assert {"Tense", "Relax", "RelaxShort"} <= names
+    assert names.isdisjoint({"BaselineLook", "CycleWeak", "CycleNoSignal"})
 
 
 def test_unity_kit_texts_do_not_name_body_parts() -> None:

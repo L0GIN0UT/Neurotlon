@@ -1,8 +1,9 @@
 """Основа игры на pygame-ce: игровой код пишет только `update`, `draw` и `result`.
 
-Базовый класс сам: открывает окно, ждёт мост, проводит калибровку, отсчитывает «3-2-1»,
-ведёт таймер и показывает его, обрабатывает Esc (прервать с подтверждением) и потерю датчика
-(пауза, через 30 с — `aborted`), в конце пишет `result.json` и выходит.
+Базовый класс сам: открывает окно, ждёт мост, проверяет, что датчики откалиброваны (калибровку
+проводит лаунчер, игра её не запускает), отсчитывает «3-2-1», ведёт таймер и показывает его,
+обрабатывает Esc (прервать с подтверждением) и потерю датчика (пауза, через 30 с — `aborted`),
+в конце пишет `result.json` и выходит.
 
 `pygame` импортируется внутри методов, чтобы `neurotlon_games.sdk` можно было
 импортировать и тестировать без окна.
@@ -20,7 +21,6 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from .calibration import TEXT_RETRY, Calibration
 from .launch import LaunchError, LaunchInfo
 from .result import ResultEntry, ResultError, ResultWriter
 from .signals import Signals
@@ -41,10 +41,13 @@ ACCENT = (80, 200, 140)
 WARN = (240, 180, 60)
 DANGER = (230, 90, 90)
 
+# Причины `aborted`, когда нет калибровки; те же тексты в кит Unity (NeurotlonReadiness.cs).
+NOT_CALIBRATED_REASON = "датчики не откалиброваны: пройдите калибровку в лаунчере"
+CALIBRATION_RESET_REASON = "калибровка датчиков сброшена"
+
 
 class Phase(Enum):
     CONNECTING = "connecting"
-    CALIBRATING = "calibrating"
     COUNTDOWN = "countdown"
     PLAYING = "playing"
     SENSOR_LOST = "sensor_lost"
@@ -99,6 +102,9 @@ class GameApp:
     connect_timeout_s = 15.0
     countdown_s = 3
     lost_abort_s = 30.0
+    calibration_lost_abort_s = (
+        2.0  # `not_calibrated` в `sample` дольше этого: мост потерял калибровку
+    )
     finish_show_s = 2.0
 
     def __init__(
@@ -107,7 +113,6 @@ class GameApp:
         self.launch = launch
         self.signals = signals
         self.timer = Timer(launch.duration_s)
-        self.calibration = Calibration.for_launch(signals, launch)
         self._writer = ResultWriter(launch)
         self._scale = time_scale if time_scale is not None else time_scale_from_env()
         self._phase = Phase.CONNECTING
@@ -117,6 +122,7 @@ class GameApp:
         self._countdown_left = float(self.countdown_s)
         self._lost_s = 0.0
         self._lost_names: list[str] = []
+        self._uncalibrated_s = 0.0
         self._finished_s = 0.0
         self._aborted = False
         self._written_reason: str | None = None
@@ -162,11 +168,10 @@ class GameApp:
     def tick(self, dt: float, events: Sequence[Any] = ()) -> None:
         """Один кадр логики; `dt` в секундах реального времени."""
         self._handle_events(events)
+        self._watch_calibration(dt)
         match self._phase:
             case Phase.CONNECTING:
                 self._tick_connecting(dt)
-            case Phase.CALIBRATING:
-                self._tick_calibrating(dt)
             case Phase.COUNTDOWN:
                 self._tick_countdown(dt * self._scale)
             case Phase.PLAYING:
@@ -214,19 +219,30 @@ class GameApp:
         if self.signals.connected and all(
             self.signals.sensor_state(n) is not None for n in self.signals.names
         ):
-            self.calibration.start()
-            self._phase = Phase.CALIBRATING
+            self._enter_countdown()
             return
         self._waited_s += dt
         if self._waited_s >= self.connect_timeout_s:
             self.abort("нет связи с BCI-мостом")
 
-    def _tick_calibrating(self, dt: float) -> None:
-        self.calibration.update(dt)
-        if self.calibration.state == "failed":
-            self.abort(f"калибровка не удалась: {self.calibration.failure_reason}")
-        elif self.calibration.state == "done":
+    def _enter_countdown(self) -> None:
+        """Мост ответил: датчики должны быть откалиброваны лаунчером (или эмулироваться)."""
+        if self.signals.uncalibrated():
+            self.abort(NOT_CALIBRATED_REASON)
+        else:
             self._phase = Phase.COUNTDOWN
+
+    def _watch_calibration(self, dt: float) -> None:
+        """Мост перезапустился и калибровку не вернул: `not_calibrated` дольше 2 с — `aborted`."""
+        if self._phase not in (Phase.COUNTDOWN, Phase.PLAYING, Phase.SENSOR_LOST):
+            self._uncalibrated_s = 0.0
+            return
+        if not self.signals.calibration_lost():
+            self._uncalibrated_s = 0.0
+            return
+        self._uncalibrated_s += dt
+        if self._uncalibrated_s > self.calibration_lost_abort_s:
+            self.abort(CALIBRATION_RESET_REASON)
 
     def _tick_countdown(self, dt: float) -> None:
         if self._enter_lost_if_needed(Phase.COUNTDOWN):
@@ -285,8 +301,6 @@ class GameApp:
         match self._phase:
             case Phase.CONNECTING:
                 draw_text(surface, "Подключение к датчикам…", 56, mid)
-            case Phase.CALIBRATING:
-                self._render_calibration(surface, width, height)
             case Phase.COUNTDOWN:
                 draw_text(surface, "Приготовьтесь", 56, (mid[0], mid[1] - 120), MUTED)
                 draw_text(surface, str(self.countdown_number), 280, mid, ACCENT)
@@ -310,28 +324,6 @@ class GameApp:
             case Phase.FINISHED:
                 text = "Игра прервана" if self._aborted else "Игра окончена"
                 draw_text(surface, text, 96, mid, DANGER if self._aborted else ACCENT)
-
-    def _render_calibration(self, surface: pygame.Surface, width: int, height: int) -> None:
-        import pygame
-
-        calibration = self.calibration
-        mid_x = width // 2
-        title = f"Калибровка: шаг {calibration.phase_number} из {calibration.phase_count}"
-        draw_text(surface, title, 48, (mid_x, height // 4), MUTED)
-        if calibration.shows_dot:
-            draw_text(surface, calibration.text, 72, (mid_x, height * 2 // 5), ACCENT)
-            pygame.draw.circle(surface, TEXT, (mid_x, height // 2), max(12, height // 50))
-        else:
-            draw_text(surface, calibration.text, 110, (mid_x, height // 2), ACCENT)
-            left = calibration.phase_left_s
-            if left is not None:
-                draw_text(surface, str(math.ceil(left)), 64, (mid_x, height // 2 + 90), MUTED)
-        bar_w = width // 2
-        draw_bar(surface, (mid_x - bar_w // 2, height * 2 // 3, bar_w, 24), calibration.progress)
-        if calibration.retrying:
-            draw_text(surface, TEXT_RETRY, 40, (mid_x, height * 3 // 4), WARN)
-            if calibration.retry_reason:
-                draw_text(surface, calibration.retry_reason, 40, (mid_x, height * 4 // 5), WARN)
 
     def _render_hud(self, surface: pygame.Surface, width: int) -> None:
         draw_text(surface, self.timer.label(), 72, (width // 2, 40))

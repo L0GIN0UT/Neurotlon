@@ -138,7 +138,7 @@ namespace Neurotlon.Games.Darts.Tests
         public void TheWordingNeverMentionsAHand()
         {
             foreach (string text in new[] { NeurotlonTexts.Tense, NeurotlonTexts.Relax, NeurotlonTexts.TenseThenRelax, NeurotlonTexts.RelaxBeforeNext,
-                NeurotlonCalibration.TextRest, NeurotlonCalibration.TextSqueeze, NeurotlonCalibration.TextRelease })
+                NeurotlonTexts.RelaxShort })
             {
                 StringAssert.DoesNotContain("рук", text.ToLowerInvariant());
                 StringAssert.DoesNotContain("кулак", text.ToLowerInvariant());
