@@ -88,7 +88,7 @@ def test_full_flow_writes_finished_result(tmp_path: Path) -> None:
     assert phase_of(game) is Phase.CONNECTING
     to_playing(game)
     assert game.started_calls == 1
-    assert [c[1] for c in bridge.calibrate_calls] == ["rest", "contract", "baseline"]
+    assert [c[1] for c in bridge.calibrate_calls] == ["cycle", "baseline"]
     advance(game, 9.5)
     assert phase_of(game) is Phase.PLAYING
     assert not (tmp_path / "result.json").exists()
@@ -242,7 +242,7 @@ def test_calibration_failure_aborts_with_reason(tmp_path: Path) -> None:
     bridge.auto_calibrate = False
     advance(game, 0.5)
     for _ in range(3):
-        bridge.fail_next("emg", "rest", "нет контакта")
+        bridge.fail_next("emg", "cycle", "нет контакта")
         advance(game, 0.3)
     data = read_result(tmp_path)
     assert data["status"] == "aborted"

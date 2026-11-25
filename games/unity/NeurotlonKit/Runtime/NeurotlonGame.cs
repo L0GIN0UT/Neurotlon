@@ -32,6 +32,7 @@ namespace Neurotlon
         public NeurotlonLaunch Launch { get; private set; }
         public NeurotlonBridge Bridge { get; private set; }
         public NeurotlonCalibration Calibration { get; private set; }
+        Texture2D dotTexture;
         public Stage CurrentStage { get; private set; }
         public float TimeLeft { get; private set; }
 
@@ -473,10 +474,29 @@ namespace Neurotlon
                 case Stage.Calibrating:
                     Label(cx, Screen.height * 0.25f,
                         "Калибровка: шаг " + Calibration.PhaseNumber + " из " + Calibration.PhaseCount, medium);
-                    Label(cx, cy, Calibration.Text, big);
+                    if (Calibration.ShowsDot)
+                    {
+                        Label(cx, Screen.height * 0.38f, Calibration.Text, big);
+                        DrawDot(cx, cy);
+                    }
+                    else
+                    {
+                        Label(cx, cy, Calibration.Text, big);
+                        if (Calibration.CyclePhase != null)
+                        {
+                            Label(cx, cy + 90f, Mathf.CeilToInt(Calibration.PhaseLeftSeconds).ToString(), medium);
+                        }
+                    }
                     GUI.Box(new Rect(cx - Screen.width / 4f, Screen.height * 0.66f, Screen.width / 2f * Calibration.Progress, 24),
                         GUIContent.none);
-                    if (Calibration.Retrying) Label(cx, Screen.height * 0.75f, NeurotlonCalibration.TextRetry, small);
+                    if (Calibration.Retrying)
+                    {
+                        Label(cx, Screen.height * 0.75f, NeurotlonCalibration.TextRetry, small);
+                        if (!string.IsNullOrEmpty(Calibration.RetryReason))
+                        {
+                            Label(cx, Screen.height * 0.80f, Calibration.RetryReason, small);
+                        }
+                    }
                     break;
                 case Stage.Tutorial:
                     DrawTutorial(tutorial.Index);
@@ -581,6 +601,34 @@ namespace Neurotlon
         }
 
         // Надпись по центру (cx, cy): ширина 90 % экрана, высота по тексту, длинные фразы переносятся и не обрезаются.
+        // Белая точка по центру экрана: на неё смотрят во время baseline.
+        void DrawDot(float cx, float cy)
+        {
+            if (dotTexture == null) dotTexture = MakeDotTexture();
+            float size = Mathf.Max(24f, Screen.height * 0.04f);
+            GUI.DrawTexture(new Rect(cx - size / 2f, cy - size / 2f, size, size), dotTexture);
+        }
+
+        static Texture2D MakeDotTexture()
+        {
+            const int side = 64;
+            var texture = new Texture2D(side, side, TextureFormat.RGBA32, false) { hideFlags = HideFlags.HideAndDontSave };
+            var pixels = new Color32[side * side];
+            float radius = side / 2f;
+            for (int y = 0; y < side; y++)
+            {
+                for (int x = 0; x < side; x++)
+                {
+                    float dx = x + 0.5f - radius, dy = y + 0.5f - radius;
+                    byte alpha = (byte)Mathf.Clamp(Mathf.RoundToInt((radius - Mathf.Sqrt(dx * dx + dy * dy)) * 255f), 0, 255);
+                    pixels[y * side + x] = new Color32(255, 255, 255, alpha);
+                }
+            }
+            texture.SetPixels32(pixels);
+            texture.Apply();
+            return texture;
+        }
+
         void Label(float cx, float cy, string text, GUIStyle style)
         {
             float width = Screen.width * 0.9f;

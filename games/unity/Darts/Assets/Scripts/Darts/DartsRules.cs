@@ -63,6 +63,12 @@ namespace Neurotlon.Games.Darts
         public float Progress { get; private set; }      // ход полёта 0…1
         public DartsTuning Tuning { get { return t; } }
 
+        // Мост умеет burst: бросок запускает только Fire(), уровень мышцы бросок не запускает.
+        public bool BurstMode { get; set; }
+
+        // Игра готова принять бросок: прицел активен.
+        public bool ReadyToThrow { get { return Phase == DartsPhase.Aiming; } }
+
         public DartsRules(DartsTuning tuning, Func<float> random01)
         {
             t = tuning;
@@ -85,7 +91,7 @@ namespace Neurotlon.Games.Darts
             {
                 case DartsPhase.Aiming:
                     aim.Step(dt, eeg);
-                    TryThrow(emg);
+                    if (!BurstMode) TryThrow(emg);
                     break;
                 case DartsPhase.Flying:
                     aim.Step(dt, eeg);
@@ -111,12 +117,26 @@ namespace Neurotlon.Games.Darts
             return 0;
         }
 
+        // Событие burst: запускает ровно один бросок, если игра готова. Сила на полёт не влияет.
+        // Вне готовности (полёт, пауза, конец) и повторное событие в том же кадре игнорируются. true, если бросок запущен.
+        public bool Fire()
+        {
+            if (!BurstMode || !ReadyToThrow) return false;
+            Launch();
+            return true;
+        }
+
         void TryThrow(float? emg)
         {
             if (!emg.HasValue) return;
             if (emg.Value <= t.GripOff) gripArmed = true;
             if (!gripArmed || emg.Value < t.GripOn) return;
             gripArmed = false;
+            Launch();
+        }
+
+        void Launch()
+        {
             HitX = aim.X;
             HitZ = aim.Z;
             LastPoints = PointsFor(t, HitX, HitZ);

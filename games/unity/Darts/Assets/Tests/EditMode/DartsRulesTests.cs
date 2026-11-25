@@ -135,5 +135,98 @@ namespace Neurotlon.Games.Darts.Tests
             for (float t = 0f; t < 3f; t += Dt) r.Step(Dt, null, 0.0f);
             Assert.AreEqual(r.Tuning.WobbleMax, r.Amplitude, 1e-5f);
         }
+    
+
+        static DartsRules NewBurstRules()
+        {
+            var r = NewRules();
+            r.BurstMode = true;
+            return r;
+        }
+
+        [Test]
+        public void BurstFiresExactlyOneThrow()
+        {
+            var r = NewBurstRules();
+            int throws = 0;
+            r.Raised += e => { if (e.Kind == DartsEventKind.Throw) throws++; };
+            Assert.IsTrue(r.Fire());
+            Assert.AreEqual(DartsPhase.Flying, r.Phase);
+            Assert.AreEqual(1, throws);
+        }
+
+        [Test]
+        public void TwoBurstsInOneFrameMakeOneThrow()
+        {
+            var r = NewBurstRules();
+            int throws = 0;
+            r.Raised += e => { if (e.Kind == DartsEventKind.Throw) throws++; };
+            Assert.IsTrue(r.Fire());
+            Assert.IsFalse(r.Fire());
+            Assert.AreEqual(1, throws);
+        }
+
+        [Test]
+        public void BurstIsIgnoredWhileFlyingAndShowing()
+        {
+            var r = NewBurstRules();
+            r.Fire();
+            r.Step(Dt, 0.5f, 0f);
+            Assert.IsFalse(r.ReadyToThrow);
+            Assert.IsFalse(r.Fire());
+            RunUntil(r, () => r.Phase == DartsPhase.Showing, 0.5f, () => 0f, 5f);
+            Assert.IsFalse(r.ReadyToThrow);
+            Assert.IsFalse(r.Fire());
+            Assert.AreEqual(1, r.ThrowsMade);
+        }
+
+        [Test]
+        public void BurstReadyAgainAfterThePause()
+        {
+            var r = NewBurstRules();
+            r.Fire();
+            RunUntil(r, () => r.Phase == DartsPhase.Aiming, 0.5f, () => 0f, 10f);
+            Assert.IsTrue(r.ReadyToThrow);
+            Assert.IsTrue(r.Fire());
+        }
+
+        [Test]
+        public void BurstModeIgnoresMuscleLevel()
+        {
+            var r = NewBurstRules();
+            RunUntil(r, () => false, 0.5f, () => 0f, 0.1f);
+            RunUntil(r, () => false, 0.5f, () => 0.95f, 1f);
+            Assert.AreEqual(DartsPhase.Aiming, r.Phase);
+        }
+
+        [Test]
+        public void BurstEventDoesNothingOnOldBridge()
+        {
+            var r = NewRules();
+            Assert.IsFalse(r.Fire());
+            Assert.AreEqual(DartsPhase.Aiming, r.Phase);
+        }
+
+        [Test]
+        public void OldBridgeStillThrowsByLevel()
+        {
+            var r = NewRules();
+            ThrowOnce(r);
+            Assert.AreEqual(1, r.ThrowsMade);
+        }
+
+        [Test]
+        public void BurstIsIgnoredAfterTheLastThrow()
+        {
+            var r = NewBurstRules();
+            for (int i = 0; i < r.Tuning.Throws; i++)
+            {
+                RunUntil(r, () => r.ReadyToThrow, 0.5f, () => 0f, 10f);
+                r.Fire();
+            }
+            RunUntil(r, () => r.Phase == DartsPhase.Over, 0.5f, () => 0f, 20f);
+            Assert.IsFalse(r.Fire());
+            Assert.AreEqual(r.Tuning.Throws, r.ThrowsMade);
+        }
     }
 }

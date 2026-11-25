@@ -11,6 +11,9 @@ namespace Neurotlon
         public const string RelaxShort = "Расслабьте";
         public const string TenseThenRelax = "Напрягите мышцу с датчиком, затем расслабьте";
         public const string RelaxBeforeNext = "Расслабьте мышцу с датчиком, чтобы подготовить следующий раз";
+        public const string BaselineLook = "Расслабьтесь и смотрите на точку на экране";
+        public const string CycleWeak = "Мышца напряглась слабо: напрягите сильнее";
+        public const string CycleNoSignal = "Нет сигнала с датчика: проверьте, что он плотно прилегает";
         public const string Focus = "Сосредоточьтесь";
 
         public const string TutorialDone = "Готово";

@@ -101,6 +101,7 @@ namespace Neurotlon.Games.Darts
         protected override void OnGameStart()
         {
             rules = new DartsRules(tuning, () => (float)random.NextDouble());
+            rules.BurstMode = Bridge.BurstSupported;
             rules.Raised += OnRulesEvent;
             SetReticleVisible(true);
         }
@@ -117,7 +118,9 @@ namespace Neurotlon.Games.Darts
             return new[]
             {
                 NeurotlonTexts.Focus + ": светлый круг сужается, прицел меньше дрожит",
-                NeurotlonTexts.Tense + " выше линии: дротик полетит в прицел. После броска расслабьте её",
+                Bridge.BurstSupported
+                    ? DartsTutorial.BurstThrowHint + ": дротик полетит в прицел"
+                    : NeurotlonTexts.Tense + " выше линии: дротик полетит в прицел. После броска расслабьте её",
                 AimHint,
             };
         }
@@ -150,6 +153,7 @@ namespace Neurotlon.Games.Darts
             repeatTimer = 0f;
             int throws = index == DartsTutorial.AimStep ? DartsHitCounter.Throws : 99;
             rules = new DartsRules(new DartsTuning { Throws = throws }, () => (float)random.NextDouble());
+            rules.BurstMode = Bridge.BurstSupported;
             rules.Raised += OnRulesEvent;
             SetReticleVisible(true);
         }
@@ -160,6 +164,7 @@ namespace Neurotlon.Games.Darts
             if (popupTimer > 0f) popupTimer -= dt;
             if (!TutorialInPlay)
             {
+                if (Bridge.BurstSupported) Bridge.DiscardBursts(NeurotlonProtocol.SignalEmg);
                 UpdateVisuals();            // чтение подсказки: только картинка, правила стоят
                 return false;
             }
@@ -168,6 +173,7 @@ namespace Neurotlon.Games.Darts
             if (emg.HasValue) lastEmg = emg.Value;
             // на шаге про сосредоточение бросков нет: сигнал мышцы не передаём
             rules.Step(dt, eeg, index == DartsTutorial.FocusStep ? (float?)null : emg);
+            PollBurst(index != DartsTutorial.FocusStep);
             UpdateVisuals();
             bool worked = dartsTutorial.Update(index, dt, rules.Concentration);
             // все броски сделаны, а двух попаданий нет: песочница заново, не дожидаясь таймаута (после показа последнего броска)
@@ -249,6 +255,7 @@ namespace Neurotlon.Games.Darts
             float? emg = Bridge.Value(NeurotlonProtocol.SignalEmg);
             if (emg.HasValue) lastEmg = emg.Value;
             rules.Step(dt, eeg, emg);
+            PollBurst(true);
             UpdateVisuals();
             if (popupTimer > 0f) popupTimer -= dt;
             if (rules.Phase == DartsPhase.Over)
@@ -256,6 +263,14 @@ namespace Neurotlon.Games.Darts
                 endTimer += dt;
                 if (endTimer >= EndDelaySeconds) FinishGame();
             }
+        }
+
+        // burst: пока игра не готова, события выбрасываются; готова: одно событие запускает бросок.
+        void PollBurst(bool allowed)
+        {
+            if (!Bridge.BurstSupported) return;
+            if (!allowed || !rules.ReadyToThrow) Bridge.DiscardBursts(NeurotlonProtocol.SignalEmg);
+            else if (Bridge.TryTakeBurst(NeurotlonProtocol.SignalEmg)) rules.Fire();
         }
 
         protected override IList<ResultEntryData> BuildResult()
@@ -322,7 +337,7 @@ namespace Neurotlon.Games.Darts
             DrawBar(new Rect(bottom.x + pad, y, barW, barH), "СОСРЕДОТОЧЕНИЕ", rules != null ? rules.Concentration : 0f, Cyan, -1f, s);
             bool gripped = lastEmg >= tuning.GripOn;
             DrawBar(new Rect(bottom.x + pad * 2f + barW, y, barW, barH), "МЫШЦА", lastEmg,
-                gripped ? new Color(0.4f, 1f, 0.5f) : new Color(1f, 0.75f, 0.2f), tuning.GripOn, s);
+                gripped ? new Color(0.4f, 1f, 0.5f) : new Color(1f, 0.75f, 0.2f), Bridge.BurstSupported ? -1f : tuning.GripOn, s);
         }
 
         void DrawPopup(float s)

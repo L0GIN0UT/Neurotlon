@@ -129,6 +129,7 @@ namespace Neurotlon.Games.Football
         float flightLeft;
         float pauseLeft;
         bool armed;
+        bool kickRequested;
         public enum PhaseKind { Aiming, Flying, Settling }
         public PhaseKind Phase { get; private set; }
         public int Attempt { get; private set; }                          // номер текущей попытки, с нуля
@@ -147,6 +148,19 @@ namespace Neurotlon.Games.Football
 
         // Очки попытки i или -1, если она ещё не сделана.
         public int AttemptResult(int i) { return i < Attempt || (i == Attempt && Finished) ? attemptPoints[i] : -1; }
+        // Удар по событию `burst` вместо порога уровня emg: включает игра, когда мост умеет burst.
+        public bool BurstMode { get; set; }
+        // Прицельный элемент ждёт удара: идёт прицеливание, элемент не закончен.
+        public bool ReadyForKick { get { return !Finished && Phase == PhaseKind.Aiming; } }
+
+        // Запустить удар по событию (при BurstMode). Вне готовности или при повторе в том же кадре ничего не делает.
+        public bool RequestKick()
+        {
+            if (!BurstMode || !ReadyForKick || kickRequested) return false;
+            kickRequested = true;
+            return true;
+        }
+
         public int AttemptsDone { get { return Math.Min(Attempt, AttemptCount); } }
 
         protected AimedElement(FootballTuning t, float wobbleMax, float wobbleMin, Func<float> random01) : base(t)
@@ -162,17 +176,19 @@ namespace Neurotlon.Games.Football
             switch (Phase)
             {
                 case PhaseKind.Aiming:
+                    if (BurstMode)
+                    {
+                        bool fire = kickRequested;
+                        kickRequested = false;
+                        if (fire) Launch();
+                        break;
+                    }
                     if (!emg.HasValue) return;
                     if (emg.Value <= T.GripOff) armed = true;
                     if (armed && emg.Value >= T.GripOn)
                     {
                         armed = false;
-                        HitX = CentreX + aim.X;
-                        HitZ = CentreZ + aim.Z;
-                        Phase = PhaseKind.Flying;
-                        flightLeft = T.KickFlightSeconds;
-                        FlightProgress = 0f;
-                        Raise(FootballEventKind.Kick, 0);
+                        Launch();
                     }
                     break;
                 case PhaseKind.Flying:
@@ -190,6 +206,16 @@ namespace Neurotlon.Games.Football
                     }
                     break;
             }
+        }
+
+        void Launch()
+        {
+            HitX = CentreX + aim.X;
+            HitZ = CentreZ + aim.Z;
+            Phase = PhaseKind.Flying;
+            flightLeft = T.KickFlightSeconds;
+            FlightProgress = 0f;
+            Raise(FootballEventKind.Kick, 0);
         }
 
         void Land()

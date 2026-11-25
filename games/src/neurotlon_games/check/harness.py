@@ -7,15 +7,18 @@ from types import TracebackType
 
 from neurotlon_bridge.emulator import EmulatedSource
 from neurotlon_bridge.scripted import ScriptedInput
-from neurotlon_bridge.server import BridgeServer, BridgeThread
-from neurotlon_bridge.source import CalibrationStep, Reading, Segment
+from neurotlon_bridge.server import FEATURES, BridgeServer, BridgeThread
+from neurotlon_bridge.source import BurstEvent, CalibrationStep, Reading, Segment
 
 
 class RecordingSource(EmulatedSource):
-    """`EmulatedSource` + журнал: сколько раз сервер брал значения и какие были шаги калибровки."""
+    """`EmulatedSource` + журнал: сколько раз сервер брал значения, какие были шаги калибровки
+    и когда мост отправлял события `burst`."""
 
     def __init__(self, profile: str, speed: float) -> None:
         super().__init__(profile, time.monotonic, speed)
+        self.speed = speed
+        self.burst_times: list[float] = []
         self.reads = 0
         self.first_read_at: float | None = None
         self.calibrations: list[tuple[str, CalibrationStep]] = []
@@ -28,6 +31,16 @@ class RecordingSource(EmulatedSource):
         self.reads += 1
         return super().read(now_ms)
 
+    def drain_bursts(self, signal: str) -> list[BurstEvent]:
+        events = super().drain_bursts(signal)
+        now = time.monotonic()
+        self.burst_times.extend(now for _ in events)
+        return events
+
+    def bursts_between(self, start: float, end: float) -> int:
+        """Сколько событий `burst` мост отдал серверу за промежуток (монотонные секунды)."""
+        return sum(start <= t <= end for t in list(self.burst_times))
+
     def start_calibration(
         self,
         signal: str,
@@ -38,6 +51,10 @@ class RecordingSource(EmulatedSource):
         self.calibrations.append((signal, step))
         self.last_calibration_at = time.monotonic()
         super().start_calibration(signal, step, segments, duration_s)
+
+
+BRIDGE_FEATURES = FEATURES
+"""Что объявляет мост проверки в `hello.features`: те же функции, что у настоящего."""
 
 
 class CheckBridge:

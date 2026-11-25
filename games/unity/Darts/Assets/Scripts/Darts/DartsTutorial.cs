@@ -11,6 +11,9 @@ namespace Neurotlon.Games.Darts
         public const int AimStep = 2;
         public const int StepCount = 3;
 
+        // Подсказка шага «бросок» для моста с burst. Можно перенести в NeurotlonTexts кита.
+        public const string BurstThrowHint = "Резко напрягите мышцу с датчиком";
+
         public const float FocusLevel = 0.6f;
         public const float FocusHoldSeconds = 0.5f;
 

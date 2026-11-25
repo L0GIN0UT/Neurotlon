@@ -38,12 +38,14 @@ from neurotlon_launcher.game import (
 )
 
 from ..sdk.app import TIME_SCALE_ENV
-from ..sdk.calibration import phases_for
-from .harness import CheckBridge
+from ..sdk.calibration import STEP_DURATION_S, Phase, phases_for
+from .harness import BRIDGE_FEATURES, CheckBridge
 
 Status = Literal["PASS", "FAIL", "WARN", "SKIP"]
 POLL_S = 0.05
 TEST_PLAYERS = (Player("NT03", "Тест Один"), Player("NT14", "Тест Два"))
+BURST_DISCIPLINES = frozenset({"darts", "football"})  # игры, где бросок и удар запускает burst
+BURST_SETTLE_S = 0.5  # запас после калибровки: отсчёт и начало игры
 LOST_ABORT_S = 30.0  # правило GameApp: через столько игра сама прерывается без датчика
 
 
@@ -146,9 +148,11 @@ def run_check(opts: Options) -> Report:
             started = time.monotonic()
             runner.start(request)
             outcome, abort_sent = _wait(runner, bridge, opts)
-            elapsed = time.monotonic() - started
+            finished = time.monotonic()
+            elapsed = finished - started
+            bursts = _bursts_in_play(bridge, finished)
         folder = session_dir(data_dir, request.session_id)
-        _evaluate(report, opts, request, bridge, outcome, abort_sent, elapsed, folder)
+        _evaluate(report, opts, request, bridge, bursts, outcome, abort_sent, elapsed, folder)
         log = folder / "game.log"
         if not report.passed and log.exists():
             report.log_tail = _tail(log)
@@ -160,6 +164,21 @@ def run_check(opts: Options) -> Report:
 def _tail(path: Path, lines: int = 15) -> str:
     text = path.read_text(encoding="utf-8", errors="replace").strip()
     return "\n".join(text.splitlines()[-lines:])
+
+
+def _phases(discipline: str) -> tuple[Phase, ...]:
+    """Шаги калибровки, которых ждёт игра от этого моста (он объявляет `emg_cycle`)."""
+    return phases_for(discipline, emg_cycle="emg_cycle" in BRIDGE_FEATURES)
+
+
+def _bursts_in_play(bridge: CheckBridge, end: float) -> int:
+    """События `burst`, отданные игре после конца калибровки и до выхода игры."""
+    source = bridge.source
+    if not source.calibrations or source.last_calibration_at is None:
+        return 0  # игра не калибровалась: момент начала игры неизвестен
+    last_step = source.calibrations[-1][1]
+    calibrated = source.last_calibration_at + STEP_DURATION_S[last_step] / source.speed
+    return source.bursts_between(calibrated + BURST_SETTLE_S, end)
 
 
 def _abort_due(bridge: CheckBridge, expected_steps: int, now: float) -> bool:
@@ -177,7 +196,7 @@ def _abort_due(bridge: CheckBridge, expected_steps: int, now: float) -> bool:
 def _wait(
     runner: SubprocessGameRunner, bridge: CheckBridge, opts: Options
 ) -> tuple[GameOutcome, bool]:
-    expected = sum(len(p.signals) for p in phases_for(opts.discipline))
+    expected = sum(len(p.signals) for p in _phases(opts.discipline))
     abort_at: float | None = None
     abort_wait = opts.abort_wait_s or (LOST_ABORT_S / opts.time_scale + 15.0)
     try:
@@ -203,6 +222,7 @@ def _evaluate(
     opts: Options,
     request: GameRequest,
     bridge: CheckBridge,
+    bursts: int,
     outcome: GameOutcome,
     abort_sent: bool,
     elapsed: float,
@@ -229,7 +249,7 @@ def _evaluate(
     else:
         report.add("PASS", "выход", f"код 0 через {elapsed:.1f} с")
         _check_duration(report, opts, elapsed)
-    _check_result(report, opts, request, folder / "result.json", timed_out)
+    _check_result(report, opts, request, bursts, folder / "result.json", timed_out)
 
 
 def _check_bridge(report: Report, bridge: CheckBridge) -> None:
@@ -242,7 +262,7 @@ def _check_bridge(report: Report, bridge: CheckBridge) -> None:
 
 
 def _check_calibration(report: Report, opts: Options, bridge: CheckBridge) -> None:
-    expected = [(s, p.step) for p in phases_for(opts.discipline) for s in p.signals]
+    expected = [(s, p.step) for p in _phases(opts.discipline) for s in p.signals]
     done = bridge.source.calibrations
     if not done:
         report.add("WARN", "калибровка", "игра не запускала калибровку (на стенде она нужна)")
@@ -288,7 +308,12 @@ def _describe(outcome: GameOutcome) -> str:
 
 
 def _check_result(
-    report: Report, opts: Options, request: GameRequest, path: Path, timed_out: bool
+    report: Report,
+    opts: Options,
+    request: GameRequest,
+    bursts: int,
+    path: Path,
+    timed_out: bool,
 ) -> None:
     if timed_out:
         report.add("SKIP", "result.json", "игра убита по таймауту")
@@ -319,6 +344,7 @@ def _check_result(
         return
     report.add("PASS", "статус", "finished")
     _check_entries(report, opts, request, data["entries"])
+    _check_burst(report, opts, bursts, data["entries"])
 
 
 def _check_entries(
@@ -344,3 +370,25 @@ def _check_entries(
             report.add("FAIL", "победитель", winner)
         else:
             report.add("PASS", "победитель", "ровно один")
+
+
+def _check_burst(report: Report, opts: Options, bursts: int, raw: list[dict[str, Any]]) -> None:
+    """Дартс и футбол запускают бросок и удар по `burst`: во время игры мост присылает события,
+    а игра, которая на них не реагирует, не наберёт ни одного очка. Это косвенный признак: игра
+    ничего не отвечает мосту, виден только результат."""
+    if opts.discipline not in BURST_DISCIPLINES:
+        return
+    name = "burst"
+    if bursts == 0:
+        report.add("SKIP", name, "за время игры мост не прислал ни одного события burst")
+        return
+    points = sum(e["points"] for e in raw if e["outcome"] == "completed")
+    if points > 0:
+        report.add("PASS", name, f"мост прислал {bursts} событий, игра набрала очки ({points})")
+    else:
+        report.add(
+            "FAIL",
+            name,
+            f"мост прислал {bursts} событий burst, а игра не набрала очков: "
+            "нет реакции на резкое сокращение мышцы",
+        )

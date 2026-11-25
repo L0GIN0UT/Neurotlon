@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from neurotlon_bridge.source import CalibrationProgress, Reading
+from neurotlon_bridge.source import CalibrationProgress, Feature, Reading
 from neurotlon_games.sdk import (
     Calibration,
     LaunchError,
@@ -17,7 +17,16 @@ from neurotlon_games.sdk import (
     not_completed,
     phases_for,
 )
-from neurotlon_games.sdk.calibration import TEXT_BASELINE, TEXT_RELEASE, TEXT_REST, TEXT_SQUEEZE
+from neurotlon_games.sdk.calibration import (
+    STEP_DURATION_S,
+    TEXT_BASELINE,
+    TEXT_NO_SIGNAL,
+    TEXT_RELEASE,
+    TEXT_REST,
+    TEXT_SQUEEZE,
+    TEXT_WEAK,
+    reason_text,
+)
 from neurotlon_games.sdk.testing import SESSION_ID, FakeBridge, make_launch, make_signals
 
 
@@ -246,11 +255,117 @@ def test_phases_match_protocol() -> None:
     assert phases_for("pong")[0].signals == ("emg_left", "emg_right")
 
 
+def test_phases_use_cycle_when_bridge_announces_it() -> None:
+    assert [(p.step, p.signals) for p in phases_for("darts", emg_cycle=True)] == [
+        ("cycle", ("emg",)),
+        ("baseline", ("eeg",)),
+    ]
+    pong = phases_for("pong", emg_cycle=True)
+    assert [(p.step, p.signals) for p in pong] == [("cycle", ("emg_left", "emg_right"))]
+
+
+def test_calibration_picks_cycle_only_with_emg_cycle_feature() -> None:
+    launch = make_launch("darts")
+    legacy = [("emg", "rest"), ("emg", "contract"), ("eeg", "baseline")]
+    cases: list[tuple[tuple[Feature, ...], list[tuple[str, str]]]] = [
+        (("burst", "emg_cycle"), [("emg", "cycle"), ("eeg", "baseline")]),
+        (("burst",), legacy),
+        ((), legacy),
+    ]
+    for features, steps in cases:
+        signals, bridge = make_signals(launch, features=features)
+        calibration = Calibration.for_launch(signals, launch)
+        run_calibration(calibration)
+        assert calibration.state == "done"
+        assert bridge.calibrate_calls == steps
+
+
+def test_cycle_pong_runs_on_both_sensors() -> None:
+    launch = make_launch("pong")
+    signals, bridge = make_signals(launch)
+    calibration = Calibration.for_launch(signals, launch)
+    run_calibration(calibration)
+    assert bridge.calibrate_calls == [("emg_left", "cycle"), ("emg_right", "cycle")]
+
+
+def test_cycle_text_and_countdown_follow_bridge_phase() -> None:
+    launch = make_launch("darts")
+    signals, bridge = make_signals(launch)
+    bridge.auto_calibrate = False
+    calibration = Calibration.for_launch(signals, launch)
+    calibration.start()
+    calibration.update(0.1)
+    assert calibration.text == TEXT_SQUEEZE  # до первого сообщения моста
+    bridge.progress["emg"] = CalibrationProgress("cycle", "running", 0.3, None, 2, "relax", 3.5)
+    calibration.update(0.1)
+    assert calibration.text == TEXT_REST
+    assert calibration.cycle_phase == "relax"
+    assert calibration.phase_left_s == 3.5
+    bridge.progress["emg"] = CalibrationProgress("cycle", "running", 0.5, None, 3, "tense", 4.0)
+    calibration.update(0.1)
+    assert calibration.text == TEXT_SQUEEZE
+    assert calibration.progress == 0.5
+
+
+def test_instruction_for_cycle_uses_phase() -> None:
+    assert instruction("cycle", 0.3, "tense") == TEXT_SQUEEZE
+    assert instruction("cycle", 0.3, "relax") == TEXT_REST
+    assert instruction("cycle", 0.0) == TEXT_SQUEEZE
+
+
+def test_cycle_failure_shows_human_reason_and_retries() -> None:
+    launch = make_launch("darts")
+    signals, bridge = make_signals(launch)
+    bridge.auto_calibrate = False
+    calibration = Calibration.for_launch(signals, launch)
+    calibration.start()
+    calibration.update(0.1)
+    bridge.fail_next("emg", "cycle", "сокращение слабое, нет отличия от покоя")
+    calibration.update(0.1)
+    assert calibration.retrying
+    assert calibration.retry_reason == TEXT_WEAK
+    calibration.update(0.1)
+    assert bridge.calibrate_calls == [("emg", "cycle"), ("emg", "cycle")]
+    bridge.progress["emg"] = CalibrationProgress("cycle", "failed", 0.0, "странная причина")
+    calibration.update(0.1)
+    assert calibration.state == "failed"
+    assert calibration.failure_reason == "странная причина"
+
+
+def test_reason_text_maps_known_reasons_only() -> None:
+    assert reason_text("нет данных в покое") == TEXT_NO_SIGNAL
+    assert reason_text("нет данных при напряжении") == TEXT_NO_SIGNAL
+    assert reason_text("мост сломался") == "мост сломался"
+
+
+def test_baseline_is_twelve_seconds_with_a_dot() -> None:
+    assert STEP_DURATION_S["baseline"] == 12.0
+    assert STEP_DURATION_S["cycle"] == 20.0
+    launch = make_launch("darts")
+    signals, bridge = make_signals(launch)
+    bridge.auto_calibrate = False
+    calibration = Calibration.for_launch(signals, launch)
+    calibration.start()
+    calibration.update(0.1)
+    assert not calibration.shows_dot
+    bridge.progress["emg"] = CalibrationProgress("cycle", "done", 1.0)
+    calibration.update(0.1)
+    calibration.update(0.1)
+    assert calibration.shows_dot
+    assert calibration.text == TEXT_BASELINE
+
+
+def test_signals_supports_reads_bridge_features() -> None:
+    signals, _ = make_signals(make_launch("darts"), features=("burst",))
+    assert signals.supports("burst")
+    assert not signals.supports("emg_cycle")
+
+
 def test_instruction_texts_follow_12_second_rhythm() -> None:
     assert instruction("rest", 0.3) == TEXT_REST
     assert instruction("baseline", 0.3) == TEXT_BASELINE
     assert TEXT_REST == "Расслабьте мышцу с датчиком"
-    assert TEXT_BASELINE == "Закройте глаза и расслабьтесь"
+    assert TEXT_BASELINE == "Расслабьтесь и смотрите на точку на экране"
     by_second = {
         0.5: TEXT_SQUEEZE,
         2.9: TEXT_SQUEEZE,
@@ -278,7 +393,7 @@ def run_calibration(calibration: Calibration, ticks: int = 50) -> None:
 
 def test_calibration_runs_all_steps_in_order() -> None:
     launch = make_launch("darts")
-    signals, bridge = make_signals(launch)
+    signals, bridge = make_signals(launch, features=())
     calibration = Calibration.for_launch(signals, launch)
     run_calibration(calibration)
     assert calibration.state == "done"
@@ -288,7 +403,7 @@ def test_calibration_runs_all_steps_in_order() -> None:
 
 def test_calibration_pong_runs_both_sensors_together() -> None:
     launch = make_launch("pong")
-    signals, bridge = make_signals(launch)
+    signals, bridge = make_signals(launch, features=())
     calibration = Calibration.for_launch(signals, launch)
     run_calibration(calibration)
     assert calibration.state == "done"
@@ -302,7 +417,7 @@ def test_calibration_pong_runs_both_sensors_together() -> None:
 
 def test_calibration_progress_and_text_follow_bridge() -> None:
     launch = make_launch("darts")
-    signals, bridge = make_signals(launch)
+    signals, bridge = make_signals(launch, features=())
     bridge.auto_calibrate = False
     calibration = Calibration.for_launch(signals, launch)
     calibration.start()
@@ -323,7 +438,7 @@ def test_calibration_progress_and_text_follow_bridge() -> None:
 
 def test_calibration_retries_once_then_reports() -> None:
     launch = make_launch("darts")
-    signals, bridge = make_signals(launch)
+    signals, bridge = make_signals(launch, features=())
     bridge.auto_calibrate = False
     calibration = Calibration.for_launch(signals, launch)
     calibration.start()
@@ -344,7 +459,7 @@ def test_calibration_retries_once_then_reports() -> None:
 
 def test_calibration_retry_can_succeed() -> None:
     launch = make_launch("pong")
-    signals, bridge = make_signals(launch)
+    signals, bridge = make_signals(launch, features=())
     bridge.auto_calibrate = False
     calibration = Calibration.for_launch(signals, launch)
     calibration.start()
@@ -362,7 +477,7 @@ def test_calibration_retry_can_succeed() -> None:
 
 def test_calibration_waits_for_bridge_and_times_out() -> None:
     launch = make_launch("pong")
-    signals, bridge = make_signals(launch)
+    signals, bridge = make_signals(launch, features=())
     bridge.is_connected = False
     calibration = Calibration.for_launch(signals, launch)
     calibration.start()
@@ -383,7 +498,7 @@ def run_calibration_continue(calibration: Calibration) -> None:
 
 def test_calibration_without_answer_fails_after_retry() -> None:
     launch = make_launch("pong")
-    signals, bridge = make_signals(launch)
+    signals, bridge = make_signals(launch, features=())
     bridge.auto_calibrate = False  # мост молчит: прогресс остаётся 0
     calibration = Calibration.for_launch(signals, launch)
     calibration.start()
