@@ -195,6 +195,7 @@ def test_defaults_are_empty_without_config(tmp_path: Path) -> None:
         "camera": "",
         "sensors": "",
         "devices": {},
+        "eeg_method": "alpha",
         "games_bundled": False,
         "has_token": False,
     }

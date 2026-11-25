@@ -71,7 +71,7 @@ const readyState = (): StateView => ({
   error: null,
   discipline: 'pong',
   players_needed: 2,
-  form: { server_url: 'https://h', game_path: '', ca_file: '', camera: '', sensors: '', devices: {} },
+  form: { server_url: 'https://h', game_path: '', ca_file: '', camera: '', sensors: '', devices: {}, eeg_method: 'alpha' },
   has_token: false,
   games_bundled: true,
   game: 'C:/Neurotlon/games/Pong/Pong.exe',
@@ -210,6 +210,7 @@ describe('StationApp', () => {
           camera: '',
           sensors: '',
           devices: {},
+          eeg_method: 'alpha',
         },
         has_token: false,
         games_bundled: false,
@@ -244,6 +245,7 @@ describe('StationApp', () => {
           camera: '',
           sensors: '',
           devices: {},
+          eeg_method: 'alpha',
         },
       })
 
@@ -325,6 +327,7 @@ describe('StationApp', () => {
                 camera: '',
                 sensors: '',
                 devices: {},
+                eeg_method: 'alpha',
               },
               has_token: false,
               games_bundled: false,
@@ -393,6 +396,7 @@ describe('StationApp', () => {
         scan: { seconds: number; phase: 'idle' | 'scanning' | 'done'; devices: object[]; error: string | null }
         mode: string
         devices: Record<string, string>
+        eegMethod: string
         available: boolean
       }> = {},
     ): Snapshot =>
@@ -410,6 +414,7 @@ describe('StationApp', () => {
             camera: '',
             sensors: overrides.mode ?? 'hardware',
             devices: overrides.devices ?? {},
+            eeg_method: overrides.eegMethod ?? 'alpha',
           },
           has_token: false,
           games_bundled: false,
@@ -487,6 +492,31 @@ describe('StationApp', () => {
       expect(sent.value.devices).toEqual({ eeg: 'BB-777', emg: 'CA-1' })
     })
 
+    it('offers the eeg method only when the discipline has an eeg sensor and sends the choice', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true })
+      vi.stubGlobal('fetch', fetchMock)
+      render(<StationApp />)
+      act(() => FakeEventSource.last?.emit(withSensors({ roles: ['emg_left', 'emg_right'], discipline: 'pong' })))
+      await screen.findByText('Левая рука (Callibri)')
+      expect(screen.queryByTestId('eeg-method')).toBeNull()
+
+      act(() => FakeEventSource.last?.emit(withSensors({ roles: ['eeg', 'emg'], discipline: 'darts' })))
+      const select = await screen.findByRole('combobox', { name: 'Метод ЭЭГ' })
+      expect(select.textContent).toContain('Относительная альфа (способ из нейробиатлона)')
+      fireEvent.click(select)
+      fireEvent.click(screen.getByRole('option', { name: 'NeuroSDK Emotions' }))
+      fireEvent.change(screen.getByLabelText(/Токен станции/), { target: { value: 'secret-token-0123456789' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Проверить подключение' }))
+      expect(lastBody(fetchMock).value.eeg_method).toBe('emotions')
+    })
+
+    it('hides the eeg method when sensors are launched separately', async () => {
+      render(<StationApp />)
+      act(() => FakeEventSource.last?.emit(withSensors({ mode: '', roles: ['eeg', 'emg'], discipline: 'darts' })))
+      await screen.findByRole('combobox', { name: 'Датчики' })
+      expect(screen.queryByTestId('eeg-method')).toBeNull()
+    })
+
     it('hides serials and scanning for the emulator', async () => {
       render(<StationApp />)
       act(() => FakeEventSource.last?.emit(withSensors({ mode: 'emulate', roles: ['eeg', 'emg'], discipline: 'darts' })))
@@ -534,6 +564,7 @@ describe('StationApp', () => {
                 camera: '',
                 sensors: '',
                 devices: {},
+                eeg_method: 'alpha',
               },
               has_token: false,
               games_bundled: true,
@@ -567,7 +598,7 @@ describe('StationApp', () => {
             error: null,
             discipline: null,
             players_needed: null,
-            form: { server_url: 'https://h', game_path: '', ca_file: '', camera: '', sensors: 'hardware', devices: {} },
+            form: { server_url: 'https://h', game_path: '', ca_file: '', camera: '', sensors: 'hardware', devices: {}, eeg_method: 'alpha' },
             has_token: false,
             games_bundled: false,
             game: '',
@@ -622,7 +653,7 @@ describe('StationApp', () => {
           error: null,
           discipline: null,
           players_needed: null,
-          form: { server_url: 'https://h', game_path: '', ca_file: '', camera: '', sensors: 'hardware', devices: {} },
+          form: { server_url: 'https://h', game_path: '', ca_file: '', camera: '', sensors: 'hardware', devices: {}, eeg_method: 'alpha' },
           has_token: false,
           games_bundled: false,
           game: '',

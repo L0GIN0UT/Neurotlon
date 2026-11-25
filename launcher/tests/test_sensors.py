@@ -251,8 +251,65 @@ def test_runtime_builds_the_bridge_command_from_the_mode(tmp_path: Path) -> None
     emulate = make(config("emulate"), "darts", "bridge.exe")
     assert emulate is not None
     assert emulate._args == [
-        "bridge.exe", "--profile", "darts", "--port", "9100", "--emulate", "--auto", "--headless",
+        "bridge.exe", "--profile", "darts", "--port", "9100", "--eeg-method", "alpha",
+        "--emulate", "--auto", "--headless",
     ]  # fmt: skip
+
+
+def test_bridge_gets_the_eeg_method_only_when_the_discipline_has_eeg(tmp_path: Path) -> None:
+    def config(mode: str, method: str) -> Any:
+        return parse_config(
+            {
+                "server_url": "https://x",
+                "token_file": "t",
+                "game": {"command": ["g"]},
+                "bridge": {"mode": mode, "port": 9100, "eeg_method": method},
+            },
+            tmp_path,
+        )
+
+    make = StationRuntime._make_bridge
+    for mode in ("hardware", "emulate"):
+        for discipline in ("darts", "football"):
+            bridge = make(config(mode, "emotions"), discipline, "bridge.exe")
+            assert bridge is not None
+            assert bridge._args[bridge._args.index("--eeg-method") + 1] == "emotions"
+    pong = make(config("hardware", "emotions"), "pong", "bridge.exe")
+    assert pong is not None
+    assert "--eeg-method" not in pong._args
+
+
+def test_saved_method_reaches_a_fresh_bridge_after_restart(tmp_path: Path) -> None:
+    service = make_service(tmp_path, DisciplineConfig("darts", "bci", 240))
+    service.save(
+        full_form(tmp_path, devices={"eeg": "BB-1", "emg": "CA-2"}, eeg_method="emotions"),
+        "darts",
+    )
+    from neurotlon_launcher.config import load_config
+
+    # После setup_save лаунчер перезапускается: настройки читаются заново, мост создаётся заново.
+    first = StationRuntime._make_bridge(load_config(service._path), "darts", "bridge.exe")
+    service.save(
+        full_form(tmp_path, devices={"eeg": "BB-1", "emg": "CA-2"}, eeg_method="alpha"), "darts"
+    )
+    second = StationRuntime._make_bridge(load_config(service._path), "darts", "bridge.exe")
+    assert first is not None and second is not None and first is not second
+    assert first._args[first._args.index("--eeg-method") + 1] == "emotions"
+    assert second._args[second._args.index("--eeg-method") + 1] == "alpha"
+
+
+def test_eeg_method_is_validated_saved_and_leaves_bridge_toml_alone(tmp_path: Path) -> None:
+    service = make_service(tmp_path, DisciplineConfig("darts", "bci", 240))
+    devices = {"eeg": "BB-1", "emg": "CA-2"}
+    assert service.defaults()["eeg_method"] == "alpha"
+    bad = service.check(full_form(tmp_path, devices=devices, eeg_method="fft"))
+    assert bad.error is not None and "Метод ЭЭГ" in bad.error
+    service.save(full_form(tmp_path, devices=devices, eeg_method="emotions"), "darts")
+    bridge_toml = service.sensors.toml_path.read_text(encoding="utf-8")
+    assert "eeg_method" not in bridge_toml and "emotions" not in bridge_toml
+    assert service.defaults()["eeg_method"] == "emotions"
+    service.save(full_form(tmp_path, devices=devices), "darts")  # без поля: по умолчанию
+    assert service.defaults()["eeg_method"] == "alpha"
 
 
 # --- экран настройки: датчики ---------------------------------------------------------------
@@ -360,6 +417,9 @@ def test_form_from_reads_sensor_fields_and_rejects_bad_ones() -> None:
     form = form_from({"sensors": "hardware", "devices": {"eeg": "BB"}})
     assert form is not None and form.sensors == "hardware" and form.devices == {"eeg": "BB"}
     assert form_from({"devices": "nope"}) is None
+    assert form_from({"eeg_method": 5}) is None
+    assert form_from({}).eeg_method == "alpha"  # type: ignore[union-attr]
+    assert form_from({"eeg_method": "emotions"}).eeg_method == "emotions"  # type: ignore[union-attr]
     assert form_from({"devices": {"eeg": 5}}) is None
     assert form_from({"devices": {f"r{i}": "x" for i in range(9)}}) is None
     assert form_from({"devices": {"eeg": "x" * 200}}) is None

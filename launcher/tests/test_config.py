@@ -29,6 +29,29 @@ def test_parse_defaults_and_relative_paths(tmp_path: Path) -> None:
     assert (config.bridge_host, config.bridge_port, config.camera_index) == ("127.0.0.1", 8765, 0)
 
 
+def test_eeg_method_defaults_to_alpha_and_rejects_unknown(tmp_path: Path) -> None:
+    assert parse_config(VALID, tmp_path).eeg_method == "alpha"
+    chosen = parse_config({**VALID, "bridge": {"eeg_method": "emotions"}}, tmp_path)
+    assert chosen.eeg_method == "emotions"
+    for bad in ("fft", "", 3):
+        with pytest.raises(ConfigError, match="eeg_method"):
+            parse_config({**VALID, "bridge": {"eeg_method": bad}}, tmp_path)
+
+
+def test_missing_bridge_schema_is_a_config_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from neurotlon_contracts import contract
+
+    monkeypatch.setenv(contract.SHARED_ENV, str(tmp_path))  # папка без схемы
+    contract.eeg_methods.cache_clear()
+    try:
+        with pytest.raises(ConfigError, match="не найдена схема протокола моста"):
+            parse_config(VALID, tmp_path)
+    finally:
+        contract.eeg_methods.cache_clear()
+
+
 def test_load_from_toml_and_read_token(tmp_path: Path) -> None:
     (tmp_path / "station.token").write_text("  secret-token\n", encoding="utf-8")
     (tmp_path / "launcher.toml").write_text(

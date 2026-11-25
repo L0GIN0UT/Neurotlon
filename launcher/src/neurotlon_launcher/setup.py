@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
+from neurotlon_contracts.contract import SchemaUnavailableError, eeg_methods
+
 from .api import (
     DisciplineConfig,
     HttpStationApi,
@@ -22,7 +24,7 @@ from .api import (
     StationApiError,
     Unauthorized,
 )
-from .config import ConfigError, load_config
+from .config import DEFAULT_EEG_METHOD, ConfigError, load_config
 from .sensors import SensorService, duplicate_serials, missing_roles
 
 TOKEN_FILE = "station.token"
@@ -39,6 +41,7 @@ SENSORS_MODE = "Режим датчиков: настоящие датчики �
 NO_BRIDGE_IN_BUILD = "Мост датчиков не входит в эту установку: выберите «запускаю мост отдельно»"
 SENSORS_MISSING = "Укажите серийные номера датчиков: {roles}"
 SENSORS_DUPLICATE = "Один и тот же датчик указан для двух сигналов"
+EEG_METHOD_BAD = "Метод ЭЭГ: выберите один из предложенных"
 
 URL_REQUIRED = "Введите адрес сервера, например https://192.168.1.10"
 URL_SCHEME = "Адрес должен начинаться с https://: токен станции не отправляется открыто"
@@ -74,6 +77,9 @@ class SetupForm:
     camera: str = ""  # имя камеры для QR; пусто — камера по умолчанию
     sensors: str = ""  # hardware | emulate; пусто — мост запускают отдельно (external)
     devices: dict[str, str] = field(default_factory=dict)  # сигнал -> серийный номер датчика
+    eeg_method: str = (
+        DEFAULT_EEG_METHOD  # метод ЭЭГ: alpha | emotions (bridge-protocol.schema.json)
+    )
 
 
 @dataclass(frozen=True)
@@ -130,6 +136,7 @@ class SetupService:
             "camera": "",
             "sensors": "hardware" if self.sensors.available else "",
             "devices": self.sensors.saved_devices(),
+            "eeg_method": DEFAULT_EEG_METHOD,
             "has_token": bool(self.saved_token()),
         }
         try:
@@ -142,6 +149,7 @@ class SetupService:
         form["game_path"] = "" if self._is_bundled(saved_game) else saved_game
         form["ca_file"] = str(config.ca_file) if config.ca_file else ""
         form["camera"] = config.camera_name or ""
+        form["eeg_method"] = config.eeg_method
         if config.bridge_mode in ("hardware", "emulate"):
             form["sensors"] = config.bridge_mode
         elif self.sensors.available:
@@ -225,6 +233,12 @@ class SetupService:
             return SENSORS_MODE
         if form.sensors and not self.sensors.available:
             return NO_BRIDGE_IN_BUILD
+        try:
+            allowed = eeg_methods()
+        except SchemaUnavailableError as exc:
+            return str(exc)
+        if form.eeg_method not in allowed:
+            return EEG_METHOD_BAD
         if form.sensors == "hardware":
             missing = missing_roles(discipline, form.devices)
             if missing:
@@ -265,7 +279,12 @@ class SetupService:
             "",
         ]
         if form.sensors in ("hardware", "emulate"):
-            lines += ["[bridge]", f'mode = "{form.sensors}"', ""]
+            lines += [
+                "[bridge]",
+                f'mode = "{form.sensors}"',
+                f"eeg_method = {_toml(form.eeg_method)}",
+                "",
+            ]
             if form.sensors == "hardware":
                 self.sensors.save_devices(form.devices)
         _atomic_write(self.token_path, token + "\n", private=True)

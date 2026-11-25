@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 
@@ -131,3 +132,24 @@ def test_fractional_points_are_rejected_by_schema() -> None:
 
 def test_whole_float_points_are_accepted() -> None:
     assert limited(7.0) is None
+
+
+@pytest.mark.parametrize(
+    "body", [None, "{broken", '{"$defs": {}}', '{"$defs": {"EegMethod": {"enum": []}}}']
+)
+def test_eeg_methods_report_a_missing_or_broken_schema(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str | None
+) -> None:
+    if body is not None:
+        (tmp_path / "bridge-protocol.schema.json").write_text(body, encoding="utf-8")
+    monkeypatch.setenv(contract.SHARED_ENV, str(tmp_path))
+    contract.eeg_methods.cache_clear()
+    try:
+        with pytest.raises(contract.SchemaUnavailableError, match=r"bridge-protocol.schema.json"):
+            contract.eeg_methods()
+    finally:
+        contract.eeg_methods.cache_clear()
+
+
+def test_eeg_methods_come_from_the_bridge_schema() -> None:
+    assert contract.eeg_methods() == ("emotions", "alpha")
