@@ -8,6 +8,7 @@ from neurotlon_bridge.source import (
     PROFILES,
     CalibrationProgress,
     CalibrationStep,
+    Feature,
     Reading,
     SensorState,
 )
@@ -22,8 +23,15 @@ SESSION_ID = "7b1d3e00-5a4f-4c2b-8e7a-91c0d2f3a4b5"
 class FakeBridge:
     """Мост по умолчанию «подключён», калибровка проходит сама за `auto_calibrate` вызовов."""
 
-    def __init__(self, names: tuple[str, ...], *, auto_calibrate: bool = True) -> None:
+    def __init__(
+        self,
+        names: tuple[str, ...],
+        *,
+        auto_calibrate: bool = True,
+        features: tuple[Feature, ...] = ("burst", "emg_cycle", "baseline_duration"),
+    ) -> None:
         self.names = names
+        self.bridge_features = features
         self.is_connected = True
         self.readings: dict[str, Reading | None] = {n: Reading(0.0) for n in names}
         self.states: dict[str, SensorState | None] = {n: "emulated" for n in names}
@@ -35,6 +43,10 @@ class FakeBridge:
     @property
     def connected(self) -> bool:
         return self.is_connected
+
+    @property
+    def features(self) -> tuple[Feature, ...]:
+        return self.bridge_features
 
     def latest(self, signal: str) -> Reading | None:
         return self.readings.get(signal)
@@ -96,6 +108,10 @@ def make_launch(
     )
 
 
-def make_signals(launch: LaunchInfo) -> tuple[Signals, FakeBridge]:
-    bridge = FakeBridge(PROFILES[launch.discipline])
+def make_signals(
+    launch: LaunchInfo, features: tuple[Feature, ...] | None = None
+) -> tuple[Signals, FakeBridge]:
+    """`features=()` — старый мост без `hello.features`; по умолчанию мост современный."""
+    names = PROFILES[launch.discipline]
+    bridge = FakeBridge(names) if features is None else FakeBridge(names, features=features)
     return Signals(bridge, launch.signals), bridge

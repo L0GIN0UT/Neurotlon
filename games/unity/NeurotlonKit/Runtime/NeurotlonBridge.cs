@@ -130,12 +130,24 @@ namespace Neurotlon
         public string Status;
         public float Progress;
         public string Reason;
+        // Только у шага cycle: фаза tense/relax, номер отрезка с единицы, сколько секунд фазе осталось.
+        public string Phase;
+        public int Segment;
+        public float PhaseLeftSeconds;
 
         public bool SameAs(CalibrationProgress other)
         {
             return other != null && Step == other.Step && Status == other.Status
-                && Mathf.Approximately(Progress, other.Progress) && Reason == other.Reason;
+                && Mathf.Approximately(Progress, other.Progress) && Reason == other.Reason
+                && Phase == other.Phase && Segment == other.Segment;
         }
+    }
+
+    // Событие резкого сокращения в очереди игры.
+    struct QueuedBurst
+    {
+        public long TimeMs;
+        public double ReceivedAt;
     }
 
     // Клиент BCI-моста: TCP + NDJSON в фоновом потоке, разбор — в главном (Pump).
@@ -145,34 +157,64 @@ namespace Neurotlon
         public const float StaleSeconds = 0.5f;
         public const float ReconnectSeconds = 1f;
         public const int MaxLineBytes = 64 * 1024;
+        public const int MaxBursts = 8;
         const int MaxQueued = 2000;
         const string ConnectedMarker = "\u0001connected";
-        const string DisconnectedMarker = "\u0001disconnected";
+        // Служебная строка очереди «связь оборвалась»; ApplyLine понимает её так же, как строки моста.
+        public const string DisconnectedMarker = "\u0001disconnected";
 
         readonly string host;
         readonly int port;
         readonly ConcurrentQueue<string> lines = new ConcurrentQueue<string>();
         readonly object sendLock = new object();
-        readonly Stopwatch clock = Stopwatch.StartNew();
+        readonly Func<double> clock;
         readonly Dictionary<string, SignalReading> readings = new Dictionary<string, SignalReading>();
         readonly Dictionary<string, double> receivedAt = new Dictionary<string, double>();
         readonly Dictionary<string, string> states = new Dictionary<string, string>();
         readonly Dictionary<string, CalibrationProgress> calibrations =
             new Dictionary<string, CalibrationProgress>();
+        readonly Dictionary<string, Queue<QueuedBurst>> bursts = new Dictionary<string, Queue<QueuedBurst>>();
+        readonly Dictionary<string, int> lastBurstSeq = new Dictionary<string, int>();
+        readonly Dictionary<string, long> lastBurstTime = new Dictionary<string, long>();
+        string[] features = new string[0];
+        string eegMethod;
         TcpClient client;
         Thread thread;
         volatile bool stopping;
         volatile bool connected;
 
-        public NeurotlonBridge(string host, int port)
+        public NeurotlonBridge(string host, int port) : this(host, port, null)
+        {
+        }
+
+        // clock — секунды монотонного времени; в тестах подменяется, чтобы не ждать по-настоящему.
+        public NeurotlonBridge(string host, int port, Func<double> clock)
         {
             this.host = host;
             this.port = port;
+            if (clock == null)
+            {
+                var watch = Stopwatch.StartNew();
+                clock = () => watch.Elapsed.TotalSeconds;
+            }
+            this.clock = clock;
         }
 
         public bool Connected { get { return connected; } }
 
-        double Now { get { return clock.Elapsed.TotalSeconds; } }
+        double Now { get { return clock(); } }
+
+        // Мост объявил функцию в hello.features; у старого моста (нет поля) всегда false.
+        public bool Supports(string feature)
+        {
+            return Array.IndexOf(features, feature) >= 0;
+        }
+
+        // Мост присылает событие burst: игра запускает бросок или удар по нему, а не по уровню сигнала.
+        public bool BurstSupported { get { return Supports(NeurotlonProtocol.FeatureBurst); } }
+
+        // Метод ЭЭГ из hello (emotions / alpha), только для отладки; null, если мост не сообщил.
+        public string EegMethod { get { return eegMethod; } }
 
         public void Start()
         {
@@ -185,19 +227,26 @@ namespace Neurotlon
         public void Pump()
         {
             string line;
-            while (lines.TryDequeue(out line))
+            while (lines.TryDequeue(out line)) ApplyLine(line);
+        }
+
+        // Разобрать одну строку (сообщение моста или служебный маркер). Pump зовёт её для каждой строки очереди;
+        // тесты подают JSON напрямую, без сокета.
+        public void ApplyLine(string line)
+        {
+            if (line == ConnectedMarker) return;
+            if (line == DisconnectedMarker)
             {
-                if (line == ConnectedMarker) continue;
-                if (line == DisconnectedMarker)
-                {
-                    readings.Clear();
-                    receivedAt.Clear();
-                    states.Clear();
-                    calibrations.Clear();
-                    continue;
-                }
-                Apply(line);
+                readings.Clear();
+                receivedAt.Clear();
+                states.Clear();
+                calibrations.Clear();
+                features = new string[0];
+                eegMethod = null;
+                ClearBursts();
+                return;
             }
+            Apply(line);
         }
 
         // --- чтение состояния ---
@@ -237,6 +286,25 @@ namespace Neurotlon
             return calibrations.TryGetValue(signal, out progress) ? progress : null;
         }
 
+        // Забрать ОДНО свежее необработанное событие burst сигнала. Событие старше StaleSeconds по времени
+        // получения устарело и выбрасывается.
+        public bool TryTakeBurst(string signal)
+        {
+            Queue<QueuedBurst> queue;
+            if (!bursts.TryGetValue(signal, out queue)) return false;
+            while (queue.Count > 0 && Now - queue.Peek().ReceivedAt > StaleSeconds) queue.Dequeue();
+            if (queue.Count == 0) return false;
+            queue.Dequeue();
+            return true;
+        }
+
+        // Выбросить накопленные события сигнала: игра зовёт каждый кадр, пока не готова к броску или удару.
+        public void DiscardBursts(string signal)
+        {
+            Queue<QueuedBurst> queue;
+            if (bursts.TryGetValue(signal, out queue)) queue.Clear();
+        }
+
         // Связь есть и пришли состояния всех нужных датчиков (сообщение hello).
         public bool IsReady(string[] signals)
         {
@@ -268,14 +336,21 @@ namespace Neurotlon
 
         // --- команды ---
 
-        public bool Calibrate(string signal, string step)
+        // Строка, которая уходит мосту. Без segments и duration_s: JsonUtility пишет пустой массив и ноль,
+        // мост считает их отсутствующими (ритм и длительность по умолчанию).
+        public static string CalibrateJson(string signal, string step)
         {
-            return Send(JsonUtility.ToJson(new CalibrateMessage
+            return JsonUtility.ToJson(new CalibrateMessage
             {
                 type = NeurotlonProtocol.MessageCalibrate,
                 signal = signal,
                 step = step,
-            }));
+            });
+        }
+
+        public bool Calibrate(string signal, string step)
+        {
+            return Send(CalibrateJson(signal, step));
         }
 
         public bool Reset()
@@ -309,6 +384,7 @@ namespace Neurotlon
                     case NeurotlonProtocol.MessageCalibration:
                         ApplyCalibration(JsonUtility.FromJson<CalibrationMessage>(line));
                         break;
+                    case NeurotlonProtocol.MessageBurst: ApplyBurst(JsonUtility.FromJson<BurstMessage>(line)); break;
                     // неизвестные сообщения игра игнорирует
                 }
             }
@@ -320,9 +396,40 @@ namespace Neurotlon
 
         void ApplyHello(HelloMessage hello)
         {
+            // новое подключение: seq событий начинается заново, прежние события недействительны
+            ClearBursts();
+            features = hello.features ?? new string[0];
+            eegMethod = string.IsNullOrEmpty(hello.eeg_method) ? null : hello.eeg_method;
             if (hello.signals == null) return;
             states.Clear();
             foreach (var s in hello.signals) states[s.name] = s.state;
+        }
+
+        void ClearBursts()
+        {
+            bursts.Clear();
+            lastBurstSeq.Clear();
+            lastBurstTime.Clear();
+        }
+
+        // Принимаем только seq больше последнего и t_ms не меньше последнего: дубль и старое событие отбрасываются.
+        void ApplyBurst(BurstMessage burst)
+        {
+            if (string.IsNullOrEmpty(burst.signal)) return;
+            int seq;
+            long time;
+            if (lastBurstSeq.TryGetValue(burst.signal, out seq) && burst.seq <= seq) return;
+            if (lastBurstTime.TryGetValue(burst.signal, out time) && burst.t_ms < time) return;
+            lastBurstSeq[burst.signal] = burst.seq;
+            lastBurstTime[burst.signal] = burst.t_ms;
+            Queue<QueuedBurst> queue;
+            if (!bursts.TryGetValue(burst.signal, out queue))
+            {
+                queue = new Queue<QueuedBurst>();
+                bursts[burst.signal] = queue;
+            }
+            queue.Enqueue(new QueuedBurst { TimeMs = burst.t_ms, ReceivedAt = Now });
+            while (queue.Count > MaxBursts) queue.Dequeue();
         }
 
         void ApplySample(SampleMessage sample)
@@ -363,6 +470,9 @@ namespace Neurotlon
                 Status = msg.status,
                 Progress = Mathf.Clamp01(progress),
                 Reason = string.IsNullOrEmpty(msg.reason) ? null : msg.reason,
+                Phase = string.IsNullOrEmpty(msg.phase) ? null : msg.phase,
+                Segment = msg.segment,
+                PhaseLeftSeconds = msg.phase_left_s,
             };
         }
 

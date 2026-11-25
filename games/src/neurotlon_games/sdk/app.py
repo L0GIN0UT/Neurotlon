@@ -20,7 +20,7 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from .calibration import Calibration
+from .calibration import TEXT_RETRY, Calibration
 from .launch import LaunchError, LaunchInfo
 from .result import ResultEntry, ResultError, ResultWriter
 from .signals import Signals
@@ -312,15 +312,26 @@ class GameApp:
                 draw_text(surface, text, 96, mid, DANGER if self._aborted else ACCENT)
 
     def _render_calibration(self, surface: pygame.Surface, width: int, height: int) -> None:
+        import pygame
+
         calibration = self.calibration
         mid_x = width // 2
         title = f"Калибровка: шаг {calibration.phase_number} из {calibration.phase_count}"
         draw_text(surface, title, 48, (mid_x, height // 4), MUTED)
-        draw_text(surface, calibration.text, 110, (mid_x, height // 2), ACCENT)
+        if calibration.shows_dot:
+            draw_text(surface, calibration.text, 72, (mid_x, height * 2 // 5), ACCENT)
+            pygame.draw.circle(surface, TEXT, (mid_x, height // 2), max(12, height // 50))
+        else:
+            draw_text(surface, calibration.text, 110, (mid_x, height // 2), ACCENT)
+            left = calibration.phase_left_s
+            if left is not None:
+                draw_text(surface, str(math.ceil(left)), 64, (mid_x, height // 2 + 90), MUTED)
         bar_w = width // 2
         draw_bar(surface, (mid_x - bar_w // 2, height * 2 // 3, bar_w, 24), calibration.progress)
         if calibration.retrying:
-            draw_text(surface, "Не получилось, повторяем шаг", 40, (mid_x, height * 3 // 4), WARN)
+            draw_text(surface, TEXT_RETRY, 40, (mid_x, height * 3 // 4), WARN)
+            if calibration.retry_reason:
+                draw_text(surface, calibration.retry_reason, 40, (mid_x, height * 4 // 5), WARN)
 
     def _render_hud(self, surface: pygame.Surface, width: int) -> None:
         draw_text(surface, self.timer.label(), 72, (width // 2, 40))

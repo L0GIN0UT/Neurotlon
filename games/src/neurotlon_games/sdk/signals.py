@@ -7,7 +7,13 @@ from collections.abc import Callable, Sequence
 from typing import Protocol
 
 from neurotlon_bridge.client import BridgeClient
-from neurotlon_bridge.source import CalibrationProgress, CalibrationStep, Reading, SensorState
+from neurotlon_bridge.source import (
+    CalibrationProgress,
+    CalibrationStep,
+    Feature,
+    Reading,
+    SensorState,
+)
 
 from .launch import LaunchInfo
 
@@ -26,6 +32,9 @@ class Bridge(Protocol):
     def sensor_state(self, signal: str) -> SensorState | None: ...
 
     def calibration(self, signal: str) -> CalibrationProgress | None: ...
+
+    @property
+    def features(self) -> tuple[Feature, ...]: ...
 
     def calibrate(self, signal: str, step: CalibrationStep) -> bool: ...
 
@@ -64,6 +73,10 @@ class Signals:
 
     def sensor_state(self, signal: str) -> SensorState | None:
         return self._bridge.sensor_state(signal)
+
+    def supports(self, feature: Feature) -> bool:
+        """Объявил ли мост функцию в `hello.features`; у старого моста всегда `False`."""
+        return feature in self._bridge.features
 
     def lost_signals(self) -> list[str]:
         """Сигналы, которых нет: мост не отвечает, датчик отключён или данные устарели."""

@@ -3,15 +3,17 @@ using System.Collections.Generic;
 namespace Neurotlon
 {
     // Калибровка по протоколу моста. Те же шаги и тексты, что в Python-SDK (neurotlon_games.sdk.calibration):
-    //   ЭМГ: rest 5 с покоя, затем contract 12 с = 3 x (3 с напрячь + 1 с пауза);
-    //   ЭЭГ: baseline 8 с с закрытыми глазами.
+    //   ЭМГ: если мост объявил emg_cycle, один шаг cycle (20 с, ритм по умолчанию 5/5/5/5 напрячь/расслабить),
+    //        иначе rest 5 с покоя и contract 12 с = 3 x (3 с напрячь + 1 с пауза);
+    //   ЭЭГ: baseline 12 с, глаза открыты, взгляд на точку.
     // В понге emg_left и emg_right калибруются одновременно.
     // Сбой шага: один повтор, потом State == Failed (игра пишет aborted с FailureReason).
     public class NeurotlonCalibration
     {
         public const float RestSeconds = 5f;
         public const float ContractSeconds = 12f;
-        public const float BaselineSeconds = 8f;
+        public const float CycleSeconds = 20f;
+        public const float BaselineSeconds = 12f;
         public const float SqueezeSeconds = 3f;
         public const float PauseSeconds = 1f;
         public const int Retries = 1;
@@ -21,7 +23,9 @@ namespace Neurotlon
         public const string TextRest = NeurotlonTexts.Relax;
         public const string TextSqueeze = NeurotlonTexts.Tense;
         public const string TextRelease = NeurotlonTexts.RelaxShort;
-        public const string TextBaseline = "Закройте глаза и расслабьтесь";
+        public const string TextBaseline = NeurotlonTexts.BaselineLook;
+        public const string TextWeak = NeurotlonTexts.CycleWeak;
+        public const string TextNoSignal = NeurotlonTexts.CycleNoSignal;
         public const string TextRetry = "Не получилось, повторяем шаг";
 
         public enum CalibrationState { Idle, Running, Done, Failed }
@@ -39,7 +43,8 @@ namespace Neurotlon
         }
 
         readonly NeurotlonBridge bridge;
-        readonly Phase[] phases;
+        readonly string discipline;
+        Phase[] phases;
         readonly Dictionary<string, CalibrationProgress> stale = new Dictionary<string, CalibrationProgress>();
         readonly HashSet<string> fresh = new HashSet<string>();
         int index;
@@ -50,7 +55,8 @@ namespace Neurotlon
         public NeurotlonCalibration(NeurotlonBridge bridge, string discipline)
         {
             this.bridge = bridge;
-            phases = PhasesFor(discipline);
+            this.discipline = discipline;
+            phases = PhasesFor(discipline, bridge.Supports(NeurotlonProtocol.FeatureEmgCycle));
         }
 
         public CalibrationState State { get; private set; }
@@ -62,44 +68,90 @@ namespace Neurotlon
         public bool Retrying { get { return State == CalibrationState.Running && attempt > 0; } }
         public Phase Current { get { return State == CalibrationState.Running ? phases[index] : null; } }
 
+        // Только у шага cycle, по последнему сообщению моста: фаза (tense / relax), номер отрезка с единицы
+        // и сколько секунд фазе осталось. Вне cycle: null, 0, 0.
+        public string CyclePhase { get; private set; }
+        public int CycleSegment { get; private set; }
+        public float PhaseLeftSeconds { get; private set; }
+
+        // Причина последнего сбоя шага человеческим текстом, пока идёт повтор; иначе null.
+        public string RetryReason { get; private set; }
+
+        // Во время baseline на экране рисуется точка, на которую надо смотреть.
+        public bool ShowsDot
+        {
+            get { return Current != null && Current.Step == NeurotlonProtocol.StepBaseline; }
+        }
+
         // Инструкция сейчас; пусто, если калибровка не идёт.
         public string Text
         {
-            get { return Current == null ? "" : Instruction(Current.Step, Progress); }
+            get { return Current == null ? "" : Instruction(Current.Step, Progress, CyclePhase); }
         }
 
         public static Phase[] PhasesFor(string discipline)
         {
-            if (discipline == NeurotlonProtocol.DisciplinePong)
-            {
-                var both = new[] { NeurotlonProtocol.SignalEmgLeft, NeurotlonProtocol.SignalEmgRight };
-                return new[]
-                {
-                    new Phase(NeurotlonProtocol.StepRest, both),
-                    new Phase(NeurotlonProtocol.StepContract, both),
-                };
-            }
-            return new[]
-            {
-                new Phase(NeurotlonProtocol.StepRest, NeurotlonProtocol.SignalEmg),
-                new Phase(NeurotlonProtocol.StepContract, NeurotlonProtocol.SignalEmg),
-                new Phase(NeurotlonProtocol.StepBaseline, NeurotlonProtocol.SignalEeg),
-            };
+            return PhasesFor(discipline, false);
         }
 
-        // Текст для игрока; ритм «напрячь / расслабить» выводится из прогресса шага contract.
+        // emgCycle — мост объявил emg_cycle: ЭМГ калибруется одним шагом cycle вместо rest и contract.
+        public static Phase[] PhasesFor(string discipline, bool emgCycle)
+        {
+            bool pong = discipline == NeurotlonProtocol.DisciplinePong;
+            string[] emg = pong
+                ? new[] { NeurotlonProtocol.SignalEmgLeft, NeurotlonProtocol.SignalEmgRight }
+                : new[] { NeurotlonProtocol.SignalEmg };
+            var list = new List<Phase>();
+            if (emgCycle)
+            {
+                list.Add(new Phase(NeurotlonProtocol.StepCycle, emg));
+            }
+            else
+            {
+                list.Add(new Phase(NeurotlonProtocol.StepRest, emg));
+                list.Add(new Phase(NeurotlonProtocol.StepContract, emg));
+            }
+            if (!pong) list.Add(new Phase(NeurotlonProtocol.StepBaseline, NeurotlonProtocol.SignalEeg));
+            return list.ToArray();
+        }
+
+        // Текст для игрока; ритм шага contract выводится из прогресса, у cycle фазу сообщает мост.
         public static string Instruction(string step, float progress)
+        {
+            return Instruction(step, progress, null);
+        }
+
+        public static string Instruction(string step, float progress, string cyclePhase)
         {
             if (step == NeurotlonProtocol.StepBaseline) return TextBaseline;
             if (step == NeurotlonProtocol.StepRest) return TextRest;
+            if (step == NeurotlonProtocol.StepCycle)
+            {
+                return cyclePhase == NeurotlonProtocol.PhaseRelax ? TextRest : TextSqueeze;
+            }
             float position = (progress * ContractSeconds) % (SqueezeSeconds + PauseSeconds);
             return position < SqueezeSeconds ? TextSqueeze : TextRelease;
         }
 
+        // Причина сбоя от моста для экрана: известные причины по-человечески, остальные как есть.
+        public static string HumanReason(string reason)
+        {
+            switch (reason)
+            {
+                case "сокращение слабое, нет отличия от покоя": return TextWeak;
+                case "нет данных в покое":
+                case "нет данных при напряжении": return TextNoSignal;
+                default: return reason;
+            }
+        }
+
         public void Start()
         {
+            // hello уже пришёл (игра ждёт состояния датчиков), поэтому возможности моста известны
+            phases = PhasesFor(discipline, bridge.Supports(NeurotlonProtocol.FeatureEmgCycle));
             index = 0;
             FailureReason = null;
+            RetryReason = null;
             State = phases.Length == 0 ? CalibrationState.Done : CalibrationState.Running;
             attempt = 0;
             Restart();
@@ -131,6 +183,9 @@ namespace Neurotlon
             sent = false;
             elapsed = 0f;
             Progress = 0f;
+            CyclePhase = null;
+            CycleSegment = 0;
+            PhaseLeftSeconds = 0f;
         }
 
         bool Send(Phase phase)
@@ -152,6 +207,7 @@ namespace Neurotlon
         string Poll(Phase phase)
         {
             float min = 1f;
+            bool first = true;
             foreach (var name in phase.Signals)
             {
                 var current = bridge.Calibration(name);
@@ -171,10 +227,20 @@ namespace Neurotlon
                 else if (current.Status != NeurotlonProtocol.CalibStatusDone)
                 {
                     min = System.Math.Min(min, current.Progress);
+                    // у понга два датчика идут в одном ритме: показываем фазу первого
+                    if (first && phase.Step == NeurotlonProtocol.StepCycle) TakeCyclePosition(current);
                 }
+                first = false;
             }
             Progress = min;
             return null;
+        }
+
+        void TakeCyclePosition(CalibrationProgress current)
+        {
+            CyclePhase = current.Phase;
+            CycleSegment = current.Segment;
+            PhaseLeftSeconds = current.PhaseLeftSeconds;
         }
 
         void CheckTimeout(Phase phase)
@@ -185,6 +251,7 @@ namespace Neurotlon
 
         static float StepSeconds(string step)
         {
+            if (step == NeurotlonProtocol.StepCycle) return CycleSeconds;
             if (step == NeurotlonProtocol.StepContract) return ContractSeconds;
             if (step == NeurotlonProtocol.StepBaseline) return BaselineSeconds;
             return RestSeconds;
@@ -195,6 +262,7 @@ namespace Neurotlon
             if (attempt < Retries)
             {
                 attempt++;
+                RetryReason = HumanReason(reason);
                 Restart();
                 return;
             }
@@ -212,6 +280,7 @@ namespace Neurotlon
             }
             index++;
             attempt = 0;
+            RetryReason = null;
             Restart();
         }
     }

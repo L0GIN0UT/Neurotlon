@@ -229,3 +229,51 @@ def test_points_over_limit_pass_without_max_points() -> None:
 def test_max_points_option_is_validated() -> None:
     with pytest.raises(SystemExit):
         main(["--discipline", "darts", "--max-points", "0", "--", *STUB])
+
+
+# --- burst ---
+
+
+def test_check_bridge_announces_cycle_and_burst() -> None:
+    from neurotlon_bridge.server import FEATURES
+
+    assert {"burst", "emg_cycle"} <= set(FEATURES)
+
+
+def test_bridge_counts_bursts_given_to_the_game() -> None:
+    with CheckBridge("darts", speed=100) as bridge:
+        client = BridgeClient("127.0.0.1", bridge.port)
+        try:
+            start = time.monotonic()
+            client.calibrate("emg", "cycle")
+            deadline = time.monotonic() + 8
+            while not bridge.source.burst_times and time.monotonic() < deadline:
+                time.sleep(0.02)
+            assert bridge.source.burst_times
+            assert bridge.source.bursts_between(start, time.monotonic()) >= 1
+            assert bridge.source.bursts_between(0.0, start - 1) == 0
+        finally:
+            client.close()
+
+
+def burst_report(discipline: str, bursts: int, points: int) -> Report:
+    from neurotlon_games.check.checks import _check_burst
+
+    report = Report()
+    entries = [{"participant_code": "NT03", "outcome": "completed", "points": points}]
+    _check_burst(report, Options(discipline, ("x",)), bursts, entries)
+    return report
+
+
+@pytest.mark.parametrize("discipline", ["darts", "football"])
+def test_game_must_react_to_bursts(discipline: str) -> None:
+    assert statuses(burst_report(discipline, 4, 7))["burst"] == "PASS"
+    report = burst_report(discipline, 4, 0)
+    assert statuses(report)["burst"] == "FAIL"
+    assert not report.passed
+    assert "burst" in details(report, "burst")
+
+
+def test_burst_check_is_skipped_without_events_and_for_pong() -> None:
+    assert statuses(burst_report("darts", 0, 0))["burst"] == "SKIP"
+    assert burst_report("pong", 5, 0).checks == []

@@ -115,6 +115,7 @@ ENUM_PREFIXES: list[tuple[str, set[str]]] = [
     ("Invalid", set(BD["InvalidReason"]["enum"])),
     ("Phase", set(BD["Phase"]["enum"])),
     ("EegMethod", set(BD["EegMethod"]["enum"])),
+    ("Feature", set(BD["Feature"]["enum"])),
     ("CalibStatus", set(BD["Calibration"]["properties"]["status"]["enum"])),
     ("Discipline", set(LD["Discipline"]["enum"])),
     (
@@ -171,6 +172,7 @@ def test_calibration_matches_python_sdk() -> None:
     steps = calibration.STEP_DURATION_S
     assert number(floats, "RestSeconds") == steps["rest"]
     assert number(floats, "ContractSeconds") == steps["contract"]
+    assert number(floats, "CycleSeconds") == steps["cycle"]
     assert number(floats, "BaselineSeconds") == steps["baseline"]
     assert number(floats, "SqueezeSeconds") == calibration.SQUEEZE_S
     assert number(floats, "PauseSeconds") == calibration.PAUSE_S
@@ -200,16 +202,40 @@ def test_calibration_texts_match_python_sdk() -> None:
         "TextRelease": calibration.TEXT_RELEASE,
         "TextBaseline": calibration.TEXT_BASELINE,
         "TextRetry": calibration.TEXT_RETRY,
+        "TextWeak": calibration.TEXT_WEAK,
+        "TextNoSignal": calibration.TEXT_NO_SIGNAL,
     }
 
 
 def test_calibration_phases_match_python_sdk() -> None:
     text = source("NeurotlonCalibration.cs")
-    # rest -> contract -> baseline для eeg+emg и rest -> contract для понга
+    # cycle (если мост объявил emg_cycle) или rest + contract, затем baseline для eeg+emg
     order = re.findall(r"new Phase\(NeurotlonProtocol\.Step(\w+)", text)
-    assert order == ["Rest", "Contract", "Rest", "Contract", "Baseline"]
+    assert order == ["Cycle", "Rest", "Contract", "Baseline"]
     assert [p.step for p in calibration.phases_for("pong")] == ["rest", "contract"]
     assert [p.step for p in calibration.phases_for("darts")] == ["rest", "contract", "baseline"]
+    cycle = calibration.phases_for("darts", emg_cycle=True)
+    assert [p.step for p in cycle] == ["cycle", "baseline"]
+    assert [p.step for p in calibration.phases_for("pong", emg_cycle=True)] == ["cycle"]
+
+
+def test_unity_kit_texts_do_not_name_body_parts() -> None:
+    values = re.findall(r'const string \w+ = "([^"]*)"', source("NeurotlonTexts.cs"))
+    assert values
+    for word in ("рук", "кулак", "ног"):
+        assert word not in " ".join(values).lower()
+
+
+def test_unity_bridge_exposes_burst_api() -> None:
+    text = source("NeurotlonBridge.cs")
+    for member in (
+        "bool TryTakeBurst(string signal)",
+        "void DiscardBursts(string signal)",
+        "bool BurstSupported",
+        "bool Supports(string feature)",
+    ):
+        assert member in text
+    assert int(consts(text, "int")["MaxBursts"]) == 8
 
 
 def test_bridge_timings_match_python_client() -> None:

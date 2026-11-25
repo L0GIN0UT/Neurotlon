@@ -10,8 +10,8 @@ Unity-проект каждой игры лежит в `games/unity/<игра>/`
 |---|---|
 | `NeurotlonProtocol.cs` | Константы: сигналы, шаги калибровки, статусы. Сверяются со схемами тестом |
 | `NeurotlonLaunch.cs` | Читает и проверяет `launch.json` из `--launch <путь>` |
-| `NeurotlonBridge.cs` | Клиент моста: TCP в фоновом потоке, последнее значение сигнала, потеря связи, переподключение, команды `calibrate` / `reset` |
-| `NeurotlonCalibration.cs` | Шаги калибровки по очереди, инструкции на русском, один повтор при сбое |
+| `NeurotlonBridge.cs` | Клиент моста: TCP в фоновом потоке, последнее значение сигнала, события `burst`, возможности моста (`hello.features`), потеря связи, переподключение, команды `calibrate` / `reset` |
+| `NeurotlonCalibration.cs` | Шаги калибровки по очереди (`cycle` или `rest` + `contract`, `baseline`), инструкции на русском, причина сбоя на экране, один повтор |
 | `NeurotlonResult.cs` | Проверка правил и атомарная запись `result.json` (`finished` / `aborted`) |
 | `NeurotlonGame.cs` | Пример `MonoBehaviour`: всё вместе плюс отсчёт, таймер, Esc, пауза при потере датчика |
 
@@ -56,6 +56,21 @@ Unity-проект каждой игры лежит в `games/unity/<игра>/`
    Для своих надписей поверх картинки используйте `OutlinedLabel(rect, text, style)`: она рисует тёмную обводку, и текст читается на любом фоне (обводка гаснет вместе с надписью). Служебные экраны кита (калибровка, отсчёт, пауза, окончание) идут на затемнении экрана.
 
    Если бросок или удар идёт в точку прицела, возьмите `AimWobble` (`Runtime/NeurotlonAim.cs`, чистый C# без Unity): прицел гуляет по кругу, размах которого сужается с ростом сосредоточения. `new AimWobble(wobbleMax, wobbleMin, gamma, eegSmoothSeconds, random01)`, затем `Step(dt, eeg)` каждый кадр (`eeg` — `null`, если сигнала нет: размах не меняется) и чтение `X`, `Z`, `Amplitude`, `Concentration`. Её используют дартс и футбол.
+   **Резкое сокращение (`burst`).** Дартс и футбол запускают бросок и удар по событию, а не по порогу уровня:
+
+   ```csharp
+   if (!Bridge.BurstSupported) { /* старый мост: запасной путь по уровню emg */ }
+   if (!ReadyToThrow) Bridge.DiscardBursts("emg");        // каждый кадр, пока игра не готова: события не копятся
+   else if (Bridge.TryTakeBurst("emg")) { /* бросок */ }  // забирает одно свежее событие
+   ```
+
+   - `bool TryTakeBurst(string signal)` — `true`, если есть свежее необработанное событие; забирает ровно одно. Событие старше `StaleSeconds` (0,5 с по времени получения) считается устаревшим и выбрасывается.
+   - `void DiscardBursts(string signal)` — выбросить накопленные события; зовите каждый кадр, пока игра не готова к броску или удару.
+   - `bool BurstSupported` — мост объявил `burst` в последнем `hello`. `bool Supports(string feature)` проверяет любую функцию (`NeurotlonProtocol.FeatureBurst`, `FeatureEmgCycle`, `FeatureBaselineDuration`); `string EegMethod` — метод ЭЭГ из `hello.eeg_method`, только для отладки.
+   - Принимается только `seq` больше последнего для сигнала и `t_ms` не меньше последнего: дубль и старое событие отбрасываются. При новом `hello` и при потере связи `seq` и очередь сбрасываются. В очереди не больше `MaxBursts` (8) событий на сигнал.
+   - Для проверки без сокета: `new NeurotlonBridge(host, port, () => секунды)` и `ApplyLine(json)` подают строки моста прямо в разбор; тесты кита лежат в `Darts/Assets/Tests/EditMode` (`NeurotlonBridgeBurstTests`, `NeurotlonCalibrationCycleTests`).
+
+   **Калибровка.** Если мост объявил `emg_cycle`, мышца калибруется одним шагом `cycle` (20 с, ритм по умолчанию 5/5/5/5, `NeurotlonCalibration.CycleSeconds`) вместо `rest` и `contract`; `calibrate` уходит без своих `segments` и `duration_s`. Экран показывает «Напрягите / Расслабьте мышцу с датчиком» по фазе из сообщения `calibration` и секунды до конца фазы (`CyclePhase`, `CycleSegment`, `PhaseLeftSeconds`; те же поля в `CalibrationProgress`). Сбой `cycle` (слабое сокращение, нет данных): причина человеческим текстом (`RetryReason`) и один повтор. У старого моста без `emg_cycle` идут прежние `rest` и `contract`. Понг калибрует `emg_left` и `emg_right` одновременно тем же шагом. `baseline` длится 12 с (`BaselineSeconds`), глаза открыты: надпись «Расслабьтесь и смотрите на точку на экране» и белая точка по центру; `duration_s` кит не передаёт, мост берёт 12 с сам.
 4. **Настройки сборки** (`File → Build Settings`, `Player Settings`):
    - платформа **Windows**, Architecture x86_64, Mono или IL2CPP;
    - `Resolution and Presentation → Fullscreen Mode = Fullscreen Window`, `Run In Background` включён (кит включает его и из кода);
@@ -75,7 +90,7 @@ Unity-проект каждой игры лежит в `games/unity/<игра>/`
    uv run neurotlon-game-check --discipline darts -- games\darts\Darts.exe
    ```
 
-   Она поднимает эмулированный мост, запускает `.exe` так же, как лаунчер, и проверяет подключение, калибровку, выход вовремя и `result.json`.
+   Она поднимает эмулированный мост, запускает `.exe` так же, как лаунчер, и проверяет подключение, калибровку, выход вовремя и `result.json`. Для дартса и футбола требуется реакция на `burst`: мост эмулятора присылает события во время игры, а игра, которая не набрала ни одного очка, получает FAIL.
 
 ## Правила, которые нельзя нарушать
 

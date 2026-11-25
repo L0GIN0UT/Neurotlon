@@ -22,6 +22,11 @@ namespace Neurotlon
         public const string PhaseTense = "tense";
         public const string PhaseRelax = "relax";
 
+        // Возможности моста (Feature, hello.features)
+        public const string FeatureBurst = "burst";
+        public const string FeatureEmgCycle = "emg_cycle";
+        public const string FeatureBaselineDuration = "baseline_duration";
+
         // Метод обработки ЭЭГ (EegMethod)
         public const string EegMethodEmotions = "emotions";
         public const string EegMethodAlpha = "alpha";
