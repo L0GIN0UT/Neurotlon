@@ -14,6 +14,7 @@ export type IssueCode =
   | 'already_completed'
   | 'busy_on_other_station'
   | 'no_pair_assigned'
+  | 'not_opponents'
 
 export interface DisciplineConfig {
   discipline: Discipline
