@@ -1,22 +1,28 @@
-"""Точка входа: `neurotlon-bridge --emulate | --scan | --profile X`."""
+"""Точка входа: `neurotlon-bridge --emulate | --scan | --discover | --profile X`."""
 
 from __future__ import annotations
 
 import argparse
 import asyncio
 import contextlib
-import dataclasses
 import json
 import logging
+import queue
 import sys
+import threading
 import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import TextIO
+
+from neurotlon_contracts.discovery import encode_message
 
 from .calibration_store import FileCalibrationStore
 from .config import ConfigError, default_config_path, load_config, required_devices
-from .devices.base import DeviceBackend, DeviceError
+from .devices.base import DeviceBackend, DeviceError, ScannerPort
+from .devices.discovery import DiscoveryService
 from .devices.scan import format_devices, scan_devices
+from .discover_session import DiscoverySession, Inbox, start_reader
 from .emulator import EmulatedSource
 from .server import BridgeServer, BridgeThread
 from .source import EEG_METHODS, PROFILES, EegMethod
@@ -30,12 +36,21 @@ SCAN_JSON_MARK = "NEUROTLON_SCAN_JSON="
 DEFAULT_EEG_METHOD: EegMethod = "alpha"
 
 BackendFactory = Callable[[float], DeviceBackend]
+ScannerFactory = Callable[[], ScannerPort]
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="neurotlon-bridge", description="BCI-мост Нейротлона")
     parser.add_argument("--emulate", action="store_true", help="эмулятор датчиков (клавиши)")
     parser.add_argument("--scan", action="store_true", help="найти датчики, вывести и выйти")
+    parser.add_argument(
+        "--discover",
+        action="store_true",
+        help="фоновый поиск датчиков для лаунчера: команды в stdin, сообщения в stdout (JSONL)",
+    )
+    parser.add_argument(
+        "--fake", action="store_true", help="с --discover: устройства по сценарию, без Bluetooth"
+    )
     parser.add_argument("--profile", choices=sorted(PROFILES), default="darts")
     parser.add_argument(
         "--eeg-method",
@@ -68,13 +83,36 @@ def default_backend_factory(scan_s: float) -> DeviceBackend:
     return NeuroSdkBackend(scan_s)
 
 
+def default_scanner_factory() -> ScannerPort:
+    from .devices.neurosdk_backend import NeuroSdkBackend
+
+    return NeuroSdkBackend()
+
+
+def fake_scanner_factory() -> ScannerPort:
+    from .devices.fakes import FakeScanner, demo_devices
+
+    started = time.monotonic()
+    return FakeScanner(
+        demo_devices(), lambda: time.monotonic() - started, stream_samples=True, rssi_wobble_db=6
+    )
+
+
 def main(
-    argv: Sequence[str] | None = None, *, backend_factory: BackendFactory | None = None
+    argv: Sequence[str] | None = None,
+    *,
+    backend_factory: BackendFactory | None = None,
+    scanner_factory: ScannerFactory | None = None,
+    stdin: TextIO | None = None,
+    stdout: TextIO | None = None,
 ) -> int:
     args = build_parser().parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logging.getLogger(__name__).info("bridge started: %s", " ".join(sys.argv[1:]))
     factory = backend_factory or default_backend_factory
+    if args.discover:
+        make = scanner_factory or (fake_scanner_factory if args.fake else default_scanner_factory)
+        return _discover(make, stdin or sys.stdin, stdout or sys.stdout)
     if args.scan:
         return _scan(args, factory)
     if args.emulate:
@@ -90,7 +128,14 @@ def _scan(args: argparse.Namespace, factory: BackendFactory) -> int:
             if args.json:
                 found = scan_devices(backend, SCAN_SECONDS)
                 # SDK пишет свои сообщения в тот же stdout: список — на строке с меткой
-                payload = json.dumps([dataclasses.asdict(d) for d in found], ensure_ascii=False)
+                # (список для лаунчера без rssi: формат `--scan --json` не меняется)
+                payload = json.dumps(
+                    [
+                        {"kind": d.kind, "name": d.name, "serial": d.serial, "address": d.address}
+                        for d in found
+                    ],
+                    ensure_ascii=False,
+                )
                 print(f"{SCAN_JSON_MARK}{payload}", flush=True)
             else:
                 print(f"Поиск датчиков, {SCAN_SECONDS:g} с...", flush=True)
@@ -100,6 +145,29 @@ def _scan(args: argparse.Namespace, factory: BackendFactory) -> int:
     except DeviceError as exc:
         print(f"Ошибка: {exc}", file=sys.stderr)
         return EXIT_DEVICES
+    return EXIT_OK
+
+
+def _discover(make_scanner: ScannerFactory, stdin: TextIO, stdout: TextIO) -> int:
+    """Долгоживущий поиск для экрана настройки (`shared/sensor-discovery.md`)."""
+    if hasattr(stdout, "reconfigure"):
+        stdout.reconfigure(encoding="utf-8")  # русские сообщения не должны ломаться
+    lock = threading.Lock()
+
+    def write(line: str) -> None:
+        with lock:  # одним куском: SDK пишет в тот же stdout
+            stdout.write(f"{line}\n")
+            stdout.flush()
+
+    try:
+        service = DiscoveryService(make_scanner())
+    except DeviceError as exc:
+        write(encode_message({"type": "error", "message": str(exc)}))
+        print(f"Ошибка: {exc}", file=sys.stderr)
+        return EXIT_DEVICES
+    inbox: Inbox = queue.Queue()
+    start_reader(stdin, inbox)
+    DiscoverySession(service, write).run(inbox)
     return EXIT_OK
 
 

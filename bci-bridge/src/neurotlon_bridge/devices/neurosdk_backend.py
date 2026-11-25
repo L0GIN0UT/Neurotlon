@@ -6,6 +6,8 @@
 - Колбэки SDK не бросают исключений наружу (иначе падение в ctypes).
 - Освобождение: SDK держит ссылки на нативные колбэки, поэтому `__del__()` зовётся явно.
 - Подключения (`create_sensor`) идут строго по очереди под одним замком.
+- Фоновый поиск (`ScannerPort`): `start()`, опрос `sensors()` снаружи раз в 0,5 с, `stop()`.
+  Колбэк SDK `sensorsChanged` не используется: он приходит из нативного потока.
 """
 
 from __future__ import annotations
@@ -16,6 +18,8 @@ import threading
 import time
 from collections.abc import Callable, Sequence
 from typing import Any
+
+from neurotlon_contracts.sensor_devices import MAX_ADDRESS, MAX_NAME, clean_text
 
 from .base import (
     BluetoothUnavailableError,
@@ -39,6 +43,7 @@ SDK_HINT = (
     "Не удалось загрузить NeuroSDK (pyneurosdk2). Переустановите зависимости "
     "(uv sync) или проверьте, что нативные библиотеки SDK не блокирует антивирус"
 )
+NOT_FOUND_HINT = "Устройство не найдено: включите датчик и подождите, пока оно появится в списке"
 BLUETOOTH_HINT = (
     "Bluetooth-адаптер не найден или выключен: вставьте USB-адаптер и включите Bluetooth в Windows"
 )
@@ -64,6 +69,7 @@ class NeuroSdkBackend:
         self._families: dict[Any, DeviceKind] = {}
         self._known: dict[str, tuple[DeviceInfo, Any]] = {}  # адрес -> (инфо, SensorInfo SDK)
         self._claimed: set[str] = set()
+        self._streaming = False  # scanner.start() вызван, stop() ещё нет
         try:
             from neurosdk.cmn_types import SensorFamily
 
@@ -93,18 +99,75 @@ class NeuroSdkBackend:
         with self._state_lock:
             return [info for info, _ in self._known.values()]
 
-    def open_sensor(self, serial: str, kind: DeviceKind, handlers: SensorHandlers) -> RawSensor:
+    # --- ScannerPort: фоновый поиск ---
+    def start(self) -> None:
+        with self._scan_lock:
+            try:
+                scanner = self._ensure_scanner()
+                if not self._streaming:
+                    scanner.start()
+                    self._streaming = True
+            except DeviceError:
+                raise
+            except Exception as exc:
+                raise _translate(exc) from exc
+
+    def stop(self) -> None:
+        with self._scan_lock:
+            if self._scanner is None or not self._streaming:
+                return
+            self._streaming = False
+            try:
+                self._scanner.stop()
+            except Exception as exc:
+                log.warning("остановка поиска: %s", exc)
+
+    def sensors(self) -> list[DeviceInfo]:
+        with self._scan_lock:
+            try:
+                return self._collect(self._ensure_scanner().sensors())
+            except DeviceError:
+                raise
+            except Exception as exc:
+                raise _translate(exc) from exc
+
+    def connect(self, address: str, kind: DeviceKind, handlers: SensorHandlers) -> RawSensor:
+        with self._state_lock:
+            known = self._known.get(address)
+            claimed = address in self._claimed
+        if known is None or known[0].kind != kind:
+            raise DeviceNotFoundError(NOT_FOUND_HINT)
+        if claimed:
+            raise DeviceError("Датчик уже подключён")
+        with self._connect_lock:
+            sensor = self._try_open(address, kind, handlers, None)
+        if sensor is None:
+            raise DeviceNotFoundError(NOT_FOUND_HINT)
+        return sensor
+
+    # --- DeviceBackend: рабочий режим ---
+    def open_sensor(
+        self, serial: str, kind: DeviceKind, handlers: SensorHandlers, address: str = ""
+    ) -> RawSensor:
         wanted = serial.strip().lower()
-        sensor = self._open_known(wanted, kind, handlers)
+        by_address = address.strip()
+        # С адресом сначала ищем только его: безымянные датчики не пробуем подключением.
+        sensor = self._open_known(wanted, by_address, kind, handlers, probe=not by_address)
         if sensor is None:
-            # Нужного серийного номера нет в списке: ищем один раз. Поиск идёт под своим
-            # замком и не мешает подключению других датчиков.
+            # Нужного датчика нет в списке: ищем один раз и выходим, как только он появился.
+            # Поиск идёт под своим замком и не мешает подключению других датчиков.
             with self._scan_lock:
-                if not self._knows(wanted, kind):
-                    self._scan_locked(self._scan_s)
-            sensor = self._open_known(wanted, kind, handlers)
+                if not self._knows(wanted, by_address, kind):
+                    self._scan_locked(
+                        self._scan_s, until=lambda: self._knows(wanted, by_address, kind)
+                    )
+            sensor = self._open_known(wanted, by_address, kind, handlers, probe=True)
         if sensor is None:
-            raise DeviceNotFoundError(f"{kind} с серийным номером {serial} не найден")
+            raise DeviceNotFoundError(
+                f"{kind} с серийным номером {serial} не найден"
+                if serial.strip()
+                else f"{kind} с адресом {address} не найден"
+            )
         return sensor
 
     def close(self) -> None:
@@ -128,8 +191,8 @@ class NeuroSdkBackend:
                     raise _translate(exc) from exc
             return self._scanner
 
-    def _scan_locked(self, seconds: float) -> None:
-        """Вызывать под `_scan_lock`."""
+    def _scan_locked(self, seconds: float, until: Callable[[], bool] | None = None) -> None:
+        """Вызывать под `_scan_lock`. `until` — ранний выход, когда нужное уже найдено."""
         scanner = self._ensure_scanner()
         try:
             scanner.start()
@@ -137,6 +200,8 @@ class NeuroSdkBackend:
             try:
                 while True:
                     self._collect(scanner.sensors())
+                    if until is not None and until():
+                        break
                     if time.monotonic() >= deadline:
                         break
                     self._sleep(POLL_S)
@@ -147,46 +212,64 @@ class NeuroSdkBackend:
         except Exception as exc:
             raise _translate(exc) from exc
 
-    def _collect(self, sdk_infos: Sequence[Any]) -> None:
+    def _collect(self, sdk_infos: Sequence[Any]) -> list[DeviceInfo]:
+        """Запомнить найденное; вернуть то, что SDK показал в этот раз (без повторов)."""
+        seen: dict[str, DeviceInfo] = {}
         for sdk_info in sdk_infos:
             kind = self._families.get(sdk_info.SensFamily)
-            address = str(sdk_info.Address)
             if kind is None:
                 continue
-            serial = str(sdk_info.SerialNumber or "")
-            name = str(sdk_info.Name or kind)
+            # всё из эфира недоверенное: без управляющих знаков и ограниченной длины
+            address = clean_text(str(sdk_info.Address), MAX_ADDRESS + 1)
+            if not address or len(address) > MAX_ADDRESS or address != str(sdk_info.Address):
+                log.warning("устройство с недопустимым адресом пропущено")
+                continue
+            serial = clean_text(str(sdk_info.SerialNumber or ""), MAX_NAME)
+            name = clean_text(str(sdk_info.Name or ""), MAX_NAME) or kind
+            info = DeviceInfo(kind, name, serial, address, _rssi(sdk_info))
+            seen[address] = info
             # не теряем ранее найденные: SDK иногда отдаёт неполный список
             with self._state_lock:
-                self._known[address] = (DeviceInfo(kind, name, serial, address), sdk_info)
+                self._known[address] = (info, sdk_info)
+        return list(seen.values())
 
-    def _knows(self, wanted: str, kind: DeviceKind) -> bool:
-        """Серийный номер уже есть в списке найденных (в том числе занятый)."""
+    def _knows(self, wanted: str, address: str, kind: DeviceKind) -> bool:
+        """Нужный адрес или серийный номер уже есть в списке найденных (в том числе занятый)."""
         with self._state_lock:
             return any(
-                info.kind == kind and info.serial.strip().lower() == wanted
+                info.kind == kind
+                and (
+                    (address and info.address == address)
+                    or (wanted and info.serial.strip().lower() == wanted)
+                )
                 for info, _ in self._known.values()
             )
 
     def _open_known(
-        self, wanted: str, kind: DeviceKind, handlers: SensorHandlers
+        self, wanted: str, address: str, kind: DeviceKind, handlers: SensorHandlers, probe: bool
     ) -> RawSensor | None:
-        """Подключить датчик из уже найденных; None, если подходящего нет."""
+        """Подключить датчик из уже найденных; None, если подходящего нет.
+
+        Порядок: адрес, затем серийный номер из эфира, затем (если `probe`) пробное
+        подключение к безымянным: у Callibri серийный номер в эфире пуст.
+        """
         with self._state_lock:
             candidates = [
-                (address, info.serial.strip().lower())
-                for address, (info, _) in self._known.items()
-                if info.kind == kind and address not in self._claimed
+                (addr, info.serial.strip().lower())
+                for addr, (info, _) in self._known.items()
+                if info.kind == kind and addr not in self._claimed
             ]
-        named = [a for a, serial in candidates if serial == wanted]
-        unnamed = [a for a, serial in candidates if not serial]
+        by_address = [a for a, _ in candidates if address and a == address]
+        named = [a for a, serial in candidates if wanted and serial == wanted]
+        unnamed = [a for a, serial in candidates if wanted and not serial] if probe else []
         with self._connect_lock:  # подключения идут по одному
-            for address in named:
-                sensor = self._try_open(address, kind, handlers, None)
+            for found in by_address + [a for a in named if a not in by_address]:
+                sensor = self._try_open(found, kind, handlers, None)
                 if sensor is not None:
                     return sensor
             # Серийный номер из поиска пуст: подключаем безымянные устройства по очереди.
-            for address in unnamed:
-                sensor = self._try_open(address, kind, handlers, wanted)
+            for found in unnamed:
+                sensor = self._try_open(found, kind, handlers, wanted)
                 if sensor is not None:
                     return sensor
         return None
@@ -222,6 +305,15 @@ class NeuroSdkBackend:
     def _unclaim(self, address: str) -> None:
         with self._state_lock:
             self._claimed.discard(address)
+
+
+def _rssi(sdk_info: Any) -> int | None:
+    """RSSI из SDK; 0 и неподходящее значение — «неизвестен»."""
+    try:
+        value = int(sdk_info.RSSI)
+    except (AttributeError, TypeError, ValueError):
+        return None
+    return value if -127 <= value < 0 else None
 
 
 def _release(sdk_sensor: Any) -> None:
@@ -320,6 +412,12 @@ class _SdkRawSensor:
 
     def battery(self) -> int | None:
         return self.battery_value
+
+    def serial_number(self) -> str:
+        try:
+            return clean_text(str(self._sensor.serial_number or ""), MAX_NAME)
+        except Exception:
+            return ""
 
     def close(self) -> None:
         try:

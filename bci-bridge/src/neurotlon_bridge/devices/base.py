@@ -31,6 +31,7 @@ class DeviceInfo:
     name: str
     serial: str  # может быть пустым: SDK иногда отдаёт номер только после подключения
     address: str
+    rssi: int | None = None  # дБм; None — неизвестен
 
 
 @dataclass(frozen=True)
@@ -58,6 +59,9 @@ class RawSensor(Protocol):
 
     def battery(self) -> int | None: ...
 
+    def serial_number(self) -> str:
+        """Серийный номер, который SDK отдаёт после подключения (пустой, если не знает)."""
+
     def close(self) -> None:
         """Освободить датчик и нативные ресурсы SDK."""
 
@@ -68,7 +72,30 @@ class DeviceBackend(Protocol):
 
     def scan(self, seconds: float) -> list[DeviceInfo]: ...
 
-    def open_sensor(self, serial: str, kind: DeviceKind, handlers: SensorHandlers) -> RawSensor:
-        """Найти датчик по серийному номеру, подключить и настроить (блокирует на секунды)."""
+    def open_sensor(
+        self, serial: str, kind: DeviceKind, handlers: SensorHandlers, address: str = ""
+    ) -> RawSensor:
+        """Найти датчик, подключить и настроить (блокирует на секунды).
+
+        Сначала ищется адрес (если задан), затем серийный номер: адрес может смениться.
+        """
 
     def close(self) -> None: ...
+
+
+class ScannerPort(Protocol):
+    """Фоновый поиск датчиков: список опрашивают, пока поиск включён."""
+
+    def start(self) -> None:
+        """Включить поиск; нет Bluetooth — `DeviceError`."""
+
+    def stop(self) -> None: ...
+
+    def sensors(self) -> list[DeviceInfo]:
+        """Устройства, которые видны сейчас."""
+
+    def connect(self, address: str, kind: DeviceKind, handlers: SensorHandlers) -> RawSensor:
+        """Подключить и настроить найденное устройство; нет такого — `DeviceNotFoundError`."""
+
+    def close(self) -> None:
+        """Освободить сканер и нативные ресурсы."""

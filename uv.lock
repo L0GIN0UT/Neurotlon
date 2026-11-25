@@ -532,6 +532,7 @@ name = "neurotlon-bridge"
 version = "0.1.0"
 source = { editable = "bci-bridge" }
 dependencies = [
+    { name = "neurotlon-contracts" },
     { name = "numpy" },
     { name = "pyem-st-artifacts" },
     { name = "pygame-ce" },
@@ -541,6 +542,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "neurotlon-contracts", editable = "shared/python" },
     { name = "numpy", specifier = ">=2.5.5" },
     { name = "pyem-st-artifacts", specifier = "==1.0.5" },
     { name = "pygame-ce", specifier = ">=2.5.8" },

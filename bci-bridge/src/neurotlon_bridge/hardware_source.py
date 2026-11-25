@@ -375,9 +375,9 @@ class HardwareSource:
         self._threaded = threaded
         self._channels: dict[str, _Channel] = {}
         factory = engine_factory or make_engine_factory(eeg_method, config, clock)
-        for signal, serial in plan.items():
+        for signal, ref in plan.items():
             if signal == "eeg":
-                sensor = SdkSensor(serial, "brainbit", backend, clock)
+                sensor = SdkSensor(ref.serial, "brainbit", backend, clock, address=ref.address)
                 self._channels[signal] = _EegChannel(
                     signal,
                     sensor,
@@ -386,7 +386,7 @@ class HardwareSource:
                     config.eeg.sampling_rate,
                 )
             else:
-                sensor = SdkSensor(serial, "callibri", backend, clock)
+                sensor = SdkSensor(ref.serial, "callibri", backend, clock, address=ref.address)
                 processor = EmgProcessor(config.emg, burst=config.burst)
                 self._channels[signal] = _EmgChannel(signal, sensor, clock, processor)
         self._started = False
