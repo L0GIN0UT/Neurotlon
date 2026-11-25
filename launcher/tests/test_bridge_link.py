@@ -109,6 +109,9 @@ class FakeBridge:
         conn = self._conn
         assert conn is not None
         conn.shutdown(socket.SHUT_RDWR)
+        # Старое соединение ещё числится текущим, пока поток сервера его не закроет:
+        # без ожидания следующий send() ушёл бы в уже закрытый сокет.
+        assert wait_for(lambda: self._conn is not conn)
 
     @property
     def commands(self) -> list[dict[str, Any]]:
