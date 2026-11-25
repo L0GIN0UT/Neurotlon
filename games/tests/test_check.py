@@ -53,6 +53,23 @@ def test_scripted_input_moves_signals() -> None:
     assert any("emg_right" in k and "emg_left" not in k for k in pong)
 
 
+def test_scripted_input_has_a_steady_tension_phase_for_braking() -> None:
+    """После импульсов идёт ровное напряжение (около 0,3): им останавливают мяч в зоне."""
+    from neurotlon_bridge import scripted
+
+    steady_from = scripted.PULSE_PHASE_S
+    ticks = [
+        "emg" in keys_at("darts", steady_from + i * scripted.TICK_S)
+        for i in range(int(scripted.STEADY_PHASE_S / scripted.TICK_S))
+    ]
+    duty = sum(ticks) / len(ticks)
+    assert 0.1 < duty < 0.3, "ключ включён на малую долю времени: сглаженное значение около 0,3"
+    # импульсная фаза начинается снова после круга
+    cycle = scripted.PULSE_PHASE_S + scripted.STEADY_PHASE_S
+    pulses = [keys_at("darts", cycle + t / 10) for t in range(0, 12)]
+    assert any("emg" in k for k in pulses) and any("emg" not in k for k in pulses)
+
+
 def test_bridge_records_what_the_game_does() -> None:
     with CheckBridge("pong", speed=100) as bridge:
         client = BridgeClient("127.0.0.1", bridge.port)
