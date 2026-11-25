@@ -24,6 +24,7 @@ from .devices.discovery import DiscoveryService
 from .devices.scan import format_devices, scan_devices
 from .discover_session import DiscoverySession, Inbox, start_reader
 from .emulator import EmulatedSource
+from .processing.trace import TRACE_NAME, CsvTraceWriter
 from .server import BridgeServer, BridgeThread
 from .source import EEG_METHODS, PROFILES, EegMethod
 
@@ -217,9 +218,13 @@ def _hardware(args: argparse.Namespace, factory: BackendFactory) -> int:
         except DeviceError:
             backend.close()
             raise
-        store = FileCalibrationStore(_state_dir(args))
+        state_dir = _state_dir(args)
+        store = FileCalibrationStore(state_dir)
+        trace = None
+        if config.debug.eeg_trace:
+            trace = CsvTraceWriter(state_dir / TRACE_NAME, config.debug.eeg_trace_max_kb * 1024)
         source = HardwareSource(
-            args.profile, config, backend, eeg_method=args.eeg_method, store=store
+            args.profile, config, backend, eeg_method=args.eeg_method, store=store, eeg_trace=trace
         )
     except DeviceError as exc:
         print(f"Ошибка: {exc}", file=sys.stderr)
