@@ -23,7 +23,7 @@ namespace Neurotlon
         public const float LostAbortSeconds = 30f;
         public const float FinishShowSeconds = 2f;
         public const float Threshold = 0.6f;
-        public const float TutorialStepSeconds = 6f;               // шаг обучения идёт сам: у игрока нет клавиатуры
+        public const float TutorialStepSeconds = NeurotlonTutorial.StepSeconds;     // на одну попытку шага обучения
         public const float CheckHelpSeconds = 90f;                 // проверка не пройдена за это время: «Позовите волонтёра»
         public const int CheckHelpFailures = 3;                    // или столько неудачных попыток
         public const float PrepLimitSeconds = 360f;                // калибровка, обучение, проверка и отсчёт вместе: не больше 6 минут
@@ -45,9 +45,8 @@ namespace Neurotlon
         float finishedFor;
         float startedAt;                // Time.realtimeSinceStartup при запуске: от него считаются предохранители
         bool prepDone;                  // зачётная часть уже началась: лимит подготовки больше не действует
-        string[] tutorial = new string[0];
-        int tutorialIndex;
-        float tutorialLeft;
+        string[] tutorialTexts = new string[0];
+        NeurotlonTutorial tutorial;
         float checkElapsed;
         int checkFailures;
         bool checkPassed;
@@ -101,7 +100,8 @@ namespace Neurotlon
             if (Input.GetKeyDown(KeyCode.Escape)) ToggleConfirm();
             else if (CurrentStage == Stage.ConfirmAbort && Input.GetKeyDown(KeyCode.Return))
             {
-                Abort(resumeStage == Stage.Check ? "демо-проверка не пройдена" : "игра прервана оператором");
+                bool failedTest = resumeStage == Stage.Check || (resumeStage == Stage.Tutorial && tutorial != null && !tutorial.CanSkipNow);
+                Abort(failedTest ? "демо-проверка не пройдена" : "игра прервана оператором");
             }
             CheckFuses();
             switch (CurrentStage)
@@ -136,8 +136,40 @@ namespace Neurotlon
 
         // --- обучение и проверка ---
 
-        // Короткие шаги обучения (одна-две строки каждый). Пустой список: обучения нет. Шаги идут сами, по TutorialStepSeconds.
+        // Подсказки обучения: по одной на механику (1-2 строки), игрок пробует механики по очереди. Пустой список: обучения нет.
+        // Общие формулировки (напрячь, расслабить) берите из NeurotlonTexts.
         protected virtual string[] TutorialSteps() { return new string[0]; }
+
+        // Шаг обучения начался (первый раз или заново после неудачи за TutorialStepSeconds): заведите песочницу под механику
+        // шага. Очки песочницы в результат не идут.
+        protected virtual void OnTutorialStepStart(int index) { }
+
+        // Каждый кадр обучения, в том числе пока подсказку читают и пока показано «Готово» (картинка и камера живут всегда):
+        // двигайте песочницу и верните true, когда механика шага сработала. Результат учитывается только в попытке
+        // (TutorialInPlay); пока читают, подавайте в правила emg = null, чтобы игрок не успел «сделать» шаг заранее.
+        protected virtual bool OnTutorialUpdate(int index, float dt) { return false; }
+
+        // Началась попытка шага (чтение закончилось или повтор): сбросьте счётчики условия шага.
+        protected virtual void OnTutorialTryStart(int index) { }
+
+        // Можно ли пропустить шаг клавишей Enter. Шаги-проверки («попади сам») нельзя: при неудаче «Позовите волонтёра»,
+        // волонтёр может только завершить игру (Esc, Enter).
+        protected virtual bool TutorialStepSkippable(int index) { return true; }
+
+        // Секунд на одну попытку шага (не получилось: шаг начинается заново).
+        protected virtual float TutorialStepTimeout(int index) { return NeurotlonTutorial.StepSeconds; }
+
+        // Идёт попытка шага (не чтение подсказки): механика засчитывается.
+        protected bool TutorialInPlay { get { return tutorial != null && tutorial.InPlay; } }
+
+        // Нарисовать игровые элементы шага (шкалы и т. п.) под подсказкой. Фон не затемняется: сцена остаётся видна.
+        protected virtual void DrawTutorial(int index) { }
+
+        // Обучение закончилось: уберите песочницу.
+        protected virtual void OnTutorialEnd() { }
+
+        // Шаг, который сейчас идёт (для игр, которым нужно знать, что показано).
+        protected int TutorialIndex { get { return tutorial != null ? tutorial.Index : 0; } }
 
         // Есть ли демо-проверка перед игрой: игрок сам выполняет минимальное действие, и только потом начинается зачёт.
         protected virtual bool HasCheck { get { return false; } }
@@ -242,21 +274,47 @@ namespace Neurotlon
 
         void BeginTutorial()
         {
-            tutorial = TutorialSteps() ?? new string[0];
-            tutorialIndex = 0;
-            tutorialLeft = TutorialStepSeconds;
-            if (tutorial.Length == 0) BeginCheck();
-            else CurrentStage = Stage.Tutorial;
+            tutorialTexts = TutorialSteps() ?? new string[0];
+            tutorial = new NeurotlonTutorial(tutorialTexts.Length, TutorialStepSkippable, TutorialStepTimeout);
+            if (tutorialTexts.Length == 0)
+            {
+                BeginCheck();
+                return;
+            }
+            tutorial.MinTrySeconds = ReadFloatArg("--tutorial-min");     // служебный параметр показа: успеть прочитать подсказку
+            tutorial.StepStarted += OnTutorialStepStart;
+            tutorial.TryStarted += OnTutorialTryStart;
+            CurrentStage = Stage.Tutorial;
+            tutorial.Begin();
         }
 
+        static float ReadFloatArg(string name)
+        {
+            string[] args = System.Environment.GetCommandLineArgs();
+            for (int i = 0; i < args.Length - 1; i++)
+            {
+                float value;
+                if (args[i] == name && float.TryParse(args[i + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value)) return Mathf.Max(0f, value);
+            }
+            return 0f;
+        }
+
+        // Enter у волонтёра пропускает шаг; не сработала механика за 20 с, шаг начинается заново, после двух неудач просим волонтёра.
         void TickTutorial(float dt)
         {
             if (EnterLostIfNeeded(Stage.Tutorial)) return;
-            tutorialLeft -= dt;
-            if (tutorialLeft > 0f) return;
-            tutorialIndex++;
-            tutorialLeft = TutorialStepSeconds;
-            if (tutorialIndex >= tutorial.Length) BeginCheck();
+            if (Input.GetKeyDown(KeyCode.Return)) tutorial.Skip();
+            if (tutorial.State != NeurotlonTutorial.Phase.Finished)
+            {
+                // картинка живёт и при чтении подсказки, но механика засчитывается только в попытке
+                bool worked = OnTutorialUpdate(tutorial.Index, dt);
+                tutorial.Update(dt, worked && tutorial.State == NeurotlonTutorial.Phase.Trying);
+            }
+            if (tutorial.State == NeurotlonTutorial.Phase.Finished)
+            {
+                OnTutorialEnd();
+                BeginCheck();
+            }
         }
 
         void BeginCheck()
@@ -401,7 +459,7 @@ namespace Neurotlon
             }
             EnsureStyles();
             float cx = Screen.width / 2f, cy = Screen.height / 2f;
-            if (CurrentStage != Stage.Playing && CurrentStage != Stage.Check)          // служебные экраны читаются поверх любой картинки
+            if (CurrentStage != Stage.Playing && CurrentStage != Stage.Check && CurrentStage != Stage.Tutorial)          // служебные экраны читаются поверх любой картинки
             {
                 GUI.color = new Color(0f, 0f, 0f, 0.62f);
                 GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height), Texture2D.whiteTexture);
@@ -421,12 +479,12 @@ namespace Neurotlon
                     if (Calibration.Retrying) Label(cx, Screen.height * 0.75f, NeurotlonCalibration.TextRetry, small);
                     break;
                 case Stage.Tutorial:
-                    Label(cx, Screen.height * 0.22f, "Обучение: " + (tutorialIndex + 1) + " из " + tutorial.Length, medium);
-                    Label(cx, cy, tutorial[Mathf.Min(tutorialIndex, tutorial.Length - 1)], tutorialStyle);
+                    DrawTutorial(tutorial.Index);
+                    DrawTutorialBanner();
                     break;
                 case Stage.Check:
                     DrawCheck();
-                    if (CheckNeedsHelp) Label(cx, Screen.height * 0.88f, "Позовите волонтёра", big);
+                    if (CheckNeedsHelp) DrawNotice(NeurotlonTexts.CallVolunteer, VolunteerCallHeight);
                     break;
                 case Stage.Countdown:
                     Label(cx, cy - 120, "Приготовьтесь", medium);
@@ -450,6 +508,67 @@ namespace Neurotlon
                     Label(cx, cy, aborted ? "Игра прервана" : FinishedMessage(), big);
                     break;
             }
+        }
+
+        // Где во время попытки стоит компактная подсказка: x, y и ширина (высота по тексту). По умолчанию сверху по центру;
+        // игра может увести её в свободную часть экрана, чтобы не закрывать цель.
+        protected virtual Rect TutorialHintArea
+        {
+            get { return new Rect(Screen.width * 0.14f, Screen.height * 0.17f, Screen.width * 0.72f, 0f); }
+        }
+
+        // Где стоит призыв волонтёра: доля высоты экрана, выше нижних плашек со шкалами.
+        const float VolunteerCallHeight = 0.70f;
+
+        // Крупная надпись на тёмной полосе по всей ширине: читается на любой картинке и не лежит на шкалах.
+        // centerHeight: доля высоты экрана, где центр надписи.
+        protected void DrawNotice(string text, float centerHeight)
+        {
+            EnsureStyles();
+            float height = big.fontSize * 1.5f;
+            var band = new Rect(0f, Screen.height * centerHeight - height * 0.5f, Screen.width, height);
+            GUI.color = new Color(0f, 0f, 0f, 0.72f);
+            GUI.DrawTexture(band, Texture2D.whiteTexture);
+            GUI.color = Color.white;
+            Label(Screen.width * 0.5f, band.center.y, text, big);
+        }
+
+        // Заголовок шага: «Обучение: n из m», а у шага-проверки (его нельзя пропустить) «ПРОВЕРКА», чтобы тренировку и зачёт было видно.
+        string TutorialTitle()
+        {
+            return tutorial.CanSkipNow ? NeurotlonTexts.TutorialCounter(tutorial.Index + 1, tutorial.Count) : NeurotlonTexts.TestTitle;
+        }
+
+        // Сначала новая подсказка крупно по центру на лёгком затемнении (прочитать), потом компактная панель без затемнения.
+        // Счётчик шагов, «Готово», при неудачах призыв волонтёра.
+        void DrawTutorialBanner()
+        {
+            if (tutorial.Index >= tutorialTexts.Length) return;
+            float scale = Mathf.Clamp(Screen.height / 1080f, 0.5f, 2.5f);
+            float cx = Screen.width * 0.5f;
+            if (tutorial.State == NeurotlonTutorial.Phase.Reading)
+            {
+                GUI.color = new Color(0f, 0f, 0f, 0.5f);
+                GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height), Texture2D.whiteTexture);
+                GUI.color = Color.white;
+                Label(cx, Screen.height * 0.30f, TutorialTitle(), medium);
+                Label(cx, Screen.height * 0.5f, tutorialTexts[tutorial.Index], big);
+                return;
+            }
+            bool done = tutorial.State == NeurotlonTutorial.Phase.Done;
+            string text = done ? NeurotlonTexts.TutorialDone : tutorialTexts[tutorial.Index];
+            Rect area = TutorialHintArea;
+            float height = tutorialStyle.CalcHeight(new GUIContent(text), area.width);
+            var box = new Rect(area.x, area.y, area.width, height + 16f * scale);
+            GUI.color = new Color(0f, 0f, 0f, 0.62f);
+            GUI.DrawTexture(box, Texture2D.whiteTexture);
+            GUI.color = Color.white;
+            Color keep = tutorialStyle.normal.textColor;
+            tutorialStyle.normal.textColor = done ? new Color(0.55f, 0.95f, 0.55f) : Color.white;
+            OutlinedLabel(new Rect(box.x, box.y + 8f * scale, box.width, height), text, tutorialStyle);
+            tutorialStyle.normal.textColor = keep;
+            Label(box.center.x, box.y - 22f * scale, TutorialTitle(), small);
+            if (tutorial.NeedsHelp) DrawNotice(NeurotlonTexts.CallVolunteer, VolunteerCallHeight);
         }
 
         // Игра рисует таймер сама (в своей плашке), текст берёт из TimerText(); тогда кит свой таймер не рисует.
@@ -498,7 +617,7 @@ namespace Neurotlon
             big.fontSize = Mathf.RoundToInt(72f * scale);
             medium.fontSize = Mathf.RoundToInt(40f * scale);
             small.fontSize = Mathf.RoundToInt(28f * scale);
-            tutorialStyle.fontSize = Mathf.RoundToInt(50f * scale);
+            tutorialStyle.fontSize = Mathf.RoundToInt(40f * scale);
         }
     }
 }

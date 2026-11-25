@@ -31,7 +31,7 @@ MAX_POINTS = 1000.0  # потолок схемы result.json
 
 SIGNAL_TITLES = {
     "eeg": "Расслабление",
-    "emg": "Сила руки",
+    "emg": "Сила мышцы",
     "emg_left": "Левый игрок",
     "emg_right": "Правый игрок",
 }

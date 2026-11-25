@@ -1,7 +1,7 @@
 """Калибровка датчиков по протоколу моста (`shared/bridge-protocol.md`).
 
 Мост считает шаги сам, игра только запускает их по очереди и показывает инструкцию:
-- ЭМГ: `rest` 5 с покоя, затем `contract` 12 с = 3 x (3 с сжать + 1 с пауза);
+- ЭМГ: `rest` 5 с покоя, затем `contract` 12 с = 3 x (3 с напрячь + 1 с пауза);
 - ЭЭГ: `baseline` 8 с с закрытыми глазами.
 В понге оба датчика (`emg_left`, `emg_right`) калибруются одновременно.
 Сбой шага: один повтор, потом состояние `failed` с причиной — игра сообщает `aborted`.
@@ -25,9 +25,9 @@ RETRIES = 1
 TIMEOUT_FACTOR = 2.0
 TIMEOUT_EXTRA_S = 5.0
 
-TEXT_REST = "Расслабьте руку"
-TEXT_SQUEEZE = "Сожмите кулак"
-TEXT_RELEASE = "Отпустите"
+TEXT_REST = "Расслабьте мышцу с датчиком"
+TEXT_SQUEEZE = "Напрягите мышцу с датчиком"
+TEXT_RELEASE = "Расслабьте"
 TEXT_BASELINE = "Закройте глаза и расслабьтесь"
 TEXT_RETRY = "Не получилось, повторяем шаг"
 
@@ -48,7 +48,7 @@ def phases_for(discipline: str) -> tuple[Phase, ...]:
 
 
 def instruction(step: CalibrationStep, progress: float) -> str:
-    """Текст для игрока; ритм «сжать / отпустить» выводится из прогресса шага `contract`."""
+    """Текст для игрока; ритм «напрячь / расслабить» выводится из прогресса шага `contract`."""
     if step == "baseline":
         return TEXT_BASELINE
     if step == "rest":

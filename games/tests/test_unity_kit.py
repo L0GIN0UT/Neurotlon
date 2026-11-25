@@ -176,8 +176,19 @@ def test_calibration_matches_python_sdk() -> None:
 
 
 def test_calibration_texts_match_python_sdk() -> None:
+    # тексты калибровки в ките ссылаются на общие формулировки NeurotlonTexts: раскрываем ссылки
+    shared = {k: unquote(v) for k, v in consts(source("NeurotlonTexts.cs"), "string").items()}
+
+    def resolve(value: str) -> str:
+        value = value.strip()
+        return (
+            shared[value.split(".", 1)[1]]
+            if value.startswith("NeurotlonTexts.")
+            else unquote(value)
+        )
+
     strings = {
-        k: unquote(v) for k, v in consts(source("NeurotlonCalibration.cs"), "string").items()
+        k: resolve(v) for k, v in consts(source("NeurotlonCalibration.cs"), "string").items()
     }
     assert strings == {
         "TextRest": calibration.TEXT_REST,
