@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { readBridgeConfig, sendCommand } from './bridge.ts'
 import { commandForKey, screenKey } from './flow.ts'
-import { accentFor, hintsFor, initials, stepOf } from './model.ts'
-import { splitResultLine } from './texts.ts'
+import { accentFor, hintsFor, initials, RESULT_STEP, stepOf } from './model.ts'
+import { splitResultLine, STEPS } from './texts.ts'
 import type { CandidateView, StateView } from './types.ts'
 
 const candidate: CandidateView = {
@@ -22,9 +22,12 @@ describe('model', () => {
     expect(stepOf('checking')).toBe(0)
     expect(stepOf('confirm')).toBe(1)
     expect(stepOf('starting')).toBe(2)
-    expect(stepOf('playing')).toBe(2)
-    expect(stepOf('problem')).toBe(2)
-    expect(stepOf('done')).toBe(3)
+    expect(stepOf('calibrating')).toBe(2)
+    expect(stepOf('playing')).toBe(3)
+    expect(stepOf('problem')).toBe(3)
+    expect(stepOf('done')).toBe(4)
+    expect(stepOf('done')).toBe(STEPS.length - 1)
+    expect(stepOf('done')).toBe(RESULT_STEP)
     expect(stepOf('blocked')).toBeNull()
     expect(stepOf('rejected')).toBeNull()
   })

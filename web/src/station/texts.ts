@@ -9,7 +9,7 @@ export const DISCIPLINE_NAMES: Record<string, string> = {
   pong: 'Понг',
 }
 
-export const STEPS = ['Бейдж', 'Проверка', 'Игра', 'Результат'] as const
+export const STEPS = ['Бейдж', 'Проверка', 'Калибровка', 'Игра', 'Результат'] as const
 
 export const LINK = { live: 'Связь есть', lost: 'Нет связи', unknown: 'Проверяем связь' }
 export const BRIDGE_LOST = 'Нет связи с лаунчером'
@@ -131,8 +131,8 @@ export const SETUP = {
   roles: {
     eeg: 'ЭЭГ (BrainBit)',
     emg: 'ЭМГ (Callibri)',
-    emg_left: 'Левая рука (Callibri)',
-    emg_right: 'Правая рука (Callibri)',
+    emg_left: 'Датчик игрока 1 (Callibri)',
+    emg_right: 'Датчик игрока 2 (Callibri)',
   } as Record<string, string>,
   roleKind: { eeg: 'brainbit', emg: 'callibri', emg_left: 'callibri', emg_right: 'callibri' } as Record<
     string,
@@ -150,3 +150,85 @@ export const SETUP = {
   playersOne: '1 игрок',
   playersTwo: '2 игрока: слева и справа',
 }
+
+export const CALIB = {
+  title: 'Калибровка датчиков',
+  steps: 'Шаги калибровки',
+  link: { connecting: 'Подключаем мост датчиков…', lost: 'Мост датчиков не отвечает' },
+  linkLostHint: 'Проверьте, что датчики включены, и повторите. Если не помогает, позовите волонтёра.',
+  getReady: 'Приготовьтесь',
+  tense: 'НАПРЯГИТЕ',
+  relax: 'РАССЛАБЬТЕ',
+  tenseHint: 'Напрягите мышцу с датчиком',
+  relaxHint: 'Расслабьте мышцу с датчиком',
+  readyHint: 'Сейчас начнётся',
+  baselineLook: 'Смотрите на точку, глаза открыты',
+  baselineHint: 'Спокойно дышите и не двигайтесь',
+  secondsShort: 'с',
+  statusPending: 'Ожидает',
+  statusRunning: 'Идёт',
+  statusDone: 'Готово',
+  statusFailed: 'Не удалось',
+  failedDefault: 'Шаг не пройден',
+  failedTitle: 'Калибровка не удалась',
+  retry: 'Повторить',
+  restart: 'Начать заново',
+  stepNames: {
+    emg: 'Мышца (ЭМГ)',
+    eeg: 'Мозг (ЭЭГ)',
+    emg_left: 'Игрок 1 (слева)',
+    emg_right: 'Игрок 2 (справа)',
+  } as Record<string, string>,
+  stepBoth: 'Мышцы игроков',
+  stepCycle: '20 секунд: напряжение и расслабление',
+  stepBaseline: '12 секунд: взгляд на точку',
+  trackNames: {
+    eeg: 'Мозг (ЭЭГ)',
+    emg: 'Мышца (ЭМГ)',
+    emg_left: 'Игрок 1 (слева)',
+    emg_right: 'Игрок 2 (справа)',
+  } as Record<string, string>,
+  player: (n: number): string => `Игрок ${n}`,
+  playerSide: ['слева', 'справа'],
+  checkTitle: 'Проверка сигнала',
+  checkLead: 'Последние 10 секунд. Серым отмечены участки, где сигнал недействителен.',
+  tipEmg: 'Резко напрягите мышцу с датчиком: должна появиться отметка',
+  tipEeg: 'Расслабьтесь: линия мозга растёт',
+  recalibrateMuscle: 'Перекалибровать мышцу',
+  recalibrateBrain: 'Перекалибровать мозг',
+  recalibratePlayer: (n: number): string => `Повторить: игрок ${n}`,
+  proceed: 'Дальше к игре',
+  noSignal: 'Ждём сигнал…',
+  axisNow: '0 с',
+  axisAgo: (s: number): string => `−${s} с`,
+  burstLabel: 'отметка',
+  sensorsLabel: 'Датчики',
+  methodLabel: 'Метод ЭЭГ',
+  sensorNames: {
+    eeg: 'Датчик мозга',
+    emg: 'Датчик мышцы',
+    emg_left: 'Датчик игрока 1',
+    emg_right: 'Датчик игрока 2',
+  } as Record<string, string>,
+  sensorState: {
+    connected: 'подключён',
+    ok: 'подключён',
+    live: 'подключён',
+    connecting: 'подключаем',
+    searching: 'поиск',
+    disconnected: 'отключён',
+    lost: 'отключён',
+    emulated: 'эмуляция',
+  } as Record<string, string>,
+  eegMethods: { alpha: 'альфа', emotions: 'Emotions' } as Record<string, string>,
+}
+
+/** Причины недействительного сигнала по протоколу моста → подписи на графике. */
+export const REASONS: Record<string, string> = {
+  artifact: 'артефакт',
+  no_contact: 'нет контакта',
+  disconnected: 'нет контакта',
+  stale: 'нет данных',
+  not_calibrated: 'не откалиброван',
+}
+export const REASON_UNKNOWN = 'нет данных'
