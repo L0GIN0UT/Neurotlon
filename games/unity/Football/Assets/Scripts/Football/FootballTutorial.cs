@@ -53,6 +53,8 @@ namespace Neurotlon.Games.Football
         public const float CheckTimeoutSeconds = 90f;       // на шаг-проверку «попади сам»
         public const int SandboxCones = 2;                  // конусов в песочнице змейки
         public const int CheckAttempts = TutorialHits.MaxAttempts;       // ударов в песочнице шага-проверки: пять, как точек попыток в игре
+        // Подсказка удара, когда мост запускает удар по `burst`. Можно перенести в NeurotlonTexts кита.
+        public const string BurstHint = "Резко напрягите мышцу с датчиком";
         public const string HitsFormat = "Попаданий: {0} из {1}";
 
         readonly FootballTuning tuning;
@@ -104,13 +106,13 @@ namespace Neurotlon.Games.Football
         }
 
         // Подсказка шага: 1-2 коротких строки, только про эту механику.
-        public static string TextFor(TutorialStep step, DribbleMode mode)
+        public static string TextFor(TutorialStep step, DribbleMode mode, bool burst = false)
         {
             switch (step)
             {
                 case TutorialStep.Cones: return ConesText(mode);
                 case TutorialStep.Focus: return NeurotlonTexts.Focus + ": круг разброса сужается, прицел меньше дрожит";
-                case TutorialStep.Shot: return NeurotlonTexts.Tense + ": мяч полетит в прицел";
+                case TutorialStep.Shot: return (burst ? BurstHint : NeurotlonTexts.Tense) + ": мяч полетит в прицел";
                 case TutorialStep.Hits: return "Попадите в мишень дважды";
                 case TutorialStep.Gate: return "Теперь ворота: бейте в золотое кольцо";
                 case TutorialStep.Slow: return "Мяч катится сам: напрягите мышцу, чтобы он замедлился";

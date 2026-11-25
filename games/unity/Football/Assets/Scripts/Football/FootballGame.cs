@@ -54,9 +54,11 @@ namespace Neurotlon.Games.Football
         FootballTutorial tutorial;                        // условия «шаг обучения засчитан»
         TutorialStep[] tutorialSteps = new TutorialStep[0];
         float retryTimer;                                 // показывается «Попробуйте ещё раз»: песочница стоит, потом заводится заново
+        const string PracticeLabel = "Тренировка";
         int debugScore = -1;                              // --debug-score N: показать этот счёт вместо настоящего (только подпись)
         FootballElement shown;                           // элемент, который сейчас показывается
         float lastEmg;
+        KickTrigger kickTrigger;
         string resultText = "";
         FootballElement resultElement;
         int resultPoints;
@@ -192,7 +194,7 @@ namespace Neurotlon.Games.Football
             tutorial = new FootballTutorial(tuning);
             tutorialSteps = FootballTutorial.StepsFor(tuning.Dribble);
             var texts = new string[tutorialSteps.Length];
-            for (int i = 0; i < texts.Length; i++) texts[i] = FootballTutorial.TextFor(tutorialSteps[i], tuning.Dribble);
+            for (int i = 0; i < texts.Length; i++) texts[i] = FootballTutorial.TextFor(tutorialSteps[i], tuning.Dribble, BurstKicks);
             return texts;
         }
 
@@ -336,6 +338,28 @@ namespace Neurotlon.Games.Football
             StepGame(dt);
         }
 
+        // Удар по `burst`: мост умеет событие, а игру ведёт не автоигрок.
+        bool BurstKicks { get { return demo == null && Bridge != null && Bridge.BurstSupported; } }
+
+        // Готова ли игра принять удар: идёт попытка прицельного элемента (не заставка, не подсказка, не шаг без ударов).
+        bool ReadyForKick(AimedElement aimed)
+        {
+            if (aimed == null || phase != Phase.Playing || !aimed.ReadyForKick) return false;
+            if (tutorialActive && (!tutorialPlay || tutorial.Step == TutorialStep.Focus)) return false;
+            return true;
+        }
+
+        // События `burst` только запускают удар; торможение и ведение по-прежнему идут по уровню emg.
+        void PollKick()
+        {
+            if (rules == null) return;
+            if (kickTrigger == null)
+                kickTrigger = new KickTrigger(() => BurstKicks, () => Bridge.TryTakeBurst(NeurotlonProtocol.SignalEmg), () => Bridge.DiscardBursts(NeurotlonProtocol.SignalEmg));
+            var aimed = rules.Current as AimedElement;
+            if (aimed != null) aimed.BurstMode = kickTrigger.BurstMode;
+            if (kickTrigger.Poll(ReadyForKick(aimed))) aimed.RequestKick();
+        }
+
         // Ход игры или песочницы обучения: сигналы, фазы (заставка, игра, итог элемента), картинка.
         void StepGame(float dt)
         {
@@ -352,6 +376,7 @@ namespace Neurotlon.Games.Football
             if (emg.HasValue) lastEmg = emg.Value;
             if (tutorialActive && tutorial.Step == TutorialStep.Focus) emg = null;      // шаг сосредоточения: ударов нет, только круг разброса
             if (!tutorialActive) HandleKeys();
+            PollKick();
             phaseTimer -= dt;
             attemptTimer -= dt;
             switch (phase)
@@ -1149,7 +1174,10 @@ namespace Neurotlon.Games.Football
             OutlinedLabel(FootballHud.TimerRect(top, s), TimerText(), scoreStyle);
             scoreStyle.alignment = TextAnchor.MiddleRight;
             int score = debugScore >= 0 ? debugScore : (rules != null ? rules.Score : 0);          // --debug-score меняет только подпись, в результат не идёт
-            OutlinedLabel(FootballHud.ScoreRect(top, s, score, scoreStyle.fontSize), NeurotlonHud.ScoreText(score), scoreStyle);
+            // в обучении очки не считаются (они не идут в результат): вместо счёта подпись, как в дартсе
+            string scoreText = tutorialActive ? PracticeLabel : NeurotlonHud.ScoreText(score);
+            Rect scoreRect = NeurotlonHud.RightAligned(FootballHud.ScoreRightEdge(top, s), top.y, top.height, scoreText, scoreStyle.fontSize, top.width * 0.2f);
+            OutlinedLabel(scoreRect, scoreText, scoreStyle);
 
             // шкалы внизу (без подсказок: правила показаны в обучении)
             var bottom = new Rect(px, h - 20f * s - 112f * s, plaqueW, 112f * s);
@@ -1253,7 +1281,7 @@ namespace Neurotlon.Games.Football
             float grip = tuning.GripOn;
             string leftLabel = "МЫШЦА";
             Color leftColor = aimed && lastEmg >= grip ? Good : Okay;
-            DrawBar(new Rect(bottom.x + pad, y, barW, barH), leftLabel, lastEmg, leftColor, aimed ? grip : -1f, s);
+            DrawBar(new Rect(bottom.x + pad, y, barW, barH), leftLabel, lastEmg, leftColor, aimed && !BurstKicks ? grip : -1f, s);
             string rightLabel;
             float rightValue = 0f;
             if (aimed)
