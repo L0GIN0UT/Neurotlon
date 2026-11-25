@@ -15,7 +15,16 @@ namespace Neurotlon
         // Шаги калибровки (CalibrationStep)
         public const string StepRest = "rest";
         public const string StepContract = "contract";
+        public const string StepCycle = "cycle";
         public const string StepBaseline = "baseline";
+
+        // Фазы шага cycle (Phase)
+        public const string PhaseTense = "tense";
+        public const string PhaseRelax = "relax";
+
+        // Метод обработки ЭЭГ (EegMethod)
+        public const string EegMethodEmotions = "emotions";
+        public const string EegMethodAlpha = "alpha";
 
         // Состояние датчика (SensorState)
         public const string SensorStateConnecting = "connecting";
@@ -60,6 +69,7 @@ namespace Neurotlon
         public const string MessageSample = "sample";
         public const string MessageSensor = "sensor";
         public const string MessageCalibration = "calibration";
+        public const string MessageBurst = "burst";
         public const string MessageCalibrate = "calibrate";
         public const string MessageReset = "reset";
 

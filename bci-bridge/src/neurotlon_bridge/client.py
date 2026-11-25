@@ -7,15 +7,26 @@ import logging
 import socket
 import threading
 import time
+from collections import deque
 
 from . import protocol
-from .source import CalibrationProgress, CalibrationStep, Clock, Reading, SensorState
+from .source import (
+    CalibrationProgress,
+    CalibrationStep,
+    Clock,
+    EegMethod,
+    Feature,
+    Reading,
+    Segment,
+    SensorState,
+)
 
 log = logging.getLogger(__name__)
 
 STALE_AFTER_S = 0.5
 RECONNECT_S = 1.0
 MAX_LINE_BYTES = 64 * 1024
+MAX_PENDING_BURSTS = 256
 
 
 class BridgeClient:
@@ -34,6 +45,9 @@ class BridgeClient:
         self._samples: dict[str, tuple[Reading, float]] = {}
         self._states: dict[str, SensorState] = {}
         self._calibrations: dict[str, CalibrationProgress] = {}
+        self._features: tuple[Feature, ...] = ()
+        self._eeg_method: EegMethod | None = None
+        self._bursts: deque[protocol.Burst] = deque(maxlen=MAX_PENDING_BURSTS)
         self._sock: socket.socket | None = None
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, name="bridge-client", daemon=True)
@@ -64,10 +78,35 @@ class BridgeClient:
         with self._lock:
             return self._calibrations.get(signal)
 
+    @property
+    def features(self) -> tuple[Feature, ...]:
+        """Что умеет мост (`hello.features`); у старого моста пусто."""
+        with self._lock:
+            return self._features
+
+    @property
+    def eeg_method(self) -> EegMethod | None:
+        """Метод ЭЭГ из `hello`; None, если мост не сообщил."""
+        with self._lock:
+            return self._eeg_method
+
+    def bursts(self) -> list[protocol.Burst]:
+        """События резких сокращений с прошлого вызова, в порядке прихода."""
+        with self._lock:
+            out = list(self._bursts)
+            self._bursts.clear()
+        return out
+
     # --- команды ---
 
-    def calibrate(self, signal: str, step: CalibrationStep) -> bool:
-        return self._send(protocol.Calibrate(signal, step))
+    def calibrate(
+        self,
+        signal: str,
+        step: CalibrationStep,
+        segments: tuple[Segment, ...] | None = None,
+        duration_s: float | None = None,
+    ) -> bool:
+        return self._send(protocol.Calibrate(signal, step, segments, duration_s))
 
     def reset(self) -> bool:
         with self._lock:
@@ -117,6 +156,9 @@ class BridgeClient:
                     self._sock = None
                     self._states.clear()
                     self._calibrations.clear()
+                    self._features = ()
+                    self._eeg_method = None
+                    self._bursts.clear()
                 sock.close()
             self._stop.wait(self._reconnect_s)
 
@@ -152,6 +194,9 @@ class BridgeClient:
             match msg:
                 case protocol.Hello():
                     self._states = dict(msg.signals)
+                    self._features = msg.features or ()
+                    self._eeg_method = msg.eeg_method
+                    self._bursts.clear()
                 case protocol.Sample():
                     for name, reading in msg.signals.items():
                         self._samples[name] = (reading, now)
@@ -162,7 +207,15 @@ class BridgeClient:
                     if progress is None:
                         progress = 1.0 if msg.status == "done" else 0.0
                     self._calibrations[msg.signal] = CalibrationProgress(
-                        msg.step, msg.status, progress, msg.reason
+                        msg.step,
+                        msg.status,
+                        progress,
+                        msg.reason,
+                        msg.segment,
+                        msg.phase,
+                        msg.phase_left_s,
                     )
+                case protocol.Burst():
+                    self._bursts.append(msg)
                 case _:
                     pass

@@ -29,6 +29,8 @@ namespace Neurotlon
         public string type;
         public int protocol;
         public HelloSignal[] signals;
+        public string[] features;
+        public string eeg_method;
     }
 
     [Serializable]
@@ -76,6 +78,26 @@ namespace Neurotlon
         public string status;
         public float progress;
         public string reason;
+        public int segment;
+        public string phase;
+        public float phase_left_s;
+    }
+
+    [Serializable]
+    public class BurstMessage
+    {
+        public string type;
+        public string signal;
+        public long t_ms;
+        public int seq;
+        public float rise;
+    }
+
+    [Serializable]
+    public class CalibrateSegment
+    {
+        public string phase;
+        public float s;
     }
 
     [Serializable]
@@ -84,6 +106,8 @@ namespace Neurotlon
         public string type;
         public string signal;
         public string step;
+        public CalibrateSegment[] segments;
+        public float duration_s;
     }
 
     [Serializable]

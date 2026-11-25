@@ -70,6 +70,8 @@ CLASS_TO_SCHEMA: dict[str, tuple[dict[str, set[str]], set[str]]] = {
     "SensorMessage": (BRIDGE_CS, props(BD["Sensor"])),
     "CalibrationMessage": (BRIDGE_CS, props(BD["Calibration"])),
     "CalibrateMessage": (BRIDGE_CS, props(BD["Calibrate"])),
+    "CalibrateSegment": (BRIDGE_CS, props(BD["Segment"])),
+    "BurstMessage": (BRIDGE_CS, props(BD["Burst"])),
     "ResetMessage": (BRIDGE_CS, props(BD["Reset"])),
 }
 
@@ -101,7 +103,7 @@ def test_message_type_constants_match_schema() -> None:
     }
     schema_types = {
         BD[name]["properties"]["type"]["const"]
-        for name in ("Hello", "Sample", "Sensor", "Calibration", "Calibrate", "Reset")
+        for name in ("Hello", "Sample", "Sensor", "Calibration", "Burst", "Calibrate", "Reset")
     }
     assert values == schema_types
 
@@ -111,6 +113,8 @@ ENUM_PREFIXES: list[tuple[str, set[str]]] = [
     ("Signal", set(BD["SignalName"]["enum"])),
     ("Step", set(BD["CalibrationStep"]["enum"])),
     ("Invalid", set(BD["InvalidReason"]["enum"])),
+    ("Phase", set(BD["Phase"]["enum"])),
+    ("EegMethod", set(BD["EegMethod"]["enum"])),
     ("CalibStatus", set(BD["Calibration"]["properties"]["status"]["enum"])),
     ("Discipline", set(LD["Discipline"]["enum"])),
     (

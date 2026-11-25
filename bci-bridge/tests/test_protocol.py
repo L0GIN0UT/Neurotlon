@@ -5,7 +5,7 @@ import pytest
 from jsonschema import Draft202012Validator
 
 from neurotlon_bridge import protocol
-from neurotlon_bridge.source import Reading
+from neurotlon_bridge.source import Reading, Segment
 
 SCHEMA_PATH = Path(__file__).resolve().parents[2] / "shared" / "bridge-protocol.schema.json"
 VALIDATOR = Draft202012Validator(json.loads(SCHEMA_PATH.read_text(encoding="utf-8")))
@@ -22,6 +22,21 @@ MESSAGES: list[protocol.Message] = [
     protocol.Calibration("eeg", "baseline", "failed", reason="нет контакта"),
     protocol.Calibrate("emg", "contract"),
     protocol.Reset(),
+    protocol.Hello((("eeg", "connected"), ("emg", "emulated")), features=()),
+    protocol.Hello(
+        (("eeg", "connected"), ("emg", "emulated")),
+        features=("burst", "emg_cycle", "baseline_duration"),
+        eeg_method="alpha",
+    ),
+    protocol.Calibration(
+        "emg", "cycle", "running", 0.3, segment=2, phase="relax", phase_left_s=3.5
+    ),
+    protocol.Calibration("emg", "cycle", "failed", reason="слабое сжатие"),
+    protocol.Burst("emg", 120490, 1),
+    protocol.Burst("emg_left", 5, 12, rise=0.8),
+    protocol.Calibrate("emg", "cycle"),
+    protocol.Calibrate("emg", "cycle", segments=(Segment("tense", 4), Segment("relax", 2.5))),
+    protocol.Calibrate("eeg", "baseline", duration_s=15),
 ]
 
 
