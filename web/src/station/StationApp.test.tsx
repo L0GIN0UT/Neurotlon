@@ -391,6 +391,7 @@ describe('StationApp', () => {
     const withSensors = (
       overrides: Partial<{
         roles: string[]
+        rolesKnown: boolean
         discipline: string | null
         sensors: { phase: 'idle' | 'scanning' | 'stopped' | 'error'; devices: object[]; error: string | null }
         mode: string
@@ -420,6 +421,7 @@ describe('StationApp', () => {
           game: '',
           sensors_available: overrides.available ?? true,
           roles: overrides.roles ?? [],
+          roles_known: overrides.rolesKnown ?? (overrides.roles ?? []).length > 0,
           scan: { seconds: 15, phase: 'idle', devices: [], error: null },
           sensors: (overrides.sensors ?? { phase: 'idle', devices: [], error: null }) as never,
         },
@@ -439,13 +441,67 @@ describe('StationApp', () => {
       expect(screen.queryByRole('combobox', { name: 'Датчики' })).toBeNull()
     })
 
-    it('asks for a check first, then shows one row per role', async () => {
+    it('shows the sensors block before any check and asks for the token, then one row per role', async () => {
       render(<StationApp />)
       act(() => FakeEventSource.last?.emit(withSensors()))
-      expect(await screen.findByText(/станция сообщит, какие датчики нужны/)).toBeTruthy()
+      expect(await screen.findByText(/Введите токен станции: станет понятно, какие датчики нужны/)).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'Искать датчики' })).toBeTruthy()
       act(() => FakeEventSource.last?.emit(withSensors({ roles: ['emg_left', 'emg_right'], discipline: 'pong' })))
       expect(await screen.findByText('Датчик игрока 1 (слева)')).toBeTruthy()
       expect(screen.getByText('Датчик игрока 2 (справа)')).toBeTruthy()
+    })
+
+    it('sends setup_form with the form when the token, address or certificate changes, not before', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true })
+      vi.stubGlobal('fetch', fetchMock)
+      render(<StationApp />)
+      act(() => FakeEventSource.last?.emit(withSensors()))
+      await screen.findByLabelText(/Токен станции/)
+      expect(fetchMock).not.toHaveBeenCalled()
+      fireEvent.change(screen.getByLabelText(/Токен станции/), { target: { value: 'secret-token-0123456789' } })
+      expect(lastBody(fetchMock)).toMatchObject({
+        action: 'setup_form',
+        value: { token: 'secret-token-0123456789', server_url: 'https://h' },
+      })
+      fireEvent.change(screen.getByLabelText(/Адрес сервера/), { target: { value: 'https://x' } })
+      expect(lastBody(fetchMock)).toMatchObject({ action: 'setup_form', value: { server_url: 'https://x' } })
+      const calls = fetchMock.mock.calls.length
+      fireEvent.change(screen.getByLabelText(/Игра/), { target: { value: 'D:/other.exe' } })
+      expect(fetchMock.mock.calls).toHaveLength(calls)
+    })
+
+    it('shows the text of a 400 on connect instead of staying silent', async () => {
+      const refusal = { ok: false, json: () => Promise.resolve({ error: 'Сначала введите токен станции' }) }
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(refusal))
+      render(<StationApp />)
+      const found = {
+        id: 'bb1',
+        name: 'BrainBit',
+        kind: 'brainbit',
+        serial: '1',
+        address: 'AA',
+        rssi: -50,
+        in_range: true,
+        age_s: 1,
+        role: null,
+        link: null,
+        battery: null,
+        contact: null,
+        signal: null,
+        level: null,
+        error: null,
+      }
+      act(() =>
+        FakeEventSource.last?.emit(
+          withSensors({
+            roles: ['eeg', 'emg'],
+            discipline: 'darts',
+            sensors: { phase: 'scanning', error: null, devices: [found] },
+          }),
+        ),
+      )
+      fireEvent.click(await screen.findByRole('button', { name: 'Подключить' }))
+      expect((await screen.findByTestId('sensors-notice')).textContent).toContain('Сначала введите токен станции')
     })
 
     it('offers the eeg method only when the discipline has an eeg sensor and sends the choice', async () => {

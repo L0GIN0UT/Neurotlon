@@ -2,20 +2,26 @@ import { describe, expect, it } from 'vitest'
 import {
   activeStep,
   burstsFor,
+  calibrationStage,
+  countdownDigit,
   EXTRAPOLATE_MS,
   inWindow,
   failedSignals,
   parseBatch,
   partOf,
+  phaseHint,
   phaseWord,
   reasonText,
   RingBuffer,
   secondsLeft,
   segmentFills,
+  sensorStateText,
   sensorText,
+  sensorTone,
   SignalStore,
   splitValid,
   statusText,
+  stepKind,
   stepTitle,
   timeToX,
   trackSignals,
@@ -32,18 +38,78 @@ const sample = (t: number, ok = true, r: string | null = null, v = 0.5): Sample 
 describe('steps', () => {
   it('shows the step named by current, else the running one, else the first unfinished', () => {
     const steps = [step({ status: 'done' }), baselineStep({ status: 'running' })]
-    expect(activeStep(calibrating({ steps, current: 'emg-cycle' }))?.id).toBe('emg-cycle')
-    expect(activeStep(calibrating({ steps, current: 1 }))?.id).toBe('eeg-baseline')
-    expect(activeStep(calibrating({ steps, current: null }))?.id).toBe('eeg-baseline')
+    expect(activeStep(calibrating({ steps, current: 'emg' }))?.id).toBe('emg')
+    expect(activeStep(calibrating({ steps, current: 1 }))?.id).toBe('eeg')
+    expect(activeStep(calibrating({ steps, current: null }))?.id).toBe('eeg')
     const pending = [step({ status: 'done' }), baselineStep()]
-    expect(activeStep(calibrating({ steps: pending, current: null }))?.id).toBe('eeg-baseline')
+    expect(activeStep(calibrating({ steps: pending, current: null }))?.id).toBe('eeg')
     expect(activeStep(calibrating({ steps: [] }))).toBeNull()
   })
 
-  it('names the cards by sensor and says both arms for pong', () => {
-    expect(stepTitle(step())).toBe('Мышца (ЭМГ)')
-    expect(stepTitle(baselineStep())).toBe('Мозг (ЭЭГ)')
-    expect(stepTitle(step({ signals: ['emg_left', 'emg_right'] }))).toBe('Мышцы игроков')
+  it('names the cards "Калибровка ЭМГ" / "Калибровка ЭЭГ", one EMG step for pong', () => {
+    expect(stepTitle(step())).toBe('Калибровка ЭМГ')
+    expect(stepTitle(baselineStep())).toBe('Калибровка ЭЭГ')
+    expect(stepTitle(step({ signals: ['emg_left', 'emg_right'] }))).toBe('Калибровка ЭМГ')
+  })
+
+  it('prefers the title sent by the launcher', () => {
+    expect(stepTitle(step({ title: 'Калибровка ЭМГ (готово)' }))).toBe('Калибровка ЭМГ (готово)')
+    expect(stepTitle(step({ title: '  ' }))).toBe('Калибровка ЭМГ')
+  })
+
+  it('understands the old ids muscle and brain as aliases of emg and eeg', () => {
+    expect(stepKind(step({ id: 'muscle' }))).toBe('emg')
+    expect(stepKind(baselineStep({ id: 'brain' }))).toBe('eeg')
+    expect(stepTitle(step({ id: 'muscle' }))).toBe('Калибровка ЭМГ')
+    expect(stepTitle(baselineStep({ id: 'brain' }))).toBe('Калибровка ЭЭГ')
+    expect(stepKind(step({ id: 'emg-cycle', signals: ['emg_left'] }))).toBe('emg')
+    expect(stepKind(step({ id: 'x', signals: [] }))).toBeNull()
+    expect(activeStep(calibrating({ steps: [step({ id: 'muscle' })], current: 'muscle' }))?.id).toBe('muscle')
+  })
+
+  it('takes the stage from the launcher, else derives it from ready and steps', () => {
+    expect(calibrationStage(calibrating({ stage: 'countdown' }))).toBe('countdown')
+    expect(calibrationStage(calibrating({ stage: 'connecting', ready: false }))).toBe('connecting')
+    expect(calibrationStage(calibrating({ ready: true }))).toBe('review')
+    expect(calibrationStage(calibrating({ steps: [] }))).toBe('connecting')
+    expect(calibrationStage(calibrating())).toBe('running')
+  })
+
+  it('reads the countdown from the current step, falling back to the top-level field', () => {
+    const steps = [step({ stage: 'countdown', countdown_s: 4 }), baselineStep({ countdown_s: 1 })]
+    expect(countdownDigit(calibrating({ steps, current: 'emg' }))).toBe(4)
+    expect(countdownDigit(calibrating({ steps, current: 'eeg' }))).toBe(1)
+    expect(countdownDigit(calibrating({ steps: [step()], current: 'emg', countdown_s: 3 }))).toBe(3)
+  })
+
+  it('reads the tense/relax phase only while the step runs', () => {
+    expect(phaseWord(step({ status: 'pending', phase: 'countdown' }))).toBe('Приготовьтесь')
+    expect(phaseWord(step({ status: 'running', phase: 'waiting' }))).toBe('Приготовьтесь')
+    expect(phaseWord(step({ status: 'pending', phase: 'tense' }))).toBe('Приготовьтесь')
+    expect(phaseHint(step({ status: 'running', phase: 'tense' }))).toBe('Напрягите мышцу с датчиком')
+  })
+
+  it('shows sensors by the launcher title and status', () => {
+    const missing = {
+      signal: 'emg_left',
+      title: 'ЭМГ игрока 1 (слева)',
+      status: 'missing',
+      state: 'disconnected',
+      battery: null,
+    }
+    expect(sensorText(missing)).toBe('Датчик ЭМГ игрока 1 (слева): не найден')
+    expect(sensorTone(missing)).toBe('bad')
+    expect(sensorStateText({ signal: 'eeg', status: 'connecting', state: 'ok', battery: null })).toBe('подключаем')
+    expect(sensorTone({ signal: 'eeg', status: 'connected', state: 'x', battery: null })).toBe('good')
+    expect(sensorTone({ signal: 'eeg', status: 'connecting', state: 'x', battery: null })).toBe('warn')
+  })
+
+  it('reads the countdown digit as a whole non-negative number', () => {
+    expect(countdownDigit(calibrating({ countdown_s: 5 }))).toBe(5)
+    expect(countdownDigit(calibrating({ countdown_s: 2.3 }))).toBe(3)
+    expect(countdownDigit(calibrating({ countdown_s: -1 }))).toBe(0)
+    expect(countdownDigit(calibrating({ countdown_s: null }))).toBeNull()
+    expect(countdownDigit(calibrating())).toBeNull()
   })
 
   it('shows the failure reason, or a default one, on a failed card', () => {
@@ -55,8 +121,8 @@ describe('steps', () => {
   })
 
   it('tells what to do in each phase', () => {
-    expect(phaseWord(step({ phase: 'tense' }))).toBe('НАПРЯГИТЕ')
-    expect(phaseWord(step({ phase: 'relax' }))).toBe('РАССЛАБЬТЕ')
+    expect(phaseWord(step({ status: 'running', phase: 'tense' }))).toBe('НАПРЯГИТЕ')
+    expect(phaseWord(step({ status: 'running', phase: 'relax' }))).toBe('РАССЛАБЬТЕ')
     expect(phaseWord(step({ phase: null }))).toBe('Приготовьтесь')
   })
 
@@ -65,8 +131,8 @@ describe('steps', () => {
     expect(secondsLeft(step({ status: 'running', phase_left_s: 0 }))).toBe(0)
     expect(secondsLeft(step({ status: 'pending', phase_left_s: 3 }))).toBeNull()
     expect(secondsLeft(step({ status: 'running' }))).toBeNull()
-    expect(secondsLeft(baselineStep({ status: 'running', progress: 0 }))).toBe(12)
-    expect(secondsLeft(baselineStep({ status: 'running', progress: 0.5 }))).toBe(6)
+    expect(secondsLeft(baselineStep({ status: 'running', progress: 0 }))).toBe(20)
+    expect(secondsLeft(baselineStep({ status: 'running', progress: 0.5 }))).toBe(10)
   })
 
   it('fills four segments from the overall progress, tense and relax alternating', () => {
@@ -84,8 +150,8 @@ describe('steps', () => {
   })
 
   it('writes the sensor chip with its state and battery', () => {
-    expect(sensorText({ signal: 'emg', state: 'connected', battery: 61.4 })).toBe('Датчик мышцы: подключён, 61 %')
-    expect(sensorText({ signal: 'eeg', state: 'disconnected', battery: null })).toBe('Датчик мозга: отключён')
+    expect(sensorText({ signal: 'emg', state: 'connected', battery: 61.4 })).toBe('Датчик ЭМГ: подключён, 61 %')
+    expect(sensorText({ signal: 'eeg', state: 'disconnected', battery: null })).toBe('Датчик ЭЭГ: отключён')
   })
 })
 
@@ -93,6 +159,13 @@ describe('keys on the calibration screen', () => {
   it('continues on Enter only when everything is ready', () => {
     expect(commandForKey(calibrating(), 'Enter')).toBeNull()
     expect(commandForKey(calibrating({ ready: true }), 'Enter')).toEqual({ action: 'calibration_continue' })
+  })
+
+  it('follows the stage when the launcher sends it', () => {
+    expect(commandForKey(calibrating({ stage: 'countdown', ready: false }), 'Enter')).toBeNull()
+    expect(commandForKey(calibrating({ stage: 'review', ready: true }), 'Enter')).toEqual({
+      action: 'calibration_continue',
+    })
   })
 
   it('goes back on Escape at any time and ignores other keys', () => {

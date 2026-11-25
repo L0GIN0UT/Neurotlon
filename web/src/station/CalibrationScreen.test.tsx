@@ -90,7 +90,7 @@ describe('calibration screen', () => {
     expect(document.querySelectorAll('.segment')).toHaveLength(4)
     expect(screen.getByText('НАПРЯГИТЕ').closest('[aria-live]')?.getAttribute('aria-live')).toBe('polite')
     expect(screen.getByText('Ожидает')).toBeTruthy()
-    expect(screen.getByText('Датчик мышцы: подключён, 61 %')).toBeTruthy()
+    expect(screen.getByText('Датчик ЭМГ: подключён, 61 %')).toBeTruthy()
     expect(screen.getByText('Метод ЭЭГ: альфа')).toBeTruthy()
   })
 
@@ -99,15 +99,164 @@ describe('calibration screen', () => {
     expect(screen.getByText('РАССЛАБЬТЕ')).toBeTruthy()
   })
 
-  it('shows the dot, the instruction and the 12 s countdown for the brain step', async () => {
+  it('names the step cards and never says muscle or brain in the titles', async () => {
+    await show(calibrating({ steps: [step({ status: 'running', phase: 'tense' }), baselineStep()] }))
+    const cards = document.querySelector('.calib-steps')?.textContent ?? ''
+    expect(cards).toContain('Калибровка ЭМГ')
+    expect(cards).toContain('Калибровка ЭЭГ')
+    expect(cards).not.toMatch(/мышц|мозг|рук[аиу]/i)
+  })
+
+  it('understands the old step ids muscle and brain', async () => {
+    await show(
+      calibrating({
+        steps: [step({ id: 'muscle', status: 'done' }), baselineStep({ id: 'brain', status: 'done' })],
+        current: 'brain',
+        ready: true,
+      }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Перекалибровать ЭМГ' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Перекалибровать ЭЭГ' }))
+    expect(sent(fetchMock)).toEqual([
+      { action: 'calibration_retry', value: 'muscle' },
+      { action: 'calibration_retry', value: 'brain' },
+    ])
+  })
+
+  it('shows the connecting stage with the status of every sensor and no calibration buttons', async () => {
+    await show(
+      calibrating({
+        stage: 'connecting',
+        sensors: [
+          { signal: 'eeg', title: 'ЭЭГ', status: 'connecting', state: 'connecting', battery: null },
+          { signal: 'emg', title: 'ЭМГ', status: 'connected', state: 'ok', battery: 61 },
+          {
+            signal: 'emg_left',
+            title: 'ЭМГ игрока 1 (слева)',
+            status: 'missing',
+            state: 'disconnected',
+            battery: null,
+          },
+        ],
+      }),
+    )
+    const panel = screen.getByTestId('calib-connecting')
+    expect(panel.textContent).toContain('Подключаем датчики…')
+    expect(panel.textContent).toContain('Датчик ЭЭГ')
+    expect(panel.textContent).toContain('Датчик ЭМГ игрока 1 (слева)')
+    expect(panel.textContent).toContain('подключаем')
+    expect(panel.textContent).toContain('подключён')
+    expect(panel.textContent).toContain('не найден')
+    expect(screen.queryByText('НАПРЯГИТЕ')).toBeNull()
+    expect(screen.queryByRole('button', { name: /Перекалибровать/ })).toBeNull()
+    expect(screen.queryByTestId('big-digit')).toBeNull()
+  })
+
+  it('shows the connect error with a retry that restarts the sensors', async () => {
+    await show(
+      calibrating({
+        stage: 'connecting',
+        connect_error: 'Датчики не подключились за 30 секунд',
+        sensors: [{ signal: 'eeg', title: 'ЭЭГ', status: 'missing', state: 'disconnected', battery: null }],
+      }),
+    )
+    expect(screen.getByTestId('connect-error').textContent).toContain('Датчики не подключились за 30 секунд')
+    fireEvent.click(screen.getByRole('button', { name: 'Повторить' }))
+    expect(sent(fetchMock)).toEqual([{ action: 'calibration_restart' }])
+  })
+
+  it('has no retry while the sensors are still connecting', async () => {
+    await show(calibrating({ stage: 'connecting' }))
+    expect(screen.queryByRole('button', { name: 'Повторить' })).toBeNull()
+    expect(screen.queryByTestId('connect-error')).toBeNull()
+  })
+
+  it('takes the countdown digit from the current step and never shows the phase word then', async () => {
+    await show(
+      calibrating({
+        stage: 'countdown',
+        current: 'emg',
+        steps: [step({ stage: 'countdown', phase: 'countdown', countdown_s: 2 }), baselineStep()],
+      }),
+    )
+    expect(screen.getByTestId('big-digit').textContent).toBe('2')
+    expect(screen.queryByText('НАПРЯГИТЕ')).toBeNull()
+  })
+
+  it('does not show the tense word while the step only waits', async () => {
+    await show(calibrating({ steps: [step({ status: 'pending', phase: 'waiting' }), baselineStep()] }))
+    expect(screen.queryByText('НАПРЯГИТЕ')).toBeNull()
+    expect(screen.queryByText('РАССЛАБЬТЕ')).toBeNull()
+  })
+
+  it('shows the big countdown digit and the sentence for EMG, with no "soon" elsewhere', async () => {
+    await show(calibrating({ stage: 'countdown', countdown_s: 5, current: 'emg' }))
+    expect(screen.getByText('Приготовьтесь: скоро начнётся калибровка ЭМГ')).toBeTruthy()
+    expect(screen.getByTestId('big-digit').textContent).toBe('5')
+    expect(screen.getByTestId('big-digit').closest('[aria-live]')?.getAttribute('aria-live')).toBe('polite')
+    expect(document.body.textContent?.match(/скоро начнётся/g)).toHaveLength(1)
+    expect(screen.queryByText('НАПРЯГИТЕ')).toBeNull()
+  })
+
+  it('counts 5 4 3 2 1 and names EEG for the second step', async () => {
+    await show(
+      calibrating({
+        stage: 'countdown',
+        countdown_s: 3,
+        current: 'eeg',
+        steps: [step({ status: 'done' }), baselineStep()],
+      }),
+    )
+    expect(screen.getByText('Приготовьтесь: скоро начнётся калибровка ЭЭГ')).toBeTruthy()
+    expect(screen.getByTestId('big-digit').textContent).toBe('3')
+    act(() =>
+      FakeEventSource.events()?.emitRaw(
+        snapshot(
+          calibrating({
+            stage: 'countdown',
+            countdown_s: 2,
+            current: 'eeg',
+            steps: [step({ status: 'done' }), baselineStep()],
+          }),
+        ),
+      ),
+    )
+    expect(screen.getByTestId('big-digit').textContent).toBe('2')
+  })
+
+  it('shows the running stage as before and the review stage with the check', async () => {
+    await show(calibrating({ stage: 'running', steps: [step({ status: 'running', phase: 'relax', phase_left_s: 2 })] }))
+    expect(screen.getByText('РАССЛАБЬТЕ')).toBeTruthy()
+    act(() =>
+      FakeEventSource.events()?.emitRaw(
+        snapshot(calibrating({ stage: 'review', ready: true, steps: [step({ status: 'done' })] })),
+      ),
+    )
+    await screen.findByText('Проверка сигнала')
+  })
+
+  it('draws a small static dot for EEG: no pulsing animation', async () => {
+    await show(
+      calibrating({
+        steps: [step({ status: 'done' }), baselineStep({ status: 'running' })],
+        current: 'eeg',
+      }),
+    )
+    const dot = document.querySelector('.baseline-dot') as HTMLElement
+    expect(dot).toBeTruthy()
+    expect(dot.getAttribute('style') ?? '').not.toMatch(/animation/)
+    expect(document.body.textContent).not.toMatch(/скоро начнётся/)
+  })
+
+  it('shows the dot, the instruction and the 20 s countdown for the EEG step', async () => {
     await show(
       calibrating({
         steps: [step({ status: 'done' }), baselineStep({ status: 'running', progress: 0 })],
-        current: 'eeg-baseline',
+        current: 'eeg',
       }),
     )
     expect(screen.getByText('Смотрите на точку, глаза открыты')).toBeTruthy()
-    expect(screen.getByTestId('countdown').textContent).toBe('12с')
+    expect(screen.getByTestId('countdown').textContent).toBe('20с')
     expect(document.querySelector('.baseline-dot')).toBeTruthy()
     expect(screen.getByText('Готово')).toBeTruthy()
   })
@@ -123,17 +272,17 @@ describe('calibration screen', () => {
     expect(screen.getByText('Проверка сигнала')).toBeTruthy()
     expect(screen.getByRole('img', { name: 'Проверка сигнала' }).tagName).toBe('CANVAS')
     expect(screen.getByText('Резко напрягите мышцу с датчиком: должна появиться отметка')).toBeTruthy()
-    expect(screen.getByText('Расслабьтесь: линия мозга растёт')).toBeTruthy()
+    expect(screen.getByText('Сосредоточьтесь (например считайте в уме): линия ЭЭГ растёт')).toBeTruthy()
     const primary = screen.getByRole('button', { name: 'Дальше к игре' })
     expect(document.activeElement).toBe(primary)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Перекалибровать мышцу' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Перекалибровать мозг' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Перекалибровать ЭМГ' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Перекалибровать ЭЭГ' }))
     fireEvent.click(screen.getByRole('button', { name: 'Назад' }))
     fireEvent.click(primary)
     expect(sent(fetchMock)).toEqual([
-      { action: 'calibration_retry', value: 'emg-cycle' },
-      { action: 'calibration_retry', value: 'eeg-baseline' },
+      { action: 'calibration_retry', value: 'emg' },
+      { action: 'calibration_retry', value: 'eeg' },
       { action: 'back' },
       { action: 'calibration_continue' },
     ])
@@ -203,8 +352,8 @@ describe('calibration screen', () => {
     expect(retries).toHaveLength(2)
     retries.forEach((button) => fireEvent.click(button))
     expect(sent(fetchMock)).toEqual([
-      { action: 'calibration_retry', value: 'emg-cycle' },
-      { action: 'calibration_retry', value: 'emg-cycle' },
+      { action: 'calibration_retry', value: 'emg' },
+      { action: 'calibration_retry', value: 'emg' },
     ])
   })
 
@@ -217,8 +366,13 @@ describe('calibration screen', () => {
   })
 
   it('shows a spinner while the bridge has not sent the steps yet', async () => {
-    await show(calibrating({ link: 'connecting', steps: [], current: null }))
+    await show(calibrating({ link: 'connecting', steps: [], current: null, sensors: [] }))
     expect(screen.getByText('Подключаем мост датчиков…')).toBeTruthy()
+  })
+
+  it('shows the connecting screen with the sensors when the steps are not there yet', async () => {
+    await show(calibrating({ link: 'connecting', steps: [], current: null }))
+    expect(screen.getByText('Подключаем датчики…')).toBeTruthy()
   })
 
   it('shows both pong players with their names and sides', async () => {
@@ -239,7 +393,8 @@ describe('calibration screen', () => {
     expect(screen.getByText('Борис')).toBeTruthy()
     expect(screen.getByText('Игрок 1 · слева')).toBeTruthy()
     expect(screen.getByText('Игрок 2 · справа')).toBeTruthy()
-    expect(screen.getByText('Мышцы игроков')).toBeTruthy()
+    expect(screen.getAllByText('Калибровка ЭМГ').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Калибровка ЭЭГ')).toBeNull()
     expect(screen.queryByText(/Метод ЭЭГ/)).toBeNull()
   })
 
@@ -297,7 +452,7 @@ describe('calibration screen', () => {
     )
     fireEvent.click(screen.getByRole('button', { name: 'Повторить: игрок 1' }))
     fireEvent.click(screen.getByRole('button', { name: 'Повторить: игрок 2' }))
-    expect(screen.queryByRole('button', { name: 'Перекалибровать мозг' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Перекалибровать ЭЭГ' })).toBeNull()
     expect(sent(fetchMock)).toEqual([
       { action: 'calibration_retry', value: 'emg_left' },
       { action: 'calibration_retry', value: 'emg_right' },
@@ -323,7 +478,7 @@ describe('calibration screen', () => {
 
   it('does not turn Enter on a secondary button into "continue"', async () => {
     await show(calibrating({ steps: [step({ status: 'done' }), baselineStep({ status: 'done' })], ready: true }))
-    const secondary = screen.getByRole('button', { name: 'Перекалибровать мышцу' })
+    const secondary = screen.getByRole('button', { name: 'Перекалибровать ЭМГ' })
     secondary.focus()
     fireEvent.keyDown(secondary, { key: 'Enter' })
     expect(sent(fetchMock)).toEqual([])
