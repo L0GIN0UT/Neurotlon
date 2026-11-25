@@ -12,15 +12,35 @@ import time
 from neurotlon_bridge.emulator import EmulatedSource
 
 TICK_S = 0.02
-EMG_PERIOD_S = 1.2  # половину периода мышца напряжена
+# Импульсы (броски, удары): мышца напряжена 0,6 с, потом отдыхает 1 с. Эмулированный уровень
+# спадает с постоянной 0,25 с, детектору резких сокращений нужно около 0,9 с спокойного
+# уровня между событиями; в начале фазы так же 1 с отдыха.
+PULSE_ON_S = 0.6
+PULSE_PERIOD_S = 1.6
 # Ровное напряжение около 0,3 (им останавливают мяч в зоне): ключ эмулятора включён
 # на короткую долю каждых 0,1 с, после сглаживания среднее около 0,29.
 STEADY_EMG_PERIOD_S = 0.1
 STEADY_EMG_ON_S = 0.02
 PULSE_PHASE_S = 12.0  # сначала импульсы (броски, удары), потом ровное напряжение (торможение)
 STEADY_PHASE_S = 12.0
+# Медленный подъём от нуля до максимума (растущая скважность): резкости нет, событий быть не должно.
+RAMP_PHASE_S = 6.0
+RAMP_PWM_PERIOD_S = 0.1
+CYCLE_S = PULSE_PHASE_S + STEADY_PHASE_S + RAMP_PHASE_S
 EEG_PERIOD_S = 6.0  # половину периода расслабление растёт, потом падает
 PONG_PERIOD_S = 1.6
+
+
+def emg_held(t: float) -> bool:
+    """Нажат ли «ключ» мышцы в момент `t`: импульсы, ровное напряжение, медленный подъём."""
+    u = t % CYCLE_S
+    if u < PULSE_PHASE_S:
+        return u % PULSE_PERIOD_S >= PULSE_PERIOD_S - PULSE_ON_S
+    u -= PULSE_PHASE_S
+    if u < STEADY_PHASE_S:
+        return u % STEADY_EMG_PERIOD_S < STEADY_EMG_ON_S
+    u -= STEADY_PHASE_S
+    return u % RAMP_PWM_PERIOD_S < (u / RAMP_PHASE_S) * RAMP_PWM_PERIOD_S
 
 
 def keys_at(profile: str, t: float) -> set[str]:
@@ -33,10 +53,7 @@ def keys_at(profile: str, t: float) -> set[str]:
             keys.add("emg_right")
         return keys
     keys = set()
-    if t % (PULSE_PHASE_S + STEADY_PHASE_S) < PULSE_PHASE_S:
-        if t % EMG_PERIOD_S < EMG_PERIOD_S / 2:
-            keys.add("emg")
-    elif t % STEADY_EMG_PERIOD_S < STEADY_EMG_ON_S:
+    if emg_held(t):
         keys.add("emg")
     keys.add("eeg_up" if t % EEG_PERIOD_S < EEG_PERIOD_S / 2 else "eeg_down")
     return keys

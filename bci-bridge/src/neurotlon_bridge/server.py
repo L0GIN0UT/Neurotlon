@@ -10,9 +10,18 @@ import time
 from dataclasses import dataclass, field
 
 from . import protocol
-from .source import CalibrationProgress, CalibrationStep, Clock, SensorState, SignalSource
+from .source import (
+    CalibrationProgress,
+    CalibrationStep,
+    Clock,
+    Feature,
+    SensorState,
+    SignalSource,
+)
 
 log = logging.getLogger(__name__)
+
+FEATURES: tuple[Feature, ...] = ("burst",)
 
 
 @dataclass
@@ -23,6 +32,7 @@ class _Tracking:
     calibrations: dict[str, CalibrationProgress | None]
     batteries: dict[str, int | None] = field(default_factory=dict)
     calibration_sent_at: dict[str, float] = field(default_factory=dict)
+    burst_seq: dict[str, int] = field(default_factory=dict)
 
 
 def _default_step(signal: str) -> CalibrationStep:
@@ -98,7 +108,11 @@ class BridgeServer:
         self._current = writer
         try:
             names = self._source.signals()
-            hello = protocol.Hello(tuple((n, self._source.state(n)) for n in names))
+            for name in names:  # события до подключения этой игры ей не нужны
+                await asyncio.to_thread(self._source.drain_bursts, name)
+            hello = protocol.Hello(
+                tuple((n, self._source.state(n)) for n in names), features=FEATURES
+            )
             await self._write(writer, protocol.encode(hello))
             tracking = _Tracking(
                 states=dict(hello.signals),
@@ -179,6 +193,7 @@ class BridgeServer:
             now = self._clock()
             t_ms = max(0, int((now - self._t0) * 1000))
             out = [protocol.encode(protocol.Sample(t_ms, self._source.read(t_ms)))]
+            out.extend(self._burst_messages(tracking))
             out.extend(self._sensor_messages(tracking))
             out.extend(self._calibration_messages(tracking, now))
             await self._write(writer, b"".join(out))
@@ -187,6 +202,16 @@ class BridgeServer:
             if now - next_t > period:  # отстали: не догоняем пачкой
                 next_t = now
             await asyncio.sleep(max(0.0, next_t - now))
+
+    def _burst_messages(self, tracking: _Tracking) -> list[bytes]:
+        out: list[bytes] = []
+        for name in self._source.signals():
+            for event in self._source.drain_bursts(name):
+                seq = tracking.burst_seq.get(name, 0) + 1
+                tracking.burst_seq[name] = seq
+                t_ms = max(0, int((event.t_s - self._t0) * 1000))
+                out.append(protocol.encode(protocol.Burst(name, t_ms, seq, event.rise)))
+        return out
 
     def _sensor_messages(self, tracking: _Tracking) -> list[bytes]:
         out: list[bytes] = []

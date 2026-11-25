@@ -407,3 +407,62 @@ def test_close_announces_before_releasing() -> None:
     rig.src.close()
     assert order
     assert all(entry.endswith("[True, True]") for entry in order)
+
+
+def test_sharp_contraction_gives_burst_only_on_that_channel() -> None:
+    rig = Rig("pong", PONG)
+    rig.calibrate_emg("emg_left")
+    rig.calibrate_emg("emg_right")
+    rig.run(1.5, {"emg_left": REST, "emg_right": REST})
+    rig.src.drain_bursts("emg_left")
+    rig.src.drain_bursts("emg_right")
+    onset = rig.clock()
+    rig.run(1.0, {"emg_left": BURST, "emg_right": REST})
+    left = rig.src.drain_bursts("emg_left")
+    assert len(left) == 1
+    assert 0.0 < left[0].t_s - onset < 0.4
+    assert rig.src.drain_bursts("emg_right") == []
+    assert rig.src.drain_bursts("emg_left") == []
+    rig.src.close()
+
+
+def test_darts_eeg_has_no_bursts_and_unknown_signal_is_an_error() -> None:
+    rig = Rig("darts", DARTS)
+    assert rig.src.drain_bursts("eeg") == []
+    with pytest.raises(ValueError):
+        rig.src.drain_bursts("emg_left")
+    rig.src.close()
+
+
+def test_no_burst_without_electrode_contact() -> None:
+    rig = Rig("pong", PONG)
+    rig.calibrate_emg("emg_left")
+    rig.run(1.5, {"emg_left": REST})
+    rig.raws["emg_left"].emit_electrode(False)
+    rig.run(1.0, {"emg_left": BURST})
+    assert rig.src.drain_bursts("emg_left") == []
+    rig.src.close()
+
+
+def test_no_burst_right_after_reconnect() -> None:
+    rig = Rig("pong", PONG)
+    rig.calibrate_emg("emg_left")
+    rig.run(1.5, {"emg_left": REST})
+    raw = rig.raws["emg_left"]
+    raw.emit_state(False)
+    rig.src.step()
+    raw.emit_state(True)
+    rig.src.step()
+    rig.run(1.0, {"emg_left": BURST})  # высокий уровень сразу после переподключения
+    assert rig.src.drain_bursts("emg_left") == []
+    rig.src.close()
+
+
+def test_reset_drops_pending_bursts() -> None:
+    rig = Rig("pong", PONG)
+    rig.calibrate_emg("emg_left")
+    rig.run(1.5, {"emg_left": REST})
+    rig.run(0.5, {"emg_left": BURST})
+    rig.src.reset()
+    assert rig.src.drain_bursts("emg_left") == []
+    rig.src.close()

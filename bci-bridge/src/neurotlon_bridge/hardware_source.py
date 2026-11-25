@@ -21,6 +21,7 @@ from .processing.eeg import EEG_STEPS, EegProcessor, EmotionsEngine
 from .processing.emg import EMG_STEPS, EmgProcessor
 from .source import (
     PROFILES,
+    BurstEvent,
     CalibrationProgress,
     CalibrationStep,
     Clock,
@@ -137,6 +138,9 @@ class _Channel:
     def calibration_status(self) -> CalibrationProgress | None:
         raise NotImplementedError
 
+    def drain_bursts(self) -> list[BurstEvent]:
+        return []
+
     def reset(self) -> None:
         raise NotImplementedError
 
@@ -160,6 +164,8 @@ class _EmgChannel(_Channel):
         hz = self.sensor.sampling_hz
         if hz:
             self._proc.set_fs(hz)
+        contact = self.sensor.state == "connected" and self.sensor.electrode_ok is not False
+        self._proc.set_contact(contact)
 
     def _push(self, data: np.ndarray, now: float) -> None:
         self._proc.push(data[:, 0] * VOLTS_TO_MICROVOLTS, now)
@@ -179,6 +185,10 @@ class _EmgChannel(_Channel):
     def calibration_status(self) -> CalibrationProgress | None:
         with self._lock:
             return self._proc.calibration_status()
+
+    def drain_bursts(self) -> list[BurstEvent]:
+        with self._lock:
+            return self._proc.drain_bursts()
 
     def reset(self) -> None:
         with self._lock:
@@ -269,7 +279,7 @@ class HardwareSource:
                 self._channels[signal] = _EegChannel(signal, sensor, clock, EegProcessor(factory))
             else:
                 sensor = SdkSensor(serial, "callibri", backend, clock)
-                processor = EmgProcessor(config.emg)
+                processor = EmgProcessor(config.emg, burst=config.burst)
                 self._channels[signal] = _EmgChannel(signal, sensor, clock, processor)
         self._started = False
 
@@ -318,6 +328,9 @@ class HardwareSource:
 
     def calibration_status(self, signal: str) -> CalibrationProgress | None:
         return self._channel(signal).calibration_status()
+
+    def drain_bursts(self, signal: str) -> list[BurstEvent]:
+        return self._channel(signal).drain_bursts()
 
     def reset(self) -> None:
         for channel in self._channels.values():

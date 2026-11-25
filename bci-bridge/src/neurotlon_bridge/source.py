@@ -44,6 +44,14 @@ class Reading:
 
 
 @dataclass(frozen=True)
+class BurstEvent:
+    """Резкое сокращение: `t_s` на шкале `Clock` источника, `rise` 0…1 только для показа."""
+
+    t_s: float
+    rise: float
+
+
+@dataclass(frozen=True)
 class Segment:
     """Отрезок шага `cycle`: напряжение или расслабление заданной длины."""
 
@@ -76,5 +84,9 @@ class SignalSource(Protocol):
     def start_calibration(self, signal: str, step: CalibrationStep) -> None: ...
 
     def calibration_status(self, signal: str) -> CalibrationProgress | None: ...
+
+    def drain_bursts(self, signal: str) -> list[BurstEvent]:
+        """События резкого сокращения с прошлого вызова; у сигналов без ЭМГ пусто."""
+        ...
 
     def reset(self) -> None: ...

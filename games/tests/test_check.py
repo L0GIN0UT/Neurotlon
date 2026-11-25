@@ -65,8 +65,7 @@ def test_scripted_input_has_a_steady_tension_phase_for_braking() -> None:
     duty = sum(ticks) / len(ticks)
     assert 0.1 < duty < 0.3, "ключ включён на малую долю времени: сглаженное значение около 0,3"
     # импульсная фаза начинается снова после круга
-    cycle = scripted.PULSE_PHASE_S + scripted.STEADY_PHASE_S
-    pulses = [keys_at("darts", cycle + t / 10) for t in range(0, 12)]
+    pulses = [keys_at("darts", scripted.CYCLE_S + t / 10) for t in range(0, 12)]
     assert any("emg" in k for k in pulses) and any("emg" not in k for k in pulses)
 
 

@@ -6,19 +6,22 @@
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 
 import numpy as np
 from numpy.typing import NDArray
 from scipy import signal as sps
 
-from ..source import CalibrationProgress, CalibrationStep, Reading
+from ..source import BurstEvent, CalibrationProgress, CalibrationStep, Reading
+from .burst import BurstConfig, BurstDetector
 
 Floats = NDArray[np.float64]
 
 EMG_STEPS: frozenset[CalibrationStep] = frozenset({"rest", "contract"})
 MIN_REST_POINTS = 5
 NO_DATA_GRACE_S = 5.0
+MAX_PENDING_BURSTS = 64
 
 
 @dataclass(frozen=True)
@@ -110,9 +113,14 @@ class EmgProcessor:
     никогда не делится с другим (у каждого Callibri свой экземпляр).
     """
 
-    def __init__(self, cfg: EmgConfig, fs: float | None = None) -> None:
+    def __init__(
+        self, cfg: EmgConfig, fs: float | None = None, burst: BurstConfig | None = None
+    ) -> None:
         self.cfg = cfg
         self._rms = EmgRms(cfg, fs or cfg.fs_nominal)
+        self._detector = BurstDetector(burst or BurstConfig(), cfg.rms_step_ms)
+        self._bursts: deque[BurstEvent] = deque(maxlen=MAX_PENDING_BURSTS)
+        self._contact = True
         self.rest: float | None = None
         self.peak: float | None = None
         self._run: _Run | None = None
@@ -149,9 +157,25 @@ class EmgProcessor:
         self.peak = None
         self._run = None
         self._status = None
+        self._drop_bursts()
+
+    def set_contact(self, ok: bool) -> None:
+        """Датчик отключён или нет контакта: события резкого сокращения не выдаются."""
+        self._contact = ok
+
+    def drain_bursts(self) -> list[BurstEvent]:
+        """События резкого сокращения с прошлого вызова."""
+        out = list(self._bursts)
+        self._bursts.clear()
+        return out
+
+    def _drop_bursts(self) -> None:
+        self._detector.reset()
+        self._bursts.clear()
 
     def _start_settle(self) -> None:
         self._settle_left = round(self.cfg.settle_s * self._rms.fs)
+        self._drop_bursts()
 
     # --- калибровка ---
     def start_calibration(self, step: CalibrationStep, now: float) -> None:
@@ -191,10 +215,12 @@ class EmgProcessor:
         if self._settle_left > 0:
             # пока фильтр оседает, RMS отбрасываем: дрейф после подключения ложно «сокращает»
             self._settle_left -= min(self._settle_left, x.size)
+            self._detector.skip(values.size)
             return
         if values.size == 0:
             return
         self._last_rms = float(values[-1])
+        self._detect_bursts(values, now)
         run = self._run
         if run is not None and run.points is not None:
             if run.started is None:
@@ -203,6 +229,19 @@ class EmgProcessor:
             for k, v in enumerate(values):
                 run.points.append((now - (values.size - 1 - k) * step_s, float(v)))
         self.update(now)
+
+    def _detect_bursts(self, values: Floats, now: float) -> None:
+        """Точки RMS одной пачки -> события; время события — по номеру точки, не по приходу."""
+        rest, peak = self.rest, self.peak
+        if not self._contact or rest is None or peak is None or peak <= rest:
+            self._detector.skip(values.size)
+            return
+        first = self._detector.count
+        levels = np.clip((values - rest) / (peak - rest), 0.0, 1.0)
+        step_s = self.cfg.rms_step_ms / 1000.0
+        for hit in self._detector.push([float(v) for v in levels]):
+            behind = values.size - 1 - (hit.index - first)
+            self._bursts.append(BurstEvent(now - behind * step_s, hit.rise))
 
     def update(self, now: float) -> None:
         """Продвинуть калибровку по времени (вызывать и без данных)."""
