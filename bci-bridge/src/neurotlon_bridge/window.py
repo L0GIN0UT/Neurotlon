@@ -31,7 +31,11 @@ def calibration_text(progress: CalibrationProgress | None) -> str:
     if progress is None:
         return ""
     if progress.status == "running":
-        return f"калибровка {progress.step}: {progress.progress * 100:.0f}%"
+        text = f"калибровка {progress.step}: {progress.progress * 100:.0f}%"
+        if progress.phase is not None and progress.phase_left_s is not None:
+            action = "напрячь" if progress.phase == "tense" else "расслабить"
+            text += f", {action} ещё {progress.phase_left_s:.1f} с"
+        return text
     if progress.status == "done":
         return f"калибровка {progress.step}: готово"
     return f"калибровка {progress.step}: сбой ({progress.reason})"

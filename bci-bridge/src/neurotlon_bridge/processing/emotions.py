@@ -56,6 +56,9 @@ class Pyem:
     def calibration_percent(self) -> int:
         return int(self._em.get_calibration_percents()) if self._started else 0
 
+    def set_calibration_length(self, seconds: int) -> None:
+        self._em.set_calibration_length(int(seconds))
+
     def start_calibration(self) -> None:
         self._em.start_calibration()
         self._started = True

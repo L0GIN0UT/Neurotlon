@@ -8,8 +8,8 @@ from collections.abc import Callable, Iterator
 import pytest
 
 from neurotlon_bridge import protocol
-from neurotlon_bridge.client import MAX_PENDING_BURSTS, BridgeClient
-from neurotlon_bridge.source import Reading, Segment
+from neurotlon_bridge.client import BridgeClient
+from neurotlon_bridge.source import MAX_PENDING_BURSTS, Reading, Segment
 
 TIMEOUT_S = 5.0
 

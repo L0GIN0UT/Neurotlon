@@ -9,7 +9,7 @@ from typing import Any
 
 from neurotlon_bridge.emulator import EmulatedSource
 from neurotlon_bridge.server import BridgeServer
-from neurotlon_bridge.source import CalibrationStep
+from neurotlon_bridge.source import CalibrationStep, Segment
 
 
 class Source(EmulatedSource):
@@ -23,11 +23,17 @@ class Source(EmulatedSource):
     def battery(self, signal: str) -> int | None:
         return self.level if signal == "emg" else None
 
-    def start_calibration(self, signal: str, step: CalibrationStep) -> None:
+    def start_calibration(
+        self,
+        signal: str,
+        step: CalibrationStep,
+        segments: tuple[Segment, ...] | None = None,
+        duration_s: float | None = None,
+    ) -> None:
         self.threads.append(threading.current_thread())
         if self.fail_calibration:
             raise RuntimeError("замок завис")
-        super().start_calibration(signal, step)
+        super().start_calibration(signal, step, segments, duration_s)
 
     def reset(self) -> None:
         self.threads.append(threading.current_thread())

@@ -12,6 +12,7 @@ from neurotlon_bridge.hardware_source import HardwareSource
 from neurotlon_bridge.processing.eeg import EmotionsResult
 from neurotlon_bridge.processing.emg import EmgConfig
 from neurotlon_bridge.server import BridgeServer
+from neurotlon_bridge.source import Segment
 
 FAST_EMG = EmgConfig(
     settle_s=0.0,
@@ -28,6 +29,7 @@ class FakeEngine:
     def __init__(self) -> None:
         self.started = False
         self.percent = 0
+        self.length_s: int | None = None
         self.closed = False
         self.res = EmotionsResult(0.6, True, False)
 
@@ -38,6 +40,9 @@ class FakeEngine:
     @property
     def calibration_percent(self) -> int:
         return self.percent
+
+    def set_calibration_length(self, seconds: int) -> None:
+        self.length_s = seconds
 
     def start_calibration(self) -> None:
         self.started = True
@@ -444,6 +449,18 @@ def test_no_burst_without_electrode_contact() -> None:
     rig.src.close()
 
 
+def test_contact_loss_without_data_drops_the_arm() -> None:
+    rig = Rig("pong", PONG)
+    rig.calibrate_emg("emg_left")
+    rig.run(1.5, {"emg_left": REST})  # взведено
+    rig.raws["emg_left"].emit_electrode(False)
+    rig.src.step()  # потока данных нет, но взвод уже сброшен
+    rig.raws["emg_left"].emit_electrode(True)
+    rig.run(0.5, {"emg_left": BURST})  # сразу высокий уровень: старый спокойный уровень не в счёт
+    assert rig.src.drain_bursts("emg_left") == []
+    rig.src.close()
+
+
 def test_no_burst_right_after_reconnect() -> None:
     rig = Rig("pong", PONG)
     rig.calibrate_emg("emg_left")
@@ -465,4 +482,64 @@ def test_reset_drops_pending_bursts() -> None:
     rig.run(0.5, {"emg_left": BURST})
     rig.src.reset()
     assert rig.src.drain_bursts("emg_left") == []
+    rig.src.close()
+
+
+def test_cycle_calibrates_emg_and_reports_phases() -> None:
+    rig = Rig("pong", PONG)
+    rhythm = (Segment("tense", 2.0), Segment("relax", 2.0), Segment("tense", 2.0))
+    rig.src.start_calibration("emg_left", "cycle", segments=rhythm)
+    rig.run(1.0, {"emg_left": BURST})
+    mid = rig.src.calibration_status("emg_left")
+    assert mid is not None
+    assert (mid.status, mid.segment, mid.phase) == ("running", 1, "tense")
+    assert mid.phase_left_s == pytest.approx(1.0, abs=0.1)
+    rig.run(1.0, {"emg_left": BURST})
+    rig.run(1.0, {"emg_left": REST})
+    second = rig.src.calibration_status("emg_left")
+    assert second is not None and (second.segment, second.phase) == (2, "relax")
+    rig.run(1.0, {"emg_left": REST})
+    rig.run(2.1, {"emg_left": BURST})
+    done = rig.src.calibration_status("emg_left")
+    assert done is not None and done.status == "done"
+    rig.run(1.0, {"emg_left": REST})
+    assert rig.src.read(0)["emg_left"].value < 0.15
+    rig.run(1.0, {"emg_left": BURST})
+    assert rig.src.read(0)["emg_left"].value > 0.6
+    assert rig.src.calibration_status("emg_right") is None
+    rig.src.close()
+
+
+def test_cycle_uses_default_rhythm_when_not_given() -> None:
+    rig = Rig("pong", PONG)
+    rig.src.start_calibration("emg_left", "cycle")
+    rig.run(0.5, {"emg_left": BURST})
+    status = rig.src.calibration_status("emg_left")
+    assert status is not None
+    assert (status.segment, status.phase) == (1, "tense")
+    assert status.phase_left_s == pytest.approx(FAST_EMG.cycle_tense_s - 0.5, abs=0.1)
+    rig.src.close()
+
+
+def test_cycle_is_not_for_eeg() -> None:
+    rig = Rig("darts", DARTS)
+    with pytest.raises(ValueError):
+        rig.src.start_calibration("eeg", "cycle")
+    rig.src.close()
+
+
+def test_baseline_duration_goes_to_the_engine() -> None:
+    rig = Rig("darts", DARTS)
+    rig.src.start_calibration("eeg", "baseline", duration_s=20.0)
+    assert rig.engines[-1].length_s == 20
+    rig.src.start_calibration("eeg", "baseline")
+    assert rig.engines[-1].length_s is None  # без запроса длительность из настроек
+    rig.src.close()
+
+
+def test_segments_and_duration_do_not_leak_into_other_channel_kinds() -> None:
+    rig = Rig("darts", DARTS)
+    rig.src.start_calibration("emg", "rest", segments=(Segment("tense", 2.0),), duration_s=7.0)
+    status = rig.src.calibration_status("emg")
+    assert status is not None and status.step == "rest"
     rig.src.close()

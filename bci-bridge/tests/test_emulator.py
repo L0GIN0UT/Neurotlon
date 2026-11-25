@@ -111,11 +111,11 @@ def test_calibration_progress_then_done() -> None:
 def test_calibration_durations_and_speed() -> None:
     src, clock = make(speed=2.0)
     src.start_calibration("eeg", "baseline")
-    clock.now = 4.0  # 8 секунд на скорости 2
+    clock.now = 6.0  # 12 секунд (длительность по умолчанию) на скорости 2
     status = src.calibration_status("eeg")
     assert status is not None and status.status == "done"
     src.start_calibration("emg", "contract")
-    clock.now = 7.0  # 3 секунды на скорости 2 из 12 с шага
+    clock.now = 9.0  # 3 секунды после старта на скорости 2: 6 из 12 с шага
     status = src.calibration_status("emg")
     assert status is not None and status.progress == pytest.approx(0.5)
 
@@ -143,3 +143,8 @@ def test_keymap_covers_all_profile_keys() -> None:
     assert logical_keys("darts", {"w", "space", "a"}) == {"eeg_up", "emg", "eeg_artifact"}
     assert logical_keys("pong", {"q"}) == {"emg_left"}
     assert logical_keys("darts", set()) == set()
+
+
+def test_calibration_fail_key_is_mapped_in_every_profile() -> None:
+    for profile in PROFILES:
+        assert logical_keys(profile, {"f"}) == {"calib_fail"}

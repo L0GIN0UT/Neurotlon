@@ -11,6 +11,7 @@ from collections import deque
 
 from . import protocol
 from .source import (
+    MAX_PENDING_BURSTS,
     CalibrationProgress,
     CalibrationStep,
     Clock,
@@ -26,7 +27,6 @@ log = logging.getLogger(__name__)
 STALE_AFTER_S = 0.5
 RECONNECT_S = 1.0
 MAX_LINE_BYTES = 64 * 1024
-MAX_PENDING_BURSTS = 256
 
 
 class BridgeClient:

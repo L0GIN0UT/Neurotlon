@@ -16,6 +16,16 @@ Feature = Literal["burst", "emg_cycle", "baseline_duration"]
 
 # Границы `calibrate.segments` и `calibrate.duration_s` (shared/bridge-protocol.schema.json;
 # сумму длин схема выразить не может, её проверяет `protocol.calibrate_problem`).
+EEG_STEPS: frozenset[CalibrationStep] = frozenset({"baseline"})
+EMG_STEPS: frozenset[CalibrationStep] = frozenset({"rest", "contract", "cycle"})
+
+
+def steps_for(signal: str) -> frozenset[CalibrationStep]:
+    """Шаги калибровки, допустимые для сигнала."""
+    return EEG_STEPS if signal == "eeg" else EMG_STEPS
+
+
+MAX_PENDING_BURSTS = 256  # очередь событий резкого сокращения у источника и у клиента
 SEGMENTS_MIN_COUNT = 2
 SEGMENTS_MAX_COUNT = 8
 SEGMENT_MIN_S = 2.0
@@ -81,7 +91,15 @@ class SignalSource(Protocol):
         """Заряд датчика в процентах; None, если неизвестен."""
         ...
 
-    def start_calibration(self, signal: str, step: CalibrationStep) -> None: ...
+    def start_calibration(
+        self,
+        signal: str,
+        step: CalibrationStep,
+        segments: tuple[Segment, ...] | None = None,
+        duration_s: float | None = None,
+    ) -> None:
+        """`segments` — ритм `cycle`, `duration_s` — длина `baseline`; None — по умолчанию."""
+        ...
 
     def calibration_status(self, signal: str) -> CalibrationProgress | None: ...
 

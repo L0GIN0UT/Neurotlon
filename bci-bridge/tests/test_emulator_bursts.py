@@ -90,6 +90,17 @@ def test_reset_drops_the_arm_and_pending_events() -> None:
     assert rig.src.drain_bursts("emg") == []  # после сброса снова нужен спокойный уровень
 
 
+def test_no_bursts_while_a_calibration_is_running() -> None:
+    rig = Rig()
+    rig.hold(set(), 1.0)
+    rig.src.start_calibration("emg", "cycle")
+    rig.hold({"emg"}, 1.0)
+    assert rig.src.drain_bursts("emg") == []
+    rig.hold(set(), 25.0)  # шаг закончился
+    rig.hold({"emg"}, 1.0)
+    assert len(rig.src.drain_bursts("emg")) == 1
+
+
 def test_pong_signals_are_independent() -> None:
     rig = Rig("pong")
     rig.hold(set(), 1.0)

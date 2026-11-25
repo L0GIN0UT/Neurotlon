@@ -81,3 +81,10 @@ def test_calibration_text() -> None:
 def test_fakes_scan_shape() -> None:
     found = FakeBackend([FakeRawSensor("callibri", "S1")]).scan(1.0)
     assert found[0].serial == "S1"
+
+
+def test_calibration_text_shows_cycle_phase_and_time_left() -> None:
+    tense = CalibrationProgress("cycle", "running", 0.2, None, 1, "tense", 3.5)
+    assert "напрячь ещё 3.5 с" in calibration_text(tense)
+    relax = CalibrationProgress("cycle", "running", 0.6, None, 2, "relax", 1.0)
+    assert "расслабить ещё 1.0 с" in calibration_text(relax)

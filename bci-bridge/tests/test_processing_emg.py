@@ -213,14 +213,14 @@ def test_set_fs_rebuilds_filters() -> None:
     assert proc.reading().reason == "not_calibrated"
 
 
-def test_default_min_ratio_only_requires_peak_above_rest() -> None:
-    assert EmgConfig().calib_min_ratio == 1.0
+def test_default_min_ratio_requires_peak_twice_the_rest() -> None:
+    assert EmgConfig().calib_min_ratio == 2.0
     rig = Rig(EmgProcessor(fast_config()))
     rig.proc.start_calibration("rest", rig.t)
     rig.feed(2.1, REST_SIGMA)
     rig.proc.start_calibration("contract", rig.t)
     rig.feed(12.1, REST_SIGMA * 1.5)
-    assert rig.proc.calibration_status().status == "done"  # type: ignore[union-attr]
+    assert rig.proc.calibration_status().status == "failed"  # type: ignore[union-attr]
 
 
 def test_contract_progress_covers_twelve_second_window() -> None:
