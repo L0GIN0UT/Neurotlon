@@ -3,6 +3,7 @@
     "rootNamespace": "Neurotlon.Games.Football.Tests",
     "references": [
         "Neurotlon.Games.Football",
+        "Neurotlon.Kit",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"
     ],

@@ -3,17 +3,17 @@ using UnityEngine;
 
 namespace Neurotlon.Games.Football
 {
-    // Футбольная полоса: четыре элемента по очереди на одном поле. Камера всегда сзади мяча. Управление: напряжение ноги
-    // (ЭМГ, сигнал `emg`) и сосредоточение (ЭЭГ, сигнал `eeg`). Запуск, мост, калибровку, отсчёт, паузу и результат делает
+    // Футбольная полоса: четыре элемента по очереди на одном поле. Камера всегда сзади мяча. Управление: напряжение мышцы
+    // с датчиком (ЭМГ, сигнал `emg`) и сосредоточение (ЭЭГ, сигнал `eeg`). Запуск, мост, калибровку, отсчёт, паузу и результат делает
     // NeurotlonGame; здесь правила (FootballRules), картинка, звук и экран игрока.
     public sealed class FootballGame : NeurotlonGame
     {
         enum Phase { Intro, Playing, Result }
 
         const float IntroSeconds = 1.8f;
-        const float CheckIntroSeconds = 0.8f;       // в демо-проверке заставки короче: игрок уже обучен
-        const float CheckResultSeconds = 1.0f;
+        const float SandboxPhaseSeconds = 0.8f;     // в песочнице обучения заставка и итог элемента короткие
         const float ResultSeconds = 1.8f;
+        const float RetryShowSeconds = 1.0f;
         const float EndDelaySeconds = 1.2f;
         const float CameraHeight = 1.6f;
         const float CameraBack = 2.3f;
@@ -48,8 +48,13 @@ namespace Neurotlon.Games.Football
         Phase phase;
         float phaseTimer;
         float endTimer = -1f;
-        bool worldReady;                                  // сцена и физика мяча подготовлены (один раз: для проверки и для игры)
-        bool checking;                                    // идёт демо-проверка: правила свои, очки в результат не идут
+        bool worldReady;                                  // сцена и физика мяча подготовлены (один раз: для обучения и для игры)
+        bool tutorialActive;                              // идёт обучение: песочница на отдельных правилах, очки в результат не идут
+        bool tutorialPlay;                                // идёт попытка шага: правила песочницы работают (пока читают подсказку, стоят)
+        FootballTutorial tutorial;                        // условия «шаг обучения засчитан»
+        TutorialStep[] tutorialSteps = new TutorialStep[0];
+        float retryTimer;                                 // показывается «Попробуйте ещё раз»: песочница стоит, потом заводится заново
+        int debugScore = -1;                              // --debug-score N: показать этот счёт вместо настоящего (только подпись)
         FootballElement shown;                           // элемент, который сейчас показывается
         float lastEmg;
         string resultText = "";
@@ -122,6 +127,9 @@ namespace Neurotlon.Games.Football
             string mode = ReadArg("--dribble");
             if (mode == "throttle") tuning.Dribble = DribbleMode.Throttle;
             else if (mode == "rhythm") tuning.Dribble = DribbleMode.Rhythm;
+            int parsedScore;
+            if (int.TryParse(ReadArg("--debug-score"), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out parsedScore) && parsedScore >= 0)
+                debugScore = parsedScore;
             zoneBack = Ring("ЗонаРазбросаОбводка", 0.030f, Ink, 1);
             zoneRing = Ring("ЗонаРазброса", 0.016f, Good, 2);
             aimBack = Ring("ПрицелОбводка", 0.026f, Ink, 3);
@@ -140,13 +148,14 @@ namespace Neurotlon.Games.Football
         protected override void OnGameStart()
         {
             PrepareWorld();
-            checking = false;
+            tutorialActive = false;
+            tutorialPlay = false;
             var real = new FootballRules(tuning, () => (float)random.NextDouble());
             if (Launch.MaxPoints > 0) real.MaxPoints = Launch.MaxPoints;
             StartRules(real);
         }
 
-        // Сцена и физика мяча: один раз на запуск, и для проверки, и для игры.
+        // Сцена и физика мяча: один раз на запуск, и для обучения, и для игры.
         void PrepareWorld()
         {
             if (worldReady) return;
@@ -163,7 +172,7 @@ namespace Neurotlon.Games.Football
             CreateBallProxy();
         }
 
-        // Запустить правила (проверки или игры) с чистого листа: очки, надписи и физика прошлого прогона не переходят.
+        // Запустить правила (песочницы обучения или игры) с чистого листа: очки, надписи и физика прошлого прогона не переходят.
         void StartRules(FootballRules next)
         {
             rules = next;
@@ -176,59 +185,150 @@ namespace Neurotlon.Games.Football
             EnterIntro(rules.Current.Kind);
         }
 
-        // Обучение: по шагу на элемент, коротко.
+        // ---------- обучение: все механики по очереди, каждая в своей песочнице; шаг 4 это проверка «попади сам» ----------
+
         protected override string[] TutorialSteps()
         {
-            return new[]
-            {
-                SnakeTutorial(),
-                "Передача: сосредоточьтесь, круг сузится, сожмите ногу, мяч уйдёт в золотое кольцо",
-                "Остановка: мяч катится сам, тормозите ногой, остановите его в жёлтой зоне",
-                "Удар: бейте в красное или жёлтое кольцо мишени, это 2 очка",
-            };
+            tutorial = new FootballTutorial(tuning);
+            tutorialSteps = FootballTutorial.StepsFor(tuning.Dribble);
+            var texts = new string[tutorialSteps.Length];
+            for (int i = 0; i < texts.Length; i++) texts[i] = FootballTutorial.TextFor(tutorialSteps[i], tuning.Dribble);
+            return texts;
         }
 
-        string SnakeTutorial()
+        TutorialStep StepAt(int index)
         {
-            switch (tuning.Dribble)
-            {
-                case DribbleMode.Rhythm: return "Ведение: напрягайте ногу в такт, когда кольцо сожмётся вокруг мяча";
-                case DribbleMode.Level: return "Ведение: сильнее напряжение, мяч вправо, слабее, влево. Обведите конусы";
-                default: return "Ведение: напряжение ноги даёт газ, расслабление тормозит. Обведите конусы, на поворотах сбавьте";
-            }
+            return tutorialSteps[Mathf.Clamp(index, 0, tutorialSteps.Length - 1)];
         }
 
-        protected override bool HasCheck { get { return true; } }
+        protected override bool TutorialStepSkippable(int index)
+        {
+            return FootballTutorial.IsSkippable(StepAt(index));
+        }
 
-        // Демо-проверка: довести мяч до первого конуса, потом один раз ударить в мишень. Отдельные правила и отдельные мячи:
-        // очки проверки в результат не идут. Неудачный удар (мимо мишени) повторяется, после трёх неудач просят волонтёра.
-        protected override void OnCheckStart()
+        protected override float TutorialStepTimeout(int index)
+        {
+            return FootballTutorial.TimeoutFor(StepAt(index));
+        }
+
+        // Шаг начался (первый раз или повтор после неудачи за таймаут): песочница заводится заново и ждёт. Пока подсказку читают,
+        // камера доезжает, сцена видна, а правила стоят.
+        protected override void OnTutorialStepStart(int index)
+        {
+            BeginTutorialSandbox(StepAt(index), false);
+        }
+
+        // Чтение закончилось или повтор: счётчики шага с нуля, правила пошли.
+        protected override void OnTutorialTryStart(int index)
+        {
+            tutorial.Begin(StepAt(index));
+            tutorialPlay = true;
+        }
+
+        // Песочница шага: короткие правила на копии настроек (два конуса, одна попытка, у «попади сам» пять), мяч, конусы,
+        // пробитые мячи, чехол и сети сброшены. play: правила идут сразу (повтор) или ждут начала попытки.
+        void BeginTutorialSandbox(TutorialStep step, bool play)
         {
             PrepareWorld();
-            checking = true;
-            StartRules(new FootballRules(tuning.CopyForCheck(), () => (float)random.NextDouble(), new[] { 0, 3 }));
+            tutorialActive = true;
+            tutorialPlay = play;
+            retryTimer = 0f;
+            tutorial.Begin(step);
+            ClearSpent();
+            ResetCones();
+            var sandbox = tuning.CopyForTutorial(FootballTutorial.SandboxCones, FootballTutorial.AttemptsFor(step));
+            StartRules(new FootballRules(sandbox, () => (float)random.NextDouble(), SandboxOrder(step)));
         }
 
-        protected override void OnCheckUpdate(float dt)
+        static int[] SandboxOrder(TutorialStep step)
         {
-            StepGame(dt);
-        }
-
-        // Проверка закончилась: удар попал в мишень: пройдено; мимо: ещё одна попытка (одним ударом, без змейки).
-        void CompleteCheck()
-        {
-            int kick = rules.PointsOf(rules.Count - 1);
-            if (kick >= 1)
+            switch (step)
             {
-                checking = false;
-                ClearSpent();
-                ResetCones();
-                HideAll();
-                PassCheck();
-                return;
+                case TutorialStep.Focus:
+                case TutorialStep.Shot:
+                case TutorialStep.Hits: return new[] { 3 };
+                case TutorialStep.Gate: return new[] { 1 };
+                case TutorialStep.Slow:
+                case TutorialStep.StopZone: return new[] { 2 };
+                default: return new[] { 0 };
             }
-            ReportCheckFailure();
-            StartRules(new FootballRules(tuning.CopyForCheck(), () => (float)random.NextDouble(), new[] { 3 }));
+        }
+
+        protected override bool OnTutorialUpdate(int index, float dt)
+        {
+            if (!tutorialActive || rules == null) return false;
+            if (retryTimer > 0f)
+            {
+                // попытка провалена: песочница стоит, видна подпись; потом начинается заново, без ожидания таймаута
+                retryTimer -= dt;
+                if (retryTimer <= 0f) BeginTutorialSandbox(tutorial.Step, true);
+                else UpdateVisuals(dt);
+                return false;
+            }
+            StepGame(dt);
+            if (!tutorialPlay) return false;
+            if (!tutorial.Retry) ObserveTutorial(dt);
+            if (tutorial.Retry)
+            {
+                retryTimer = RetryShowSeconds;
+                return false;
+            }
+            return tutorial.Done;
+        }
+
+        // Что видно в песочнице сейчас: концентрация и скорость катящегося мяча. Остальные события приходят из правил сами.
+        void ObserveTutorial(float dt)
+        {
+            if (phase != Phase.Playing) return;
+            var aimed = rules.Current as AimedElement;
+            if (aimed != null) tutorial.ObserveConcentration(aimed.Concentration, dt);
+            var stop = rules.Current as StopElement;
+            if (stop != null) tutorial.ObserveStopSpeed(stop.Speed, stop.HitNet);
+        }
+
+        // Обучение закончилось: песочницу убрать, мяч и конусы на места.
+        protected override void OnTutorialEnd()
+        {
+            tutorialActive = false;
+            tutorialPlay = false;
+            retryTimer = 0f;
+            ClearSpent();
+            ResetCones();
+            HideAll();
+        }
+
+        // Шкалы под подсказкой (подсказку и «Готово» рисует кит): нижняя плашка; верхняя только на шаге «попади сам».
+        // Подсказка обучения стоит слева (там свободно), чтобы не закрывать ворота, мишень и мяч.
+        protected override Rect TutorialHintArea
+        {
+            get { return new Rect(Screen.width * 0.02f, Screen.height * 0.34f, Screen.width * 0.28f, 0f); }
+        }
+
+        protected override void DrawTutorial(int index)
+        {
+            float s = Screen.height / 1080f;
+            float w = Screen.width, h = Screen.height;
+            EnsureStyles(s);
+            float plaqueW = Mathf.Min(w * 0.94f, 1180f * s);
+            float px = (w - plaqueW) * 0.5f;
+            var bottom = new Rect(px, h - 20f * s - 112f * s, plaqueW, 112f * s);
+            Plaque(bottom, s);
+            DrawBars(bottom, s);
+            if (StepAt(index) == TutorialStep.Hits) DrawHitsCounter(new Rect(px, 20f * s, plaqueW, 88f * s), s);
+            if (retryTimer > 0f)
+            {
+                DrawNotice(NeurotlonTexts.TutorialRepeat, 0.40f);
+            }
+        }
+
+        // Шаг «попади сам»: в верхней плашке подпись «Попаданий: n из 2», под ней точки попыток как в игре.
+        void DrawHitsCounter(Rect top, float s)
+        {
+            Plaque(top, s);
+            nameStyle.alignment = TextAnchor.MiddleCenter;
+            OutlinedLabel(top, FootballTutorial.HitsText(tutorial.Hits.Hits), nameStyle);
+            int used = tutorial.Hits.Used;
+            DrawAttemptDots(top, s, TutorialHits.MaxAttempts, used < TutorialHits.MaxAttempts ? used : -1, tutorial.Hits.ResultOf);
         }
 
         protected override void OnGameUpdate(float dt)
@@ -236,7 +336,7 @@ namespace Neurotlon.Games.Football
             StepGame(dt);
         }
 
-        // Ход игры или проверки: сигналы, фазы (заставка, игра, итог элемента), картинка.
+        // Ход игры или песочницы обучения: сигналы, фазы (заставка, игра, итог элемента), картинка.
         void StepGame(float dt)
         {
             float? eeg = Bridge.Value(NeurotlonProtocol.SignalEeg);
@@ -250,7 +350,8 @@ namespace Neurotlon.Games.Football
                 emg = demoEmg;
             }
             if (emg.HasValue) lastEmg = emg.Value;
-            if (!checking) HandleKeys();
+            if (tutorialActive && tutorial.Step == TutorialStep.Focus) emg = null;      // шаг сосредоточения: ударов нет, только круг разброса
+            if (!tutorialActive) HandleKeys();
             phaseTimer -= dt;
             attemptTimer -= dt;
             switch (phase)
@@ -259,15 +360,16 @@ namespace Neurotlon.Games.Football
                     if (phaseTimer <= 0f) phase = Phase.Playing;
                     break;
                 case Phase.Playing:
-                    rules.Step(dt, eeg, emg);
+                    if (!tutorialActive || tutorialPlay) rules.Step(dt, eeg, emg);          // пока читают подсказку, правила песочницы стоят
                     break;
                 case Phase.Result:
                     if (phaseTimer <= 0f)
                     {
                         if (rules.Over)
                         {
-                            if (checking) { CompleteCheck(); return; }
-                            if (endTimer < 0f) endTimer = EndDelaySeconds;
+                            // песочница кончилась, а механика не сработала (мяч упёрся в сетку и т. п.): завести заново
+                            if (tutorialActive) tutorial.MarkRetry();
+                            else if (endTimer < 0f) endTimer = EndDelaySeconds;
                         }
                         else EnterIntro(rules.Current.Kind);
                     }
@@ -299,6 +401,7 @@ namespace Neurotlon.Games.Football
 
         void OnRulesEvent(FootballEvent e)
         {
+            if (tutorialActive) tutorial.ObserveEvent(e);
             if (sounds != null) sounds.Play(e);
             switch (e.Kind)
             {
@@ -336,7 +439,7 @@ namespace Neurotlon.Games.Football
                     resultText = "готово";
                     resultElement = e.Element;
                     phase = Phase.Result;
-                    phaseTimer = checking ? CheckResultSeconds : ResultSeconds;
+                    phaseTimer = tutorialActive ? SandboxPhaseSeconds : ResultSeconds;
                     break;
                 case FootballEventKind.GameOver:
                     bonusShown = rules.AccuracyBonus;
@@ -352,7 +455,7 @@ namespace Neurotlon.Games.Football
             if (kind == FootballElement.Snake) ResetCones();
             shown = kind;
             phase = Phase.Intro;
-            phaseTimer = checking ? CheckIntroSeconds : IntroSeconds;
+            phaseTimer = tutorialActive ? SandboxPhaseSeconds : IntroSeconds;
             ballPos = StartPosition(kind);
             lastBallPos = ballPos;
             if (ball != null) ball.position = ballPos;
@@ -490,7 +593,7 @@ namespace Neurotlon.Games.Football
                 float phaseBeat = rhythm.BeatPhase;
                 if (phaseBeat < lastBeat && sounds != null) sounds.Metronome();          // такт метронома
                 lastBeat = phaseBeat;
-                float r = 0.28f + 0.55f * (1f - phaseBeat);                               // кольцо сжимается к мячу к моменту такта
+                float r = 0.28f + 0.55f * (1f - phaseBeat);                               // кольцо сужается к мячу к моменту такта
                 SetGroundRing(beatRing, beatBack, new Vector3(ballPos.x, 0.03f, ballPos.z), r, true);
             }
         }
@@ -897,8 +1000,17 @@ namespace Neurotlon.Games.Football
 
         void ClearSpent()
         {
+            foreach (var sb in spentBalls) ReleaseContacts(sb);
             foreach (var sb in spentBalls) if (sb.body != null) Destroy(sb.body.gameObject);
             spentBalls.Clear();
+        }
+
+        // Убираемый мяч мог давить на чехол и сетку ворот: отпустить их, иначе прогиб останется.
+        void ReleaseContacts(SpentBall sb)
+        {
+            if (tarp != null) tarp.Release(sb.contactId);
+            if (goalNet == null) return;
+            for (int surface = 0; surface < 3; surface++) goalNet.Release(sb.contactId * 4 + surface);
         }
 
         void Roll()
@@ -1034,10 +1146,10 @@ namespace Neurotlon.Games.Football
             OutlinedLabel(new Rect(top.x + 36f * s, top.y, plaqueW * 0.3f, top.height), PlayerName(), nameStyle);
             DrawPips(top, s);
             scoreStyle.alignment = TextAnchor.MiddleLeft;
-            OutlinedLabel(new Rect(top.center.x + 150f * s, top.y, 170f * s, top.height), TimerText(), scoreStyle);
+            OutlinedLabel(FootballHud.TimerRect(top, s), TimerText(), scoreStyle);
             scoreStyle.alignment = TextAnchor.MiddleRight;
-            int score = rules != null ? rules.Score : 0;
-            OutlinedLabel(new Rect(top.xMax - plaqueW * 0.2f - 36f * s, top.y, plaqueW * 0.2f, top.height), "Очки  " + score, scoreStyle);
+            int score = debugScore >= 0 ? debugScore : (rules != null ? rules.Score : 0);          // --debug-score меняет только подпись, в результат не идёт
+            OutlinedLabel(FootballHud.ScoreRect(top, s, score, scoreStyle.fontSize), NeurotlonHud.ScoreText(score), scoreStyle);
 
             // шкалы внизу (без подсказок: правила показаны в обучении)
             var bottom = new Rect(px, h - 20f * s - 112f * s, plaqueW, 112f * s);
@@ -1051,25 +1163,6 @@ namespace Neurotlon.Games.Football
                 if (attemptTimer > 0f && phase != Phase.Result) DrawAttemptPopup(s);                // в итоге элемента отдельная надпись попытки не нужна: она бы наложилась на итог
                 if (phase == Phase.Result && !string.IsNullOrEmpty(resultText)) DrawResultPopup(s);
             }
-        }
-
-        // Экран демо-проверки: что сделать, шкалы и попытки. Очков и таймера нет.
-        protected override void DrawCheck()
-        {
-            float s = Screen.height / 1080f;
-            float w = Screen.width, h = Screen.height;
-            EnsureStyles(s);
-            float plaqueW = Mathf.Min(w * 0.94f, 1180f * s);
-            float px = (w - plaqueW) * 0.5f;
-            var top = new Rect(px, 20f * s, plaqueW, 88f * s);
-            Plaque(top, s);
-            nameStyle.alignment = TextAnchor.MiddleCenter;
-            string task = shown == FootballElement.Kick ? "ПРОВЕРКА: ударьте в мишень" : "ПРОВЕРКА: проведите мяч до конуса";
-            OutlinedLabel(top, task, nameStyle);
-            var bottom = new Rect(px, h - 20f * s - 112f * s, plaqueW, 112f * s);
-            Plaque(bottom, s);
-            DrawBars(bottom, s);
-            if (attemptTimer > 0f && phase == Phase.Playing) DrawAttemptPopup(s);
         }
 
         void DrawIntro(float s)
@@ -1090,14 +1183,20 @@ namespace Neurotlon.Games.Football
             if (rules == null || rules.Over) return;
             var a = rules.Current as AimedElement;
             if (a == null || (shown != FootballElement.Pass && shown != FootballElement.Kick) || phase == Phase.Intro) return;
+            DrawAttemptDots(top, s, a.AttemptCount, a.Finished ? -1 : Mathf.Min(a.Attempt, a.AttemptCount - 1), a.AttemptResult);
+        }
+
+        // Кружки попыток под плашкой top: count штук, цвет по очкам попытки (resultOf: -1 — ещё не сделана), рамка у current (−1: нет).
+        // Те же кружки рисует шаг обучения «попади сам».
+        void DrawAttemptDots(Rect top, float s, int count, int current, System.Func<int, int> resultOf)
+        {
             float size = 30f * s, gap = 14f * s;
-            float total = a.AttemptCount * size + (a.AttemptCount - 1) * gap;
+            float total = count * size + (count - 1) * gap;
             float x0 = top.x + (top.width - total) * 0.5f, y0 = top.yMax + 10f * s;
-            for (int i = 0; i < a.AttemptCount; i++)
+            for (int i = 0; i < count; i++)
             {
-                int r = a.AttemptResult(i);
-                bool current = i == Mathf.Min(a.Attempt, a.AttemptCount - 1) && !a.Finished;
-                GUI.color = current ? Cyan : Ink;
+                int r = resultOf(i);
+                GUI.color = i == current ? Cyan : Ink;
                 GUI.DrawTexture(new Rect(x0 + i * (size + gap) - 3f, y0 - 3f, size + 6f, size + 6f), Texture2D.whiteTexture);
                 GUI.color = r < 0 ? new Color(0.20f, 0.26f, 0.38f) : (r >= 2 ? Good : (r == 1 ? Okay : Bad));
                 GUI.DrawTexture(new Rect(x0 + i * (size + gap), y0, size, size), Texture2D.whiteTexture);
@@ -1152,7 +1251,7 @@ namespace Neurotlon.Games.Football
             float pad = 40f * s, barW = (bottom.width - pad * 3f) * 0.5f, barH = 22f * s, y = bottom.y + 72f * s;
             bool aimed = shown == FootballElement.Pass || shown == FootballElement.Kick;
             float grip = tuning.GripOn;
-            string leftLabel = "НОГА";
+            string leftLabel = "МЫШЦА";
             Color leftColor = aimed && lastEmg >= grip ? Good : Okay;
             DrawBar(new Rect(bottom.x + pad, y, barW, barH), leftLabel, lastEmg, leftColor, aimed ? grip : -1f, s);
             string rightLabel;
@@ -1212,6 +1311,7 @@ namespace Neurotlon.Games.Football
             {
                 nameStyle = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold };
                 scoreStyle = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold };
+                NeurotlonHud.SingleLine(scoreStyle);
                 labelStyle = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold };
                 bigStyle = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold };
                 midStyle = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold };

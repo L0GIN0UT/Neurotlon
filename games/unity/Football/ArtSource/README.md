@@ -5,7 +5,7 @@
 | Папка | Что делает | Запуск |
 |---|---|---|
 | `Football/build_football.py` | Мяч, тренировочный конус, мини-ворота (рама, сетка и отдельный подвижный чехол), круглая мишень, ловящая сетка за зоной остановки; экспорт FBX | `NT_OUT=<папка> NT_TEX=<папка текстур> NT_PH=<папка Poly Haven> blender -b --python build_football.py` |
-| `Football/make_textures.py` | Текстуры конуса, мяча, сетки ворот, чехла с отверстиями, колец мишени, ловящей сетки, надписи на щитках; перекрашенная трава и полосы покоса | `uv run --with pillow --with numpy --with scipy python -I make_textures.py <папка вывода> [<папка Poly Haven>]`; для надписи на щитках задайте `NT_FONT=<файл .ttf с кириллицей>` |
+| `Football/make_textures.py` | Текстуры конуса, мяча, сетки ворот, чехла с отверстиями, колец мишени, ловящей сетки; перекрашенная трава и полосы покоса | `uv run --with pillow --with numpy --with scipy python -I make_textures.py <папка вывода> [<папка Poly Haven>]` |
 | `Audio/prepare_sounds.py` | Звуки: нога, касание конуса, итоги попыток, метроном, чехол, сетка, земля, штанга, мишень, свисток | `python -I prepare_sounds.py <папка Kenney> <папка вывода>` |
 
 Результат (FBX, PNG, WAV) копируется в `Assets/Art/Football/` и `Assets/Audio/`. Сцену из них собирает пункт меню `Neurotlon → Build Football Scene`.
@@ -18,9 +18,9 @@
 | Небо и трибуны стадиона (`orlando_stadium_2k.hdr`) | Poly Haven | CC0 |
 | Звуки ударов (нога, конус, итоги, чехол, сетка, земля, штанга, мишень) | Kenney «Impact Sounds», https://kenney.nl/assets/impact-sounds; исходники переработаны скриптом (высота, срез верха, слои) | CC0 |
 | Свисток судьи (`Audio/source/referee_whistle.wav`) | SpliceSound, файл `218318_splicesound_referee-whistle-blow-gymnasium.wav` на Wikimedia Commons | CC0 |
-| Шрифт надписи на щитках | Inter (идёт в составе Blender), надпись «запечена» в `board_text.png` | SIL OFL 1.1 |
+| Логотип на щитках | логотип проекта из `web/src/station/assets/logo.png`, копия в `Assets/Art/Football/logo.png` | свой |
 | Модели (мяч, конус, ворота, чехол, мишень, ловящая сетка) | моделируются `build_football.py` по настоящим размерам | своё |
-| Текстуры конуса, мяча, сеток, чехла, мишени, надписи | рисуются `make_textures.py` | своё |
+| Текстуры конуса, мяча, сеток, чехла, мишени | рисуются `make_textures.py` | своё |
 
 Чужих моделей и изображений, кроме перечисленных CC0-материалов, нет. Исходники Kenney в репозиторий не входят: скачайте набор «Impact Sounds» и укажите папку при запуске `prepare_sounds.py`.
 

@@ -1,6 +1,6 @@
 namespace Neurotlon.Games.Football
 {
-    // Автоигрок для записи демонстрационных видео: вместо датчиков подаёт сигналы ноги (ЭМГ) и сосредоточения (ЭЭГ).
+    // Автоигрок для записи демонстрационных видео: вместо датчиков подаёт сигналы мышцы (ЭМГ) и сосредоточения (ЭЭГ).
     // Включается только параметром запуска --demo right|wrong; в обычной игре не используется.
     //   right — всё сделано правильно: змейка по пути между конусами, полная концентрация (удар только когда она набралась),
     //           остановка в зоне;
@@ -9,7 +9,7 @@ namespace Neurotlon.Games.Football
     {
         const float ThrottleSteadyEmg = 0.30f;             // ровная скорость около 1,4 м/с: на поворотах змейки мяч не уходит к конусу
         const float RhythmTapPhase = 0.08f;                // напряжение только в начале такта метронома
-        const float RelaxedSeconds = 1.7f;                 // нога расслаблена перед ударом: за это время концентрация успевает набраться
+        const float RelaxedSeconds = 1.7f;                 // мышца расслаблена перед ударом: за это время концентрация успевает набраться
 
         readonly bool right;
         readonly FootballTuning tuning;
@@ -44,7 +44,7 @@ namespace Neurotlon.Games.Football
                         emg = right ? ThrottleSteadyEmg : 1f;
                         break;
                     case DribbleMode.Rhythm:
-                        // ритм: правильный игрок напрягает ногу ровно в такт метроному, неправильный не напрягает вовсе
+                        // ритм: правильный игрок напрягает мышцу ровно в такт метроному, неправильный не напрягает вовсе
                         var rhythm = snake.Dribble as RhythmDribble;
                         emg = right && rhythm != null && rhythm.BeatPhase < RhythmTapPhase ? 0.9f : 0.1f;
                         break;
@@ -61,7 +61,7 @@ namespace Neurotlon.Games.Football
                 eeg = 0.5f;
                 return;
             }
-            // передача и удар: каждую попытку сначала расслабить ногу и сосредоточиться, потом сжать
+            // передача и удар: каждую попытку сначала расслабить мышцу и сосредоточиться, потом напрячь
             var aimed = rules.Current as AimedElement;
             if (aimed == null) { emg = 0.1f; return; }
             if (rules.CurrentIndex != lastElement || aimed.Attempt != lastAttempt || aimed.Phase != lastPhase)

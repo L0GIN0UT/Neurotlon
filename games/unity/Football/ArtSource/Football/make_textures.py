@@ -97,22 +97,6 @@ def net(out: Path, size=576):
 
 # ---------------- ограждающая сетка за зоной остановки: толстое канатное плетение ----------------
 # Плитка 0,3 × 0,3 м (UV в build_football.py: cell=0,3): канат ≈ 2,5 см (8 % плитки) виден и с 12 м. Бесшовная.
-def board_text(out: Path):
-    """Надпись на синих щитках: белые буквы на прозрачном фоне. Текстура, а не TextMesh: у него шейдер без проверки глубины
-    и буквы рисуются поверх мяча, который пролетает перед щитком."""
-    w, h, ss = 1024, 256, 2
-    im = Image.new("RGBA", (w * ss, h * ss), (255, 255, 255, 0))
-    d = ImageDraw.Draw(im)
-    # шрифт с кириллицей: Inter (SIL OFL), путь к .ttf в переменной NT_FONT (например, из папки шрифтов Blender, сконвертированный из woff2)
-    font = ImageFont.truetype(os.environ["NT_FONT"], int(h * ss * 0.56))
-    try:
-        font.set_variation_by_axes([28, 700])                          # opsz, wght: жирное начертание
-    except Exception:
-        pass
-    d.text((w * ss / 2, h * ss / 2), "НЕЙРОТЛОН", font=font, fill=(236, 240, 246, 255), anchor="mm", stroke_width=3, stroke_fill=(236, 240, 246, 255))
-    im.resize((w, h), Image.LANCZOS).save(out / "board_text.png")
-
-
 def stop_net(out: Path, size=256):
     ss = 4
     n = size * ss
@@ -361,7 +345,6 @@ if __name__ == "__main__":
     target(out)
     tarp(out)
     stop_net(out)
-    board_text(out)
     ball(out)
     if len(sys.argv) >= 3:
         grass(out, Path(sys.argv[2]))
