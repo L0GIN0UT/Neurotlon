@@ -249,13 +249,12 @@ function baseWindowOptions() {
 /** Ctrl+Q — выход; Ctrl+Alt+S (если задан обработчик) — перезапуск с настройкой. */
 function handleShortcuts(window, onSetup) {
   window.webContents.on('before-input-event', (event, input) => {
-    if (input.type !== 'keyDown' || !input.control) return
-    const key = input.key.toLowerCase()
-    if (key === 'q') {
+    const action = lib.shortcutAction(input)
+    if (action === 'quit') {
       event.preventDefault()
       log('выход: Ctrl+Q')
       app.quit()
-    } else if (key === 's' && input.alt && onSetup) {
+    } else if (action === 'setup' && onSetup) {
       event.preventDefault()
       onSetup()
     }
