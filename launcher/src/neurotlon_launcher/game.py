@@ -159,13 +159,36 @@ def parse_result(path: Path, request: GameRequest) -> GameOutcome:
 BRIDGE_WAIT_S = 20.0
 
 
+HELLO_WAIT_S = 1.0
+HELLO_MAX_BYTES = 4096
+
+
 def bridge_answers(host: str, port: int) -> bool:
-    """Мост принимает соединения: игра сможет подключиться сразу."""
+    """Мост готов принять игру: на подключение он ответил сообщением `hello`.
+
+    Простого принятого соединения мало: мост пускает одного клиента и закрывает лишнее без слов,
+    так что пока слот занят (например, лаунчером на экране калибровки), `hello` не придёт.
+    """
+    deadline = time.monotonic() + HELLO_WAIT_S  # один срок на всю операцию, не на каждый recv
     try:
-        with socket.create_connection((host, port), timeout=1.0):
-            return True
+        with socket.create_connection((host, port), timeout=HELLO_WAIT_S) as probe:
+            received = b""
+            while b"\n" not in received and len(received) < HELLO_MAX_BYTES:
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    return False
+                probe.settimeout(left)
+                chunk = probe.recv(HELLO_MAX_BYTES)
+                if not chunk:
+                    return False
+                received += chunk
     except OSError:
         return False
+    try:
+        message = json.loads(received.split(b"\n", 1)[0])
+    except ValueError:
+        return False
+    return isinstance(message, dict) and message.get("type") == "hello"
 
 
 class SubprocessGameRunner:

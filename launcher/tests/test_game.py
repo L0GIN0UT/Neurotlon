@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -407,14 +408,46 @@ def test_game_is_not_started_when_the_bridge_never_answers(tmp_path: Path) -> No
     assert "мост" in outcome.detail
 
 
-def test_bridge_answers_probe(tmp_path: Path) -> None:
+def serve_once(reply: bytes | None, *, hold_s: float = 0.0) -> tuple[int, threading.Thread]:
+    """Сервер на один клиент: отвечает `reply` (или молчит), ждёт `hold_s` и закрывает."""
     import socket
 
+    listener = socket.create_server(("127.0.0.1", 0))
+    port = listener.getsockname()[1]
+
+    def serve() -> None:
+        with listener:
+            conn, _ = listener.accept()
+            with conn:
+                if reply is not None:
+                    conn.sendall(reply)
+                time.sleep(hold_s)
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    return port, thread
+
+
+def test_bridge_answers_needs_hello_not_just_a_connection() -> None:
     from neurotlon_launcher.game import bridge_answers
 
-    with socket.socket() as server:
-        server.bind(("127.0.0.1", 0))
-        server.listen()
-        port = server.getsockname()[1]
-        assert bridge_answers("127.0.0.1", port)
-    assert not bridge_answers("127.0.0.1", port)
+    port, thread = serve_once(b'{"type":"hello","protocol":1,"signals":[]}\n', hold_s=0.1)
+    assert bridge_answers("127.0.0.1", port)
+    thread.join(timeout=2)
+    assert not bridge_answers("127.0.0.1", port)  # никто не слушает
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [None, b"", b'{"type":"sample","t_ms":1,"signals":{}}\n', b"not json\n", b"[]\n"],
+    ids=["silent", "closed", "other-message", "garbage", "not-an-object"],
+)
+def test_bridge_answers_is_false_without_hello(
+    reply: bytes | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from neurotlon_launcher import game
+
+    monkeypatch.setattr(game, "HELLO_WAIT_S", 0.3)
+    port, thread = serve_once(reply, hold_s=0.5 if reply is None else 0.0)
+    assert not game.bridge_answers("127.0.0.1", port)
+    thread.join(timeout=2)

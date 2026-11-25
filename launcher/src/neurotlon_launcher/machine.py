@@ -26,6 +26,15 @@ from .api import (
     Unauthorized,
     UnknownParticipant,
 )
+from .bridge_link import BridgeLink, BridgeLinkFactory, LinkView
+from .calibration import (
+    Calibrate,
+    CalibrationRun,
+    CalibrationView,
+    Command,
+    plan_for,
+)
+from .calibration import Reset as ResetCommand
 from .codes import normalize_code
 from .game import (
     Aborted,
@@ -101,8 +110,24 @@ class Confirm:
 
 @dataclass(frozen=True)
 class Starting:
+    """Только сеть: настройки дисциплины и `start_session`."""
+
     session_id: uuid.UUID
     players: tuple[Candidate, ...]
+    fresh: bool = True  # новая сессия участника; `False` — «Повторить» в той же сессии
+
+
+@dataclass(frozen=True)
+class Calibrating:
+    """Калибровка датчиков через мост; данные нужны, чтобы после неё запустить игру."""
+
+    session_id: uuid.UUID
+    players: tuple[Candidate, ...]
+    duration: int
+    max_points: int | None
+    offline: bool
+    default_limit: bool
+    fresh: bool
 
 
 @dataclass(frozen=True)
@@ -134,6 +159,14 @@ class Blocked:
 
 
 @dataclass(frozen=True)
+class CalibrationScreen:
+    """Что показывает экран калибровки: связь с мостом и ход шагов."""
+
+    link: LinkView
+    run: CalibrationView
+
+
+@dataclass(frozen=True)
 class RejectedEntry:
     session_id: str
     codes: tuple[str, ...]
@@ -151,6 +184,7 @@ State = (
     | Checking
     | Confirm
     | Starting
+    | Calibrating
     | Playing
     | Done
     | TechnicalProblem
@@ -181,6 +215,7 @@ class StationMachine:
         on_enqueue: Callable[[], None] | None = None,
         fallback_duration_s: int = DEFAULT_DURATION_S,
         executor: Executor | None = None,
+        bridge_link: BridgeLinkFactory | None = None,
     ) -> None:
         self.discipline = discipline
         self.state: State = Idle()
@@ -197,6 +232,11 @@ class StationMachine:
             max_workers=1, thread_name_prefix="machine-io"
         )
         self._pending: Future[Any] | None = None
+        # Без фабрики связи калибровка не нужна (мост не используется): сразу к игре.
+        self._link_factory = bridge_link
+        self._link: BridgeLink | None = None
+        self._run: CalibrationRun | None = None
+        self._link_epoch = 0  # номер связи: поток значений начинается заново на новой
 
     @property
     def players_needed(self) -> int:
@@ -212,7 +252,7 @@ class StationMachine:
         match self.state:
             case Confirm():
                 return "confirming", None
-            case Starting(session_id=sid):
+            case Starting(session_id=sid) | Calibrating(session_id=sid):
                 return "calibrating", sid
             case Playing(session_id=sid):
                 return "playing", sid
@@ -271,8 +311,9 @@ class StationMachine:
 
     def retry(self) -> None:
         if isinstance(self.state, TechnicalProblem):
-            # тот же session_id: на сервере одна сессия, повтор startSession безопасен
-            self.state = Starting(self.state.session_id, self.state.players)
+            # тот же session_id: на сервере одна сессия, повтор startSession безопасен;
+            # калибровка участника сохраняется (reset только в новой сессии)
+            self.state = Starting(self.state.session_id, self.state.players, fresh=False)
 
     def back(self) -> None:
         """Шаг назад с любого экрана после ввода кода: проверка, подтверждение, игра, проблема.
@@ -288,10 +329,12 @@ class StationMachine:
                 self.state = Idle(taken=taken)
             case (
                 Starting(players=players)
+                | Calibrating(players=players)
                 | Playing(players=players)
                 | TechnicalProblem(players=players)
             ):
                 self._drop_pending()
+                self._close_link(wait=False)
                 self._runner.stop()
                 self._outbox.clear_active()
                 # Данные игрока берём с сервера заново: после перезапуска стенда в сохранённой
@@ -343,6 +386,7 @@ class StationMachine:
             self.state = Idle()
 
     def close(self) -> None:
+        self._close_link()
         self._runner.stop()
         if self._owns_executor:
             self._executor.shutdown(wait=False, cancel_futures=True)
@@ -355,6 +399,8 @@ class StationMachine:
                 self._check(self.state)
             case Starting():
                 self._start(self.state)
+            case Calibrating():
+                self._calibrate(self.state)
             case Playing():
                 outcome = self._runner.poll()
                 if outcome is not None:
@@ -439,24 +485,126 @@ class StationMachine:
             log.warning("session start failed: %s", exc)
             self._back_to_confirm(state, texts.server_error(_error_name(exc)))
             return
+        ready = Calibrating(
+            state.session_id,
+            state.players,
+            duration,
+            max_points,
+            offline,
+            default_limit,
+            state.fresh,
+        )
+        if self._link_factory is None:
+            self._launch(ready)
+        else:
+            self._open_link(ready)
+
+    # --- калибровка ---
+
+    def _open_link(self, state: Calibrating) -> None:
+        self._close_link()
+        self._link = self._link_factory() if self._link_factory else None
+        self._run = CalibrationRun(plan_for(self.discipline), fresh=state.fresh)
+        self._link_epoch += 1
+        self.state = state
+
+    def _close_link(self, *, wait: bool = True) -> None:
+        """Закрыть связь с мостом. `wait` — дождаться закрытия сокета (слот моста нужен игре);
+        без ожидания закрытие уходит в рабочий поток и не держит замок станции."""
+        link, self._link, self._run = self._link, None, None
+        if link is None:
+            return
+        if wait:
+            link.close()
+        else:
+            self._executor.submit(link.close)
+
+    def _calibrate(self, state: Calibrating) -> None:
+        link, run = self._link, self._run
+        if link is None or run is None:
+            return
+        view = link.view()
+        if view.emulated:  # эмулятору калибровка не нужна
+            self._launch(state)
+            return
+        self._apply(link, run, run.update(view, self._monotonic()))
+
+    @staticmethod
+    def _apply(link: BridgeLink, run: CalibrationRun, commands: list[Command]) -> None:
+        for command in commands:
+            sent = True
+            match command:
+                case ResetCommand():
+                    sent = link.reset()
+                case Calibrate(signal=signal, step=step):
+                    sent = link.calibrate(signal, step)
+            if not sent:  # связь оборвалась между проверкой и отправкой
+                run.command_failed(command)
+
+    def calibration_continue(self) -> None:
+        """«Дальше к игре»: только когда все датчики откалиброваны."""
+        state, link, run = self.state, self._link, self._run
+        if (
+            isinstance(state, Calibrating)
+            and link is not None
+            and run is not None
+            and run.view(link.view()).ready
+        ):
+            self._launch(state)
+
+    def calibration_restart(self) -> None:
+        """«Всё заново»: калибровка стирается, шаги идут с начала."""
+        link, run = self._link, self._run
+        if isinstance(self.state, Calibrating) and link is not None and run is not None:
+            self._apply(link, run, run.restart(link.view(), self._monotonic()))
+
+    def calibration_retry(self, key: str) -> None:
+        """Повтор шага (по id) или одного сигнала."""
+        link, run = self._link, self._run
+        if isinstance(self.state, Calibrating) and link is not None and run is not None:
+            self._apply(link, run, run.retry(key, link.view(), self._monotonic()))
+
+    def calibration_screen(self) -> CalibrationScreen | None:
+        link, run = self._link, self._run
+        if not isinstance(self.state, Calibrating) or link is None or run is None:
+            return None
+        view = link.view()
+        return CalibrationScreen(view, run.view(view))
+
+    @property
+    def signal_link(self) -> tuple[int, BridgeLink] | None:
+        """Связь с мостом, пока идёт калибровка, и её номер (для потока `/api/signals`)."""
+        if isinstance(self.state, Calibrating) and self._link is not None:
+            return self._link_epoch, self._link
+        return None
+
+    def _launch(self, state: Calibrating) -> None:
+        """Связь с мостом закрыта; запускаем игру. Сбой не должен оставлять станцию на экране."""
+        self._close_link()
         request = GameRequest(
             state.session_id,
             self.discipline,
-            duration,
+            state.duration,
             tuple(Player(p.code, p.display_name) for p in state.players),
-            max_points,
+            state.max_points,
         )
-        self._outbox.set_active(
-            ActiveSession(
-                str(state.session_id),
-                self.discipline,
-                duration,
-                tuple((p.code, p.display_name) for p in state.players),
-                max_points,
+        try:
+            self._outbox.set_active(
+                ActiveSession(
+                    str(state.session_id),
+                    self.discipline,
+                    state.duration,
+                    tuple((p.code, p.display_name) for p in state.players),
+                    state.max_points,
+                )
             )
-        )
-        self._runner.start(request)
-        self.state = Playing(state.session_id, state.players, offline, default_limit)
+            self._runner.start(request)
+        except Exception:
+            log.exception("game launch failed")
+            self._runner.stop()
+            self.state = TechnicalProblem(state.session_id, state.players, texts.LAUNCH_FAILED)
+            return
+        self.state = Playing(state.session_id, state.players, state.offline, state.default_limit)
 
     def _game_exited(self, state: Playing, outcome: GameOutcome) -> None:
         finished_at = self._clock()
