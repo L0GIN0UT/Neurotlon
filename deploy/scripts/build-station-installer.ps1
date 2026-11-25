@@ -73,6 +73,7 @@ if (-not $SkipCore) {
                 --paths launcher\src --paths shared\python\src `
                 --add-data "$repo\shared\game-launch.schema.json;shared" `
                 --add-data "$repo\shared\bridge-protocol.schema.json;shared" `
+                --add-data "$repo\shared\sensor-discovery.schema.json;shared" `
                 --collect-data jsonschema_specifications --collect-data jsonschema `
                 --exclude-module numpy --exclude-module PIL --exclude-module yaml `
                 --exclude-module pygame --exclude-module scipy --exclude-module cv2 `
@@ -104,7 +105,7 @@ if (-not $SkipCore) {
     }
 }
 if (-not (Test-Path (Join-Path $stage 'core\neurotlon-launcher.exe'))) { throw 'Нет ядра лаунчера (stage\core): соберите без -SkipCore' }
-foreach ($schema in 'game-launch', 'bridge-protocol') {
+foreach ($schema in 'game-launch', 'bridge-protocol', 'sensor-discovery') {
     if (-not (Test-Path (Join-Path $stage "core\_internal\shared\$schema.schema.json"))) { throw "В ядре лаунчера нет shared\$schema.schema.json: проверьте --add-data в сборке ядра" }
 }
 if (-not (Test-Path (Join-Path $stage 'bridge\neurotlon-bridge.exe'))) { throw 'Нет моста датчиков (stage\bridge): соберите без -SkipCore' }

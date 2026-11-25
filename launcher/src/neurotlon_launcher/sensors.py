@@ -1,4 +1,4 @@
-"""Датчики стенда: поиск через мост, серийные номера в `bridge.toml`, запуск и надзор за мостом.
+"""Датчики стенда: поиск через мост, назначение датчиков в `bridge.toml`, запуск и надзор за мостом.
 
 Мост (`neurotlon-bridge`) отдельная программа: игры берут сигналы у неё. Лаунчер запускает её
 сам, подставляет профиль по дисциплине станции и перезапускает, если она упала.
@@ -13,11 +13,20 @@ import subprocess
 import sys
 import threading
 import tomllib
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
+from neurotlon_contracts.sensor_devices import (
+    DEVICE_ROLES,
+    DeviceRef,
+    DevicesFormatError,
+    parse_devices,
+    render_devices,
+)
+
+from .discovery import DiscoveryClient, DiscoveryListener, spawn_process
 from .proc import close_job, create_kill_on_close_job
 
 log = logging.getLogger(__name__)
@@ -61,16 +70,19 @@ def roles_for(discipline: str | None) -> tuple[str, ...]:
     return ROLES.get(discipline or "", ())
 
 
-def missing_roles(discipline: str, devices: dict[str, str]) -> list[str]:
-    """Сигналы дисциплины, для которых не задан серийный номер."""
-    return [role for role in roles_for(discipline) if not devices.get(role, "").strip()]
+def _is_assigned(ref: DeviceRef | None) -> bool:
+    return ref is not None and bool(ref.address or ref.serial)
 
 
-def duplicate_serials(discipline: str, devices: dict[str, str]) -> bool:
-    values = [
-        devices[r].strip().lower() for r in roles_for(discipline) if devices.get(r, "").strip()
-    ]
-    return len(values) != len(set(values))
+def missing_roles(discipline: str, devices: Mapping[str, DeviceRef]) -> list[str]:
+    """Сигналы дисциплины, которым не назначен датчик (адрес или серийный номер)."""
+    return [role for role in roles_for(discipline) if not _is_assigned(devices.get(role))]
+
+
+def duplicate_devices(discipline: str, devices: Mapping[str, DeviceRef]) -> bool:
+    """Один датчик назначен двум сигналам: совпал адрес или серийный номер."""
+    refs = [ref for r in roles_for(discipline) if (ref := devices.get(r)) is not None]
+    return any(a.same_device(b) for i, a in enumerate(refs) for b in refs[i + 1 :])
 
 
 class Runner(Protocol):
@@ -96,10 +108,17 @@ def _run(args: Sequence[str], *, timeout: float) -> subprocess.CompletedProcess[
 class SensorService:
     """Поиск датчиков и файл `bridge.toml` рядом с настройками лаунчера."""
 
-    def __init__(self, config_dir: Path, bridge_exe: str = "", runner: Runner = _run) -> None:
+    def __init__(
+        self,
+        config_dir: Path,
+        bridge_exe: str = "",
+        runner: Runner = _run,
+        discover_args: Sequence[str] = (),
+    ) -> None:
         self._dir = config_dir
         self._exe = bridge_exe
         self._runner = runner
+        self._discover_args = tuple(discover_args)  # для разработки: ("--fake",)
 
     @property
     def available(self) -> bool:
@@ -109,23 +128,30 @@ class SensorService:
     def toml_path(self) -> Path:
         return self._dir / BRIDGE_TOML
 
-    def saved_devices(self) -> dict[str, str]:
+    def discovery_factory(self) -> Callable[[DiscoveryListener], DiscoveryClient] | None:
+        """Запуск фонового поиска `bridge --discover` для экрана настройки; `None` — моста нет."""
+        if not self._exe:
+            return None
+        args = [self._exe, "--discover", *self._discover_args]
+        return lambda listener: DiscoveryClient(spawn_process(args), listener)
+
+    def saved_devices(self) -> dict[str, DeviceRef]:
+        """Назначение из `bridge.toml`: читаются оба вида записи; нечитаемое — пусто."""
         try:
             data = tomllib.loads(self.toml_path.read_text(encoding="utf-8"))
-        except (OSError, tomllib.TOMLDecodeError):
+            raw = data.get("devices", {})
+            return parse_devices(raw) if isinstance(raw, dict) else {}
+        except (OSError, tomllib.TOMLDecodeError, DevicesFormatError):
             return {}
-        raw = data.get("devices", {})
-        return {k: str(v) for k, v in raw.items() if isinstance(v, str | int) and str(v).strip()}
 
-    def save_devices(self, devices: dict[str, str]) -> None:
-        lines = ["# Записано экраном настройки стенда. Серийные номера датчиков.", "[devices]"]
-        for role in ("eeg", "emg", "emg_left", "emg_right"):
-            serial = devices.get(role, "").strip()
-            if serial:
-                lines.append(f"{role} = {json.dumps(serial, ensure_ascii=False)}")
+    def save_devices(self, devices: Mapping[str, DeviceRef]) -> None:
+        """Записать назначение новым видом (`[devices.<роль>]`); чужие роли отбрасываются."""
+        known = {role: ref for role, ref in devices.items() if role in DEVICE_ROLES}
+        text = "# Записано экраном настройки стенда. Датчики по ролям: адрес и серийный номер.\n"
+        text += "\n" + render_devices(known)
         temp = self.toml_path.with_suffix(".toml.tmp")
         self._dir.mkdir(parents=True, exist_ok=True)
-        temp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        temp.write_text(text, encoding="utf-8")
         temp.replace(self.toml_path)
 
     def scan(self) -> tuple[list[SensorDevice], str | None]:

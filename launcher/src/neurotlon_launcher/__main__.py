@@ -48,6 +48,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="путь к neurotlon-bridge.exe, вложенному в установщик (мост датчиков)",
     )
     parser.add_argument(
+        "--bridge-fake",
+        action="store_true",
+        help="для разработки: поиск датчиков на подделках (мост с --discover --fake)",
+    )
+    parser.add_argument(
         "--setup",
         action="store_true",
         help="открыть экран настройки, даже если настройки уже есть",
@@ -141,13 +146,16 @@ def run_setup(
     detached: bool,
     games_dir: str = "",
     bridge_exe: str = "",
+    bridge_fake: bool = False,
 ) -> int:
     """Экран первой настройки: `EXIT_RESTART`, если настройки сохранены."""
     station = SetupStation(
         SetupService(
             config_path,
             games_dir=games_dir,
-            sensors=SensorService(config_path.parent, bridge_exe),
+            sensors=SensorService(
+                config_path.parent, bridge_exe, discover_args=("--fake",) if bridge_fake else ()
+            ),
         ),
         error,
     )
@@ -197,6 +205,7 @@ def main_web(args: argparse.Namespace) -> int:
         detached=args.ui_detached,
         games_dir=args.games_dir,
         bridge_exe=args.bridge_exe,
+        bridge_fake=args.bridge_fake,
     )
 
 

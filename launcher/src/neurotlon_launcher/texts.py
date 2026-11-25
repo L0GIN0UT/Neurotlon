@@ -16,8 +16,14 @@ DISCIPLINE_UNKNOWN = (
     "Нет связи с сервером, а дисциплина станции ещё неизвестна: "
     "подключитесь к сети зала и запустите заново"
 )
+SENSORS_BRIDGE_BUSY = "Мост датчиков уже запущен: остановите его, затем нажмите «Искать снова»"
+SENSORS_DISCOVERY_LOST = "Поиск датчиков остановился: нажмите «Искать снова»"
 LAUNCH_FAILED = "Не удалось запустить игру: смотрите launcher.log"
 RESTARTED = "Лаунчер был перезапущен во время игры, результата нет"
+
+
+def sensors_discovery_failed(reason: str) -> str:
+    return f"Не удалось запустить поиск датчиков: {reason}"
 
 
 def server_error(detail: str) -> str:
