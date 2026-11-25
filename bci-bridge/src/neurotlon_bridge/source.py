@@ -8,8 +8,21 @@ from typing import Literal, Protocol
 
 SensorState = Literal["connecting", "connected", "disconnected", "emulated"]
 InvalidReason = Literal["artifact", "no_contact", "disconnected", "stale", "not_calibrated"]
-CalibrationStep = Literal["rest", "contract", "baseline"]
+CalibrationStep = Literal["rest", "contract", "cycle", "baseline"]
 CalibrationStatus = Literal["running", "done", "failed"]
+Phase = Literal["tense", "relax"]
+EegMethod = Literal["emotions", "alpha"]
+Feature = Literal["burst", "emg_cycle", "baseline_duration"]
+
+# Границы `calibrate.segments` и `calibrate.duration_s` (shared/bridge-protocol.schema.json;
+# сумму длин схема выразить не может, её проверяет `protocol.calibrate_problem`).
+SEGMENTS_MIN_COUNT = 2
+SEGMENTS_MAX_COUNT = 8
+SEGMENT_MIN_S = 2.0
+SEGMENT_MAX_S = 15.0
+SEGMENTS_MAX_TOTAL_S = 60.0
+BASELINE_MIN_S = 5.0
+BASELINE_MAX_S = 30.0
 
 Clock = Callable[[], float]
 """Монотонные секунды."""
@@ -31,11 +44,22 @@ class Reading:
 
 
 @dataclass(frozen=True)
+class Segment:
+    """Отрезок шага `cycle`: напряжение или расслабление заданной длины."""
+
+    phase: Phase
+    s: float
+
+
+@dataclass(frozen=True)
 class CalibrationProgress:
     step: CalibrationStep
     status: CalibrationStatus
     progress: float = 0.0
     reason: str | None = None
+    segment: int | None = None
+    phase: Phase | None = None
+    phase_left_s: float | None = None
 
 
 class SignalSource(Protocol):

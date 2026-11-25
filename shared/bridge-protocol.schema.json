@@ -7,12 +7,16 @@
     { "$ref": "#/$defs/Sample" },
     { "$ref": "#/$defs/Sensor" },
     { "$ref": "#/$defs/Calibration" },
+    { "$ref": "#/$defs/Burst" },
     { "$ref": "#/$defs/Calibrate" },
     { "$ref": "#/$defs/Reset" }
   ],
   "$defs": {
     "SignalName": {
       "enum": ["eeg", "emg", "emg_left", "emg_right"]
+    },
+    "EmgSignalName": {
+      "enum": ["emg", "emg_left", "emg_right"]
     },
     "SensorState": {
       "enum": ["connecting", "connected", "disconnected", "emulated"]
@@ -21,7 +25,24 @@
       "enum": ["artifact", "no_contact", "disconnected", "stale", "not_calibrated"]
     },
     "CalibrationStep": {
-      "enum": ["rest", "contract", "baseline"]
+      "enum": ["rest", "contract", "cycle", "baseline"]
+    },
+    "Phase": {
+      "enum": ["tense", "relax"]
+    },
+    "EegMethod": {
+      "enum": ["emotions", "alpha"]
+    },
+    "Feature": {
+      "enum": ["burst", "emg_cycle", "baseline_duration"]
+    },
+    "Segment": {
+      "type": "object",
+      "required": ["phase", "s"],
+      "properties": {
+        "phase": { "$ref": "#/$defs/Phase" },
+        "s": { "type": "number", "minimum": 2, "maximum": 15 }
+      }
     },
     "Hello": {
       "type": "object",
@@ -38,6 +59,25 @@
             "properties": {
               "name": { "$ref": "#/$defs/SignalName" },
               "state": { "$ref": "#/$defs/SensorState" }
+            }
+          }
+        },
+        "features": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/Feature" }
+        },
+        "eeg_method": { "$ref": "#/$defs/EegMethod" }
+      },
+      "dependentSchemas": {
+        "eeg_method": {
+          "properties": {
+            "signals": {
+              "contains": {
+                "type": "object",
+                "required": ["name"],
+                "properties": { "name": { "const": "eeg" } }
+              }
             }
           }
         }
@@ -88,10 +128,24 @@
         "step": { "$ref": "#/$defs/CalibrationStep" },
         "status": { "enum": ["running", "done", "failed"] },
         "progress": { "type": "number", "minimum": 0, "maximum": 1 },
-        "reason": { "type": "string", "maxLength": 200 }
+        "reason": { "type": "string", "maxLength": 200 },
+        "segment": { "type": "integer", "minimum": 1 },
+        "phase": { "$ref": "#/$defs/Phase" },
+        "phase_left_s": { "type": "number", "minimum": 0, "maximum": 15 }
       },
       "if": { "properties": { "status": { "const": "failed" } } },
       "then": { "required": ["reason"] }
+    },
+    "Burst": {
+      "type": "object",
+      "required": ["type", "signal", "t_ms", "seq"],
+      "properties": {
+        "type": { "const": "burst" },
+        "signal": { "$ref": "#/$defs/EmgSignalName" },
+        "t_ms": { "type": "integer", "minimum": 0 },
+        "seq": { "type": "integer", "minimum": 0 },
+        "rise": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
     },
     "Calibrate": {
       "type": "object",
@@ -99,7 +153,30 @@
       "properties": {
         "type": { "const": "calibrate" },
         "signal": { "$ref": "#/$defs/SignalName" },
-        "step": { "$ref": "#/$defs/CalibrationStep" }
+        "step": { "$ref": "#/$defs/CalibrationStep" },
+        "segments": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 8,
+          "items": { "$ref": "#/$defs/Segment" },
+          "allOf": [
+            {
+              "contains": {
+                "type": "object",
+                "required": ["phase"],
+                "properties": { "phase": { "const": "tense" } }
+              }
+            },
+            {
+              "contains": {
+                "type": "object",
+                "required": ["phase"],
+                "properties": { "phase": { "const": "relax" } }
+              }
+            }
+          ]
+        },
+        "duration_s": { "type": "number", "minimum": 5, "maximum": 30 }
       }
     },
     "Reset": {
