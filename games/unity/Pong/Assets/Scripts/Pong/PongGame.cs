@@ -289,8 +289,12 @@ namespace Neurotlon.Games.Pong
         }
 
         // Верх экрана игроков: разделитель половин, цветные метки, имена и счёт. Общий для матча и обучения.
+        const string PracticeLabel = "Тренировка";
+        const float PracticeFontSize = 44f;
+
         void DrawScoreHeader()
         {
+            bool practice = CurrentStage == Stage.Tutorial;     // в обучении очки не считаются: вместо счёта подпись
             if (displays != null && !displays.ShowsPlayers) return;     // в виде «только зрители» подсказок игроков нет
             if (hudName == null)
             {
@@ -311,15 +315,18 @@ namespace Neurotlon.Games.Pong
             hudName.normal.textColor = Color.white;
             hudScore.normal.textColor = Color.white;
             // счёт по ширине текста строго по центру; имена отодвинуты на половину его ширины и запас
-            string score = PongScoreLayout.Text(ShownScoreLeft, ShownScoreRight);
-            float scoreWidth = PongScoreLayout.Width(score);
+            string score = practice ? PracticeLabel : PongScoreLayout.Text(ShownScoreLeft, ShownScoreRight);
+            float scoreWidth = practice ? NeurotlonHud.TextWidth(score, PracticeFontSize) : PongScoreLayout.Width(score);
             float offset = PongScoreLayout.NameOffset(score);
             float nameWidth = Mathf.Min(Mathf.Max(160f, area.width * 0.2f), area.width * 0.5f - offset - 8f);
             hudName.alignment = TextAnchor.UpperRight;
             GUI.Label(new Rect(cx - offset - nameWidth, area.y + 26f, nameWidth, 44f), NameOf(playerLeft), hudName);
             hudName.alignment = TextAnchor.UpperLeft;
             GUI.Label(new Rect(cx + offset, area.y + 26f, nameWidth, 44f), NameOf(playerRight), hudName);
-            GUI.Label(new Rect(cx - scoreWidth * 0.5f, area.y + 10f, scoreWidth, 110f), score, hudScore);
+            int scoreFont = hudScore.fontSize;
+            if (practice) hudScore.fontSize = Mathf.RoundToInt(PracticeFontSize);
+            GUI.Label(new Rect(cx - scoreWidth * 0.5f, area.y + (practice ? 36f : 10f), scoreWidth, 110f), score, hudScore);
+            hudScore.fontSize = scoreFont;
         }
 
         // Экран проверки: у каждого игрока своя половина, два пункта и отметка «готово». Значений сигнала и шкал нет.
@@ -409,8 +416,8 @@ namespace Neurotlon.Games.Pong
         // --- внутреннее ---
 
         // Счёт для показа: --debug-score подменяет только экран, в BuildResult идут настоящие очки правил.
-        int ShownScoreLeft { get { return hasDebugScore ? debugScoreLeft : rules != null ? rules.ScoreLeft : 0; } }
-        int ShownScoreRight { get { return hasDebugScore ? debugScoreRight : rules != null ? rules.ScoreRight : 0; } }
+        int ShownScoreLeft { get { return hasDebugScore ? debugScoreLeft : rules != null && CurrentStage != Stage.Tutorial ? rules.ScoreLeft : 0; } }
+        int ShownScoreRight { get { return hasDebugScore ? debugScoreRight : rules != null && CurrentStage != Stage.Tutorial ? rules.ScoreRight : 0; } }
 
         void ResolvePlayers()
         {
