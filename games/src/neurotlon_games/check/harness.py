@@ -8,7 +8,7 @@ from types import TracebackType
 from neurotlon_bridge.emulator import EmulatedSource
 from neurotlon_bridge.scripted import ScriptedInput
 from neurotlon_bridge.server import BridgeServer, BridgeThread
-from neurotlon_bridge.source import CalibrationStep, Reading
+from neurotlon_bridge.source import CalibrationStep, Reading, Segment
 
 
 class RecordingSource(EmulatedSource):
@@ -28,10 +28,16 @@ class RecordingSource(EmulatedSource):
         self.reads += 1
         return super().read(now_ms)
 
-    def start_calibration(self, signal: str, step: CalibrationStep) -> None:
+    def start_calibration(
+        self,
+        signal: str,
+        step: CalibrationStep,
+        segments: tuple[Segment, ...] | None = None,
+        duration_s: float | None = None,
+    ) -> None:
         self.calibrations.append((signal, step))
         self.last_calibration_at = time.monotonic()
-        super().start_calibration(signal, step)
+        super().start_calibration(signal, step, segments, duration_s)
 
 
 class CheckBridge:

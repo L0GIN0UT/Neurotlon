@@ -10,6 +10,7 @@ class FakeEngine:
         self.started = False
         self.percent = 0
         self.pushed = 0
+        self.length_s: int | None = None
         self.closed = False
         self.res = EmotionsResult(0.5, True, False)
 
@@ -20,6 +21,9 @@ class FakeEngine:
     @property
     def calibration_percent(self) -> int:
         return self.percent
+
+    def set_calibration_length(self, seconds: int) -> None:
+        self.length_s = seconds
 
     def start_calibration(self) -> None:
         self.started = True
@@ -154,3 +158,22 @@ def test_empty_push_is_ignored() -> None:
     proc.start_calibration("baseline")
     proc.push(np.zeros((0, 4)))
     assert engines[0].pushed == 0
+
+
+def test_baseline_duration_is_passed_to_the_engine_before_start() -> None:
+    proc, engines = make()
+    proc.start_calibration("baseline", 15.0)
+    assert engines[0].length_s == 15
+    assert engines[0].started
+
+
+def test_baseline_without_duration_keeps_the_engine_default() -> None:
+    proc, engines = make()
+    proc.start_calibration("baseline")
+    assert engines[0].length_s is None
+
+
+def test_baseline_duration_is_rounded_to_whole_seconds() -> None:
+    proc, engines = make()
+    proc.start_calibration("baseline", 12.4)
+    assert engines[0].length_s == 12

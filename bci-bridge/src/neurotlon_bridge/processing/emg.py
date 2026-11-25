@@ -13,15 +13,29 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy import signal as sps
 
-from ..source import BurstEvent, CalibrationProgress, CalibrationStep, Reading
+from ..source import (
+    EMG_STEPS,
+    MAX_PENDING_BURSTS,
+    SEGMENT_MAX_S,
+    SEGMENT_MIN_S,
+    SEGMENTS_MAX_COUNT,
+    SEGMENTS_MAX_TOTAL_S,
+    BurstEvent,
+    CalibrationProgress,
+    CalibrationStep,
+    Reading,
+    Segment,
+)
 from .burst import BurstConfig, BurstDetector
+from .cycle import CycleTimeline, default_segments
 
 Floats = NDArray[np.float64]
 
-EMG_STEPS: frozenset[CalibrationStep] = frozenset({"rest", "contract"})
 MIN_REST_POINTS = 5
 NO_DATA_GRACE_S = 5.0
-MAX_PENDING_BURSTS = 64
+PEAK_PERCENTILE = 90.0
+MAD_TO_SIGMA = 1.4826
+WEAK_REASON = "сокращение слабое, нет отличия от покоя"
 
 
 @dataclass(frozen=True)
@@ -39,7 +53,36 @@ class EmgConfig:
     calib_contractions: int = 3
     calib_contraction_s: float = 3.0
     calib_pause_s: float = 1.0
-    calib_min_ratio: float = 1.0
+    calib_min_ratio: float = 2.0
+    calib_noise_k: float = 4.0
+    cycle_tense_s: float = 5.0
+    cycle_relax_s: float = 5.0
+    cycle_repeats: int = 2
+    transition_s: float = 1.5
+
+    def __post_init__(self) -> None:
+        if self.cycle_tense_s <= 0 or self.cycle_relax_s <= 0:
+            raise ValueError("cycle_tense_s и cycle_relax_s: нужны положительные числа")
+        if self.cycle_repeats < 1:
+            raise ValueError("cycle_repeats: нужно целое число не меньше 1")
+        if not 0 <= self.transition_s < SEGMENT_MIN_S:
+            raise ValueError(
+                f"transition_s: нужно число от 0 до {SEGMENT_MIN_S:g} с (короче сегмента)"
+            )
+        if self.calib_noise_k < 0:
+            raise ValueError("calib_noise_k: нужно число не меньше нуля")
+        for name in ("cycle_tense_s", "cycle_relax_s"):
+            if not SEGMENT_MIN_S <= getattr(self, name) <= SEGMENT_MAX_S:
+                raise ValueError(
+                    f"{name}: сегмент должен быть от {SEGMENT_MIN_S:g} до {SEGMENT_MAX_S:g} с"
+                )
+        if 2 * self.cycle_repeats > SEGMENTS_MAX_COUNT:
+            raise ValueError(
+                f"cycle_repeats: не больше {SEGMENTS_MAX_COUNT // 2} (по два сегмента)"
+            )
+        total = self.cycle_repeats * (self.cycle_tense_s + self.cycle_relax_s)
+        if total > SEGMENTS_MAX_TOTAL_S:
+            raise ValueError(f"шаг cycle длиннее {SEGMENTS_MAX_TOTAL_S:g} с: уменьшите ритм")
 
 
 def build_filters(cfg: EmgConfig, fs: float) -> tuple[Floats, Floats | None]:
@@ -104,6 +147,7 @@ class _Run:
     duration: float
     started: float | None = None
     points: list[tuple[float, float]] | None = None
+    timeline: CycleTimeline | None = None
 
 
 class EmgProcessor:
@@ -162,6 +206,8 @@ class EmgProcessor:
     def set_contact(self, ok: bool) -> None:
         """Датчик отключён или нет контакта: события резкого сокращения не выдаются."""
         self._contact = ok
+        if not ok:
+            self._detector.skip(0)  # старые уровни не должны участвовать во взводе после возврата
 
     def drain_bursts(self) -> list[BurstEvent]:
         """События резкого сокращения с прошлого вызова."""
@@ -178,7 +224,13 @@ class EmgProcessor:
         self._drop_bursts()
 
     # --- калибровка ---
-    def start_calibration(self, step: CalibrationStep, now: float) -> None:
+    def start_calibration(
+        self,
+        step: CalibrationStep,
+        now: float,
+        segments: tuple[Segment, ...] | None = None,
+    ) -> None:
+        """`segments` — ритм шага `cycle`; без него берётся ритм из настроек."""
         if step not in EMG_STEPS:
             raise ValueError(f"шаг {step} не подходит для ЭМГ")
         if step == "contract" and self.rest is None:
@@ -186,13 +238,18 @@ class EmgProcessor:
             self._status = CalibrationProgress(step, "failed", 0.0, "сначала шаг rest")
             return
         self.peak = None  # любая новая калибровка делает старый максимум недействительным
+        timeline: CycleTimeline | None = None
         if step == "rest":
             self.rest = None
             duration = self.cfg.calib_rest_s
+        elif step == "cycle":
+            self.rest = None
+            timeline = CycleTimeline(segments or self._default_segments())
+            duration = timeline.total_s
         else:
             duration = self.cfg.calib_contractions * self._segment_s()
-        self._run = _Run(step, now, duration, None, [])
-        self._status = CalibrationProgress(step, "running", 0.0)
+        self._run = _Run(step, now, duration, None, [], timeline)
+        self._status = self._running(self._run, 0.0, 0.0)
 
     def abort_calibration(self, reason: str) -> None:
         if self._run is not None:
@@ -204,6 +261,20 @@ class EmgProcessor:
 
     def _segment_s(self) -> float:
         return self.cfg.calib_contraction_s + self.cfg.calib_pause_s
+
+    def _default_segments(self) -> tuple[Segment, ...]:
+        cfg = self.cfg
+        return default_segments(cfg.cycle_tense_s, cfg.cycle_relax_s, cfg.cycle_repeats)
+
+    @staticmethod
+    def _running(run: _Run, progress: float, elapsed_s: float) -> CalibrationProgress:
+        """Ход шага; у `cycle` ещё номер сегмента, фаза и сколько секунд до её конца."""
+        if run.timeline is None:
+            return CalibrationProgress(run.step, "running", progress)
+        pos = run.timeline.at(elapsed_s)
+        return CalibrationProgress(
+            run.step, "running", progress, None, pos.segment, pos.phase, pos.phase_left_s
+        )
 
     # --- поток данных ---
     def push(self, samples_uv: Floats, now: float) -> None:
@@ -252,9 +323,10 @@ class EmgProcessor:
             if now - run.requested > run.duration + self.cfg.settle_s + NO_DATA_GRACE_S:
                 self.abort_calibration("нет данных от датчика")
             return
-        progress = (now - run.started) / run.duration
+        elapsed = now - run.started
+        progress = elapsed / run.duration
         if progress < 1.0:
-            self._status = CalibrationProgress(run.step, "running", max(0.0, progress))
+            self._status = self._running(run, max(0.0, progress), max(0.0, elapsed))
             return
         self._run = None
         self._finish(run)
@@ -267,6 +339,9 @@ class EmgProcessor:
                 return
             self.rest = float(np.median([v for _, v in points]))
             self._status = CalibrationProgress("rest", "done", 1.0)
+            return
+        if run.step == "cycle":
+            self._finish_cycle(run, points)
             return
         assert run.started is not None
         assert self.rest is not None
@@ -287,6 +362,40 @@ class EmgProcessor:
             return
         self.peak = peak
         self._status = CalibrationProgress("contract", "done", 1.0)
+
+    def _finish_cycle(self, run: _Run, points: list[tuple[float, float]]) -> None:
+        """Покой — медиана по расслаблениям, максимум — 90-й перцентиль по напряжениям.
+
+        Сбой, если максимум не выше покоя в `calib_min_ratio` раз или отличается от покоя меньше,
+        чем на `calib_noise_k` разбросов покоя: иначе шум без сокращения прошёл бы калибровку.
+
+        Первые `transition_s` каждого сегмента (мышца ещё меняет состояние) в расчёт не идут.
+        """
+        assert run.started is not None
+        assert run.timeline is not None
+        relax: list[float] = []
+        tense: list[float] = []
+        for span in run.timeline.spans:
+            lo = run.started + span.start_s + self.cfg.transition_s
+            hi = run.started + span.end_s
+            part = [v for t, v in points if lo <= t < hi]
+            (relax if span.phase == "relax" else tense).extend(part)
+        if len(relax) < MIN_REST_POINTS:
+            self._status = CalibrationProgress("cycle", "failed", 0.0, "нет данных в покое")
+            return
+        if not tense:
+            self._status = CalibrationProgress("cycle", "failed", 0.0, "нет данных при напряжении")
+            return
+        rest = float(np.median(relax))
+        peak = float(np.percentile(tense, PEAK_PERCENTILE))
+        spread = MAD_TO_SIGMA * float(np.median(np.abs(np.asarray(relax) - rest)))
+        too_close = peak - rest < self.cfg.calib_noise_k * spread
+        if peak <= rest * self.cfg.calib_min_ratio or too_close:
+            self._status = CalibrationProgress("cycle", "failed", 0.0, WEAK_REASON)
+            return
+        self.rest = rest
+        self.peak = peak
+        self._status = CalibrationProgress("cycle", "done", 1.0)
 
     # --- выход ---
     def reading(self) -> Reading:

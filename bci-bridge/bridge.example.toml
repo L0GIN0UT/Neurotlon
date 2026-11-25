@@ -24,7 +24,12 @@ calib_rest_s = 5.0         # шаг rest
 calib_contractions = 3     # шаг contract: столько сокращений
 calib_contraction_s = 3.0  # длительность одного сокращения
 calib_pause_s = 1.0        # пауза между сокращениями
-calib_min_ratio = 1.0      # максимум должен быть выше покоя во столько раз (1.0 — просто выше)
+calib_min_ratio = 2.0      # максимум (90-й перцентиль напряжения) должен быть выше покоя во столько раз
+calib_noise_k = 4.0        # и отличаться от покоя не меньше чем на столько разбросов покоя
+cycle_tense_s = 5.0        # шаг cycle по умолчанию: напряжение, расслабление, и так cycle_repeats раз
+cycle_relax_s = 5.0
+cycle_repeats = 2
+transition_s = 1.5         # первые секунды каждого сегмента cycle в расчёт не идут
 
 [burst]                    # резкое сокращение мышцы: запускает бросок и удар в дартсе и футболе
 arm_level = 0.3            # взвод: уровень ниже этого значения
@@ -45,5 +50,5 @@ fft_window = 1000
 n_first_sec_skipped = 4
 num_wins_for_quality_avg = 125
 ampl_art_extremum_border = 25
-calibration_s = 8          # шаг baseline
+calibration_s = 12         # шаг baseline (глаза открыты), игра может задать свою длительность 5..30 с
 skip_wins_after_artifact = 10

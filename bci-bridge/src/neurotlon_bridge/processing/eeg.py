@@ -13,9 +13,7 @@ from typing import Protocol
 import numpy as np
 from numpy.typing import NDArray
 
-from ..source import CalibrationProgress, CalibrationStep, Reading
-
-EEG_STEPS: frozenset[CalibrationStep] = frozenset({"baseline"})
+from ..source import EEG_STEPS, CalibrationProgress, CalibrationStep, Reading
 
 
 @dataclass(frozen=True)
@@ -26,7 +24,7 @@ class EegConfig:
     n_first_sec_skipped: int = 4
     num_wins_for_quality_avg: int = 125
     ampl_art_extremum_border: int = 25
-    calibration_s: int = 8
+    calibration_s: int = 12
     skip_wins_after_artifact: int = 10
 
 
@@ -45,6 +43,10 @@ class EmotionsEngine(Protocol):
 
     @property
     def calibration_percent(self) -> int: ...
+
+    def set_calibration_length(self, seconds: int) -> None:
+        """Длительность калибровки; вызывается до `start_calibration`."""
+        ...
 
     def start_calibration(self) -> None: ...
 
@@ -65,11 +67,14 @@ class EegProcessor:
         self._status: CalibrationProgress | None = None
         self._result: EmotionsResult | None = None
 
-    def start_calibration(self, step: CalibrationStep) -> None:
+    def start_calibration(self, step: CalibrationStep, duration_s: float | None = None) -> None:
+        """`duration_s=None` — длительность из настроек (`EegConfig.calibration_s`)."""
         if step not in EEG_STEPS:
             raise ValueError(f"шаг {step} не подходит для ЭЭГ")
         self._close_engine()  # новый объект на каждую калибровку
         engine = self._factory()
+        if duration_s is not None:
+            engine.set_calibration_length(max(1, round(duration_s)))
         engine.start_calibration()
         self._engine = engine
         self._result = None

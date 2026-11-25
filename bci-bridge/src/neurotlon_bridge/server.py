@@ -17,11 +17,12 @@ from .source import (
     Feature,
     SensorState,
     SignalSource,
+    steps_for,
 )
 
 log = logging.getLogger(__name__)
 
-FEATURES: tuple[Feature, ...] = ("burst",)
+FEATURES: tuple[Feature, ...] = ("burst", "emg_cycle", "baseline_duration")
 
 
 @dataclass
@@ -157,10 +158,22 @@ class BridgeServer:
                 continue
             match msg:
                 case protocol.Calibrate():
+                    problem = self._request_problem(msg)
+                    if problem is not None:
+                        log.warning("calibrate отклонён: %s", problem)
+                        failed = protocol.Calibration(msg.signal, msg.step, "failed", None, problem)
+                        await self._write(writer, protocol.encode(failed))
+                        continue
+                    segments = msg.segments if msg.step == "cycle" else None
+                    duration_s = msg.duration_s if msg.step == "baseline" else None
                     try:
                         # вызов может блокировать (замки обработчиков): не в цикле событий
                         await asyncio.to_thread(
-                            self._source.start_calibration, msg.signal, msg.step
+                            self._source.start_calibration,
+                            msg.signal,
+                            msg.step,
+                            segments,
+                            duration_s,
                         )
                     except ValueError as exc:
                         log.warning("calibrate проигнорирован: %s", exc)
@@ -178,6 +191,14 @@ class BridgeServer:
                         tracking.calibrations[name] = None
                 case _:
                     pass
+
+    def _request_problem(self, msg: protocol.Calibrate) -> str | None:
+        """Почему запрос нельзя выполнить; ответ `failed` идущую калибровку не трогает."""
+        if msg.signal not in self._source.signals():
+            return f"сигнала {msg.signal} нет в профиле"
+        if msg.step not in steps_for(msg.signal):
+            return f"шаг {msg.step} не подходит для {msg.signal}"
+        return protocol.calibrate_problem(msg)
 
     async def _report_failure(
         self, writer: asyncio.StreamWriter, signal: str, step: CalibrationStep, exc: Exception
@@ -238,12 +259,18 @@ class BridgeServer:
                 continue
             tracking.calibrations[name] = cur
             tracking.calibration_sent_at[name] = now
-            progress = cur.progress if cur.status == "running" else None
-            out.append(
-                protocol.encode(
-                    protocol.Calibration(name, cur.step, cur.status, progress, cur.reason)
-                )
+            running = cur.status == "running"
+            message = protocol.Calibration(
+                name,
+                cur.step,
+                cur.status,
+                cur.progress if running else None,
+                cur.reason,
+                cur.segment if running else None,
+                cur.phase if running else None,
+                cur.phase_left_s if running else None,
             )
+            out.append(protocol.encode(message))
         return out
 
 

@@ -17,15 +17,18 @@ import numpy as np
 from .config import BridgeConfig, required_devices
 from .devices.base import DeviceBackend, DeviceKind
 from .devices.sdk_sensor import SdkSensor
-from .processing.eeg import EEG_STEPS, EegProcessor, EmotionsEngine
-from .processing.emg import EMG_STEPS, EmgProcessor
+from .processing.eeg import EegProcessor, EmotionsEngine
+from .processing.emg import EmgProcessor
 from .source import (
+    EEG_STEPS,
+    EMG_STEPS,
     PROFILES,
     BurstEvent,
     CalibrationProgress,
     CalibrationStep,
     Clock,
     Reading,
+    Segment,
     SensorState,
 )
 
@@ -132,7 +135,12 @@ class _Channel:
     def _reading(self) -> Reading:
         raise NotImplementedError
 
-    def start_calibration(self, step: CalibrationStep) -> None:
+    def start_calibration(
+        self,
+        step: CalibrationStep,
+        segments: tuple[Segment, ...] | None,
+        duration_s: float | None,
+    ) -> None:
         raise NotImplementedError
 
     def calibration_status(self) -> CalibrationProgress | None:
@@ -176,11 +184,16 @@ class _EmgChannel(_Channel):
     def _reading(self) -> Reading:
         return self._proc.reading()
 
-    def start_calibration(self, step: CalibrationStep) -> None:
+    def start_calibration(
+        self,
+        step: CalibrationStep,
+        segments: tuple[Segment, ...] | None,
+        duration_s: float | None,
+    ) -> None:
         if step not in EMG_STEPS:
             raise ValueError(f"шаг {step} не подходит для {self.name}")
         with self._lock:
-            self._proc.start_calibration(step, self._clock())
+            self._proc.start_calibration(step, self._clock(), segments)
 
     def calibration_status(self) -> CalibrationProgress | None:
         with self._lock:
@@ -221,11 +234,16 @@ class _EegChannel(_Channel):
         with self._lock:
             self._proc.close()
 
-    def start_calibration(self, step: CalibrationStep) -> None:
+    def start_calibration(
+        self,
+        step: CalibrationStep,
+        segments: tuple[Segment, ...] | None,
+        duration_s: float | None,
+    ) -> None:
         if step not in EEG_STEPS:
             raise ValueError(f"шаг {step} не подходит для {self.name}")
         with self._lock:
-            self._proc.start_calibration(step)
+            self._proc.start_calibration(step, duration_s)
 
     def calibration_status(self) -> CalibrationProgress | None:
         with self._lock:
@@ -323,8 +341,14 @@ class HardwareSource:
             return "connected"
         return "connecting" if state == "connecting" else "disconnected"
 
-    def start_calibration(self, signal: str, step: CalibrationStep) -> None:
-        self._channel(signal).start_calibration(step)
+    def start_calibration(
+        self,
+        signal: str,
+        step: CalibrationStep,
+        segments: tuple[Segment, ...] | None = None,
+        duration_s: float | None = None,
+    ) -> None:
+        self._channel(signal).start_calibration(step, segments, duration_s)
 
     def calibration_status(self, signal: str) -> CalibrationProgress | None:
         return self._channel(signal).calibration_status()

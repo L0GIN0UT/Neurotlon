@@ -112,3 +112,29 @@ def test_example_file_burst_section_matches_defaults() -> None:
 def test_burst_section_rejects_bad_values(section: dict[str, object]) -> None:
     with pytest.raises(ConfigError):
         parse_config({"burst": section})
+
+
+def test_emg_cycle_keys() -> None:
+    defaults = BridgeConfig().emg
+    assert (defaults.cycle_tense_s, defaults.cycle_relax_s, defaults.cycle_repeats) == (5.0, 5.0, 2)
+    assert defaults.transition_s == 1.5
+    config = parse_config(
+        {"emg": {"cycle_tense_s": 4, "cycle_repeats": 3, "transition_s": 1, "calib_min_ratio": 2}}
+    )
+    assert config.emg.cycle_tense_s == 4.0
+    assert config.emg.cycle_repeats == 3
+    assert config.emg.transition_s == 1.0
+    assert config.emg.calib_min_ratio == 2.0
+
+
+@pytest.mark.parametrize(
+    "emg",
+    [{"cycle_repeats": 0}, {"cycle_repeats": 1.5}, {"cycle_tense_s": 0}, {"transition_s": -1}],
+)
+def test_emg_cycle_keys_reject_bad_values(emg: dict[str, object]) -> None:
+    with pytest.raises(ConfigError):
+        parse_config({"emg": emg})
+
+
+def test_baseline_default_is_twelve_seconds() -> None:
+    assert BridgeConfig().eeg.calibration_s == 12

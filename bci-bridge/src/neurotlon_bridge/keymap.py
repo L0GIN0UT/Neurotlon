@@ -7,12 +7,14 @@ _DARTS_FOOTBALL = {
     "s": "eeg_down",
     "a": "eeg_artifact",
     "space": "emg",
+    "f": "calib_fail",
 }
 _PONG = {
     "left shift": "emg_left",
     "q": "emg_left",
     "right shift": "emg_right",
     "p": "emg_right",
+    "f": "calib_fail",
 }
 
 KEY_MAPS: dict[str, dict[str, str]] = {
@@ -28,6 +30,7 @@ HINTS: dict[str, str] = {
     "emg": "Пробел: сокращение мышцы",
     "emg_left": "Левый Shift / Q: левая мышца",
     "emg_right": "Правый Shift / P: правая мышца",
+    "calib_fail": "F (держать): калибровка завершится сбоем",
 }
 
 
