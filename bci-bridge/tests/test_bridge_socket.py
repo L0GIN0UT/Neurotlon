@@ -382,3 +382,98 @@ def test_thread_stop_without_start_is_safe() -> None:
 def test_client_does_not_import_pygame() -> None:
     code = "import sys, neurotlon_bridge.client; sys.exit('pygame' in sys.modules)"
     assert subprocess.run([sys.executable, "-c", code], check=False).returncode == 0
+
+
+def press(env: Env, release_s: float = 1.5) -> None:
+    """Расслабить мышцу, затем резко сжать: одно событие в эмуляторе."""
+    env.source.set_keys(set())
+    env.source.tick(release_s)
+    env.source.set_keys({"emg"})
+    env.source.tick(1.0)
+    env.source.set_keys(set())
+
+
+def test_hello_announces_features(env: Env) -> None:
+    conn = env.raw()
+    try:
+        hello = conn.next_message()
+        assert isinstance(hello, protocol.Hello)
+        assert hello.features == ("burst",)
+    finally:
+        conn.close()
+
+
+def test_burst_reaches_the_client_with_growing_seq(env: Env) -> None:
+    client = env.client()
+    try:
+        assert wait_for(lambda: "burst" in client.features)
+        press(env)
+        press(env)
+        got: list[protocol.Burst] = []
+
+        def collect() -> bool:
+            got.extend(client.bursts())
+            return len(got) >= 2
+
+        assert wait_for(collect)
+        assert [b.signal for b in got] == ["emg", "emg"]
+        assert [b.seq for b in got] == [1, 2]
+        assert got[0].t_ms <= got[1].t_ms
+        assert got[0].rise is not None and 0.0 <= got[0].rise <= 1.0
+    finally:
+        client.close()
+
+
+def test_burst_comes_after_the_sample_of_the_same_cycle(env: Env) -> None:
+    conn = env.raw()
+    try:
+        assert isinstance(conn.next_message(), protocol.Hello)
+        assert isinstance(conn.next_message(), protocol.Sample)
+        press(env)
+        previous: protocol.Message | None = None
+        while True:
+            msg = conn.next_message()
+            assert msg is not None
+            if isinstance(msg, protocol.Burst):
+                break
+            previous = msg
+        assert isinstance(previous, protocol.Sample)
+    finally:
+        conn.close()
+
+
+def test_new_client_does_not_get_old_bursts_and_seq_starts_over(env: Env) -> None:
+    press(env)  # игры ещё нет: событие остаётся в очереди источника
+    first = env.client()
+    try:
+        assert wait_for(lambda: "burst" in first.features)
+        time.sleep(0.2)
+        assert first.bursts() == []
+        press(env)
+        got: list[protocol.Burst] = []
+
+        def collect() -> bool:
+            got.extend(first.bursts())
+            return len(got) >= 1
+
+        assert wait_for(collect)
+        assert got[0].seq == 1
+    finally:
+        first.close()
+    press(env)  # между играми
+    second = env.client()
+    try:
+        assert wait_for(lambda: "burst" in second.features)
+        time.sleep(0.2)
+        assert second.bursts() == []
+        press(env)
+        got2: list[protocol.Burst] = []
+
+        def collect2() -> bool:
+            got2.extend(second.bursts())
+            return len(got2) >= 1
+
+        assert wait_for(collect2)
+        assert got2[0].seq == 1
+    finally:
+        second.close()

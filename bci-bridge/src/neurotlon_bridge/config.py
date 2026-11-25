@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .processing.burst import BurstConfig
 from .processing.eeg import EegConfig
 from .processing.emg import EmgConfig
 from .source import PROFILES
@@ -28,6 +29,7 @@ class BridgeConfig:
     scan_s: float = DEFAULT_SCAN_S
     emg: EmgConfig = field(default_factory=EmgConfig)
     eeg: EegConfig = field(default_factory=EegConfig)
+    burst: BurstConfig = field(default_factory=BurstConfig)
 
 
 def default_config_path() -> Path | None:
@@ -58,7 +60,7 @@ def load_config(path: Path | None) -> BridgeConfig:
 
 
 def parse_config(data: dict[str, Any]) -> BridgeConfig:
-    unknown = set(data) - {"devices", "emg", "eeg"}
+    unknown = set(data) - {"devices", "emg", "eeg", "burst"}
     if unknown:
         raise ConfigError(f"неизвестные разделы: {', '.join(sorted(unknown))}")
     devices_raw = dict(data.get("devices", {}))
@@ -78,6 +80,7 @@ def parse_config(data: dict[str, Any]) -> BridgeConfig:
         scan_s=float(scan_s),
         emg=_section(EmgConfig, data.get("emg", {}), "emg"),
         eeg=_section(EegConfig, data.get("eeg", {}), "eeg"),
+        burst=_section(BurstConfig, data.get("burst", {}), "burst"),
     )
 
 
@@ -99,7 +102,10 @@ def _section[T](cls: type[T], raw: dict[str, Any], name: str) -> T:
             if not isinstance(value, int | float):
                 raise ConfigError(f"[{name}] {key}: нужно число")
             values[key] = float(value)
-    return cls(**values)
+    try:
+        return cls(**values)
+    except ValueError as exc:
+        raise ConfigError(f"[{name}] {exc}") from exc
 
 
 def required_devices(profile: str, config: BridgeConfig) -> dict[str, str]:

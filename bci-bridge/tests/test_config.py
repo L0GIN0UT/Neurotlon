@@ -81,3 +81,34 @@ def test_default_path_prefers_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     (tmp_path / "bridge.toml").write_text('[devices]\nemg = "Z"\n', encoding="utf-8")
     assert default_config_path() == tmp_path / "bridge.toml"
     assert load_config(None).devices == {"emg": "Z"}
+
+
+def test_burst_defaults_and_overrides() -> None:
+    assert BridgeConfig().burst.arm_window_ms == 400.0
+    config = parse_config({"burst": {"min_rise": 0.5, "confirm_points": 4, "release_ms": 100}})
+    assert config.burst.min_rise == 0.5
+    assert config.burst.confirm_points == 4
+    assert config.burst.release_ms == 100.0
+    assert config.burst.fire_level == 0.5  # остальное по умолчанию
+
+
+def test_example_file_burst_section_matches_defaults() -> None:
+    assert load_config(EXAMPLE).burst == BridgeConfig().burst
+
+
+@pytest.mark.parametrize(
+    "section",
+    [
+        {"nope": 1},
+        {"min_rise": "0.4"},
+        {"min_rise": True},
+        {"confirm_points": 2.5},
+        {"confirm_points": 0},
+        {"arm_window_ms": 0},
+        {"fire_level": 2},
+        {"min_interval_ms": -5},
+    ],
+)
+def test_burst_section_rejects_bad_values(section: dict[str, object]) -> None:
+    with pytest.raises(ConfigError):
+        parse_config({"burst": section})
