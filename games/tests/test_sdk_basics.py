@@ -249,7 +249,7 @@ def test_phases_match_protocol() -> None:
 def test_instruction_texts_follow_12_second_rhythm() -> None:
     assert instruction("rest", 0.3) == TEXT_REST
     assert instruction("baseline", 0.3) == TEXT_BASELINE
-    assert TEXT_REST == "Расслабьте руку"
+    assert TEXT_REST == "Расслабьте мышцу с датчиком"
     assert TEXT_BASELINE == "Закройте глаза и расслабьтесь"
     by_second = {
         0.5: TEXT_SQUEEZE,

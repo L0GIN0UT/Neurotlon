@@ -119,7 +119,7 @@ namespace Neurotlon.Games.Football
         }
     }
 
-    // Общая часть «прицельных» элементов (передача и удар): три попытки подряд. Прицел гуляет по цели, бросок — сжатие ноги.
+    // Общая часть «прицельных» элементов (передача и удар): три попытки подряд. Прицел гуляет по цели, бросок — напряжение мышцы.
     // Очки элемента из суммы попыток (каждая 0…2): 5–6 → 2, 2–4 → 1, меньше → 0.
     public abstract class AimedElement : ElementBase
     {
@@ -186,7 +186,7 @@ namespace Neurotlon.Games.Football
                     if (pauseLeft <= 0f)
                     {
                         Phase = PhaseKind.Aiming;
-                        armed = false;                                    // новая попытка только после расслабления ноги
+                        armed = false;                                    // новая попытка только после расслабления мышцы
                     }
                     break;
             }
@@ -288,7 +288,7 @@ namespace Neurotlon.Games.Football
         }
     }
 
-    // Остановка мяча в зоне: мяч катится сам; напряжение ноги тормозит. Нужно остановить его в жёлтом квадрате.
+    // Остановка мяча в зоне: мяч катится сам; напряжение мышцы тормозит. Нужно остановить его в жёлтом квадрате.
     public sealed class StopElement : ElementBase
     {
         float distance;
@@ -297,7 +297,7 @@ namespace Neurotlon.Games.Football
         public float Distance { get { return distance; } }              // пройдено от точки удара, м
         public float Speed { get { return speed; } }
         public float ZoneCentre { get { return T.StopZoneDistance; } }
-        public float Brake { get; private set; }                         // текущее торможение от ноги, м/с²
+        public float Brake { get; private set; }                         // текущее торможение от мышцы, м/с²
         public bool HitNet { get; private set; }                         // мяч докатился до сетки за зоной и остановился в ней
         public float ImpactSpeed { get; private set; }                   // скорость мяча в момент удара о сетку, м/с
 

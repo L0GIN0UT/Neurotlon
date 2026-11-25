@@ -12,7 +12,13 @@ import time
 from neurotlon_bridge.emulator import EmulatedSource
 
 TICK_S = 0.02
-EMG_PERIOD_S = 1.2  # половину периода мышца сжата
+EMG_PERIOD_S = 1.2  # половину периода мышца напряжена
+# Ровное напряжение около 0,3 (им останавливают мяч в зоне): ключ эмулятора включён
+# на короткую долю каждых 0,1 с, после сглаживания среднее около 0,29.
+STEADY_EMG_PERIOD_S = 0.1
+STEADY_EMG_ON_S = 0.02
+PULSE_PHASE_S = 12.0  # сначала импульсы (броски, удары), потом ровное напряжение (торможение)
+STEADY_PHASE_S = 12.0
 EEG_PERIOD_S = 6.0  # половину периода расслабление растёт, потом падает
 PONG_PERIOD_S = 1.6
 
@@ -27,7 +33,10 @@ def keys_at(profile: str, t: float) -> set[str]:
             keys.add("emg_right")
         return keys
     keys = set()
-    if t % EMG_PERIOD_S < EMG_PERIOD_S / 2:
+    if t % (PULSE_PHASE_S + STEADY_PHASE_S) < PULSE_PHASE_S:
+        if t % EMG_PERIOD_S < EMG_PERIOD_S / 2:
+            keys.add("emg")
+    elif t % STEADY_EMG_PERIOD_S < STEADY_EMG_ON_S:
         keys.add("emg")
     keys.add("eeg_up" if t % EEG_PERIOD_S < EEG_PERIOD_S / 2 else "eeg_down")
     return keys

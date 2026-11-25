@@ -19,7 +19,7 @@ namespace Neurotlon.Games.Football
         {
         }
 
-        // order: элементы по очереди (0 змейка, 1 передача, 2 остановка, 3 удар). Короткий порядок нужен демо-проверке.
+        // order: элементы по очереди (0 змейка, 1 передача, 2 остановка, 3 удар). Короткий порядок нужен песочницам обучения.
         public FootballRules(FootballTuning tuning, Func<float> random01, int[] order)
         {
             t = tuning;

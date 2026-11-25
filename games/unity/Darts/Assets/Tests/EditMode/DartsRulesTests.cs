@@ -18,11 +18,11 @@ namespace Neurotlon.Games.Darts.Tests
             for (float t = 0f; t < maxSeconds && !done(); t += Dt) r.Step(Dt, eeg, emg());
         }
 
-        // Сжать руку, пока не начнётся бросок, затем отпустить и дождаться, пока дротик не приземлится.
+        // Напрячь мышцу, пока не начнётся бросок, затем отпустить и дождаться, пока дротик не приземлится.
         static void ThrowOnce(DartsRules r, float? eeg = 0.5f)
         {
             int before = r.ThrowsMade;
-            RunUntil(r, () => false, eeg, () => 0.0f, 0.1f);                       // рука расслаблена: готова к броску
+            RunUntil(r, () => false, eeg, () => 0.0f, 0.1f);                       // мышца расслаблена: готова к броску
             RunUntil(r, () => r.Phase == DartsPhase.Flying, eeg, () => 0.9f, 5f);
             RunUntil(r, () => r.ThrowsMade > before, eeg, () => 0.0f, 5f);
         }
@@ -43,7 +43,7 @@ namespace Neurotlon.Games.Darts.Tests
         public void GripStartsTheThrowOnlyAfterTheHandWasReleased()
         {
             var r = NewRules();
-            // рука уже сжата с первого кадра: бросок не начинается, пока её не отпустили
+            // мышца напряжена с первого кадра: бросок не начинается, пока её не расслабили
             RunUntil(r, () => r.Phase != DartsPhase.Aiming, 0.5f, () => 0.9f, 1f);
             Assert.AreEqual(DartsPhase.Aiming, r.Phase);
             RunUntil(r, () => r.Phase != DartsPhase.Aiming, 0.5f, () => 0.0f, 0.1f);

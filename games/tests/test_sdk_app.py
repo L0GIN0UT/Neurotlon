@@ -300,7 +300,7 @@ def test_render_every_phase(tmp_path: Path) -> None:
 
 def test_default_font_has_cyrillic() -> None:
     font = pygame.font.Font(None, 40)
-    assert all(m is not None for m in font.metrics("Сожмите кулак Отпустите"))
+    assert all(m is not None for m in font.metrics("Напрягите мышцу с датчиком Расслабьте"))
     assert font.size("Привет")[0] > font.size("..")[0]
 
 

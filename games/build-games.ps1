@@ -17,10 +17,13 @@ param(
     [string[]] $Games = @('Darts', 'Football', 'Pong'),
     [string] $UnityVersion = '6000.6.9f1',
     [string] $UnityExe = "C:\Program Files\Unity\Hub\Editor\$UnityVersion\Editor\Unity.exe",
-    [string] $OutRoot = (Join-Path $PSScriptRoot 'builds')
+    [string] $OutRoot = ''
 )
 
 $ErrorActionPreference = 'Stop'
+# Значение по умолчанию считаем здесь, а не в параметре: в Windows PowerShell 5.1 $PSScriptRoot в выражении
+# параметра оказался пустым (замечено при кириллице в пути к проекту).
+if (-not $OutRoot) { $OutRoot = Join-Path $PSScriptRoot 'builds' }
 if (-not (Test-Path $UnityExe)) { throw "Unity не найден: $UnityExe (параметр -UnityExe или -UnityVersion)" }
 if (Get-Process -Name Unity -ErrorAction SilentlyContinue) {
     throw 'Запущен редактор Unity: закройте его, пакетная сборка не стартует на открытом проекте.'

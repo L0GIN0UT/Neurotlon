@@ -14,20 +14,25 @@ namespace Neurotlon.Games.Football
     {
         public DribbleMode Dribble = DribbleMode.Throttle;     // по умолчанию «газ и тормоз»; окончательный выбор способа за владельцем (открытый вопрос)
         public float ElementSeconds = 60f;                 // время на один элемент
-        public float GripOn = 0.6f;                        // порог сжатия ноги (удар/передача)
-        public float GripOff = 0.35f;                      // порог отпускания; после удара надо расслабить ногу
+        public float GripOn = 0.6f;                        // порог напряжения мышцы (удар/передача)
+        public float GripOff = 0.35f;                      // порог отпускания; после удара надо расслабить мышцу
 
         // --- змейка ---
         public float[] ConeY = { -6.5f, -4.3f, -2.1f, 0.1f, 2.3f };       // конусы в одну линию по X = 0
         public float StartY = -10f;
         public float FinishPastLastCone = 1.6f;
         public float PassSideOffset = 0.8f;                // на сколько обходить конус сбоку
-        // Копия для демо-проверки: один конус (мяч доводят только до него) и одна попытка в прицельных элементах.
-        public FootballTuning CopyForCheck()
+        public const float TutorialElementSeconds = 150f;  // в песочнице элемент не кончается по времени раньше таймаута шага (до 90 с)
+
+        // Копия для песочницы обучения: первые coneCount конусов настоящего поля, attempts попыток в прицельных элементах.
+        public FootballTuning CopyForTutorial(int coneCount, int attempts)
         {
             var copy = (FootballTuning)MemberwiseClone();
-            copy.ConeY = new[] { ConeY[0] };
-            copy.Attempts = 1;
+            int cones = Math.Max(1, Math.Min(coneCount, ConeY.Length));
+            copy.ConeY = new float[cones];
+            Array.Copy(ConeY, copy.ConeY, cones);
+            copy.Attempts = attempts;
+            copy.ElementSeconds = Math.Max(ElementSeconds, TutorialElementSeconds);
             return copy;
         }
 

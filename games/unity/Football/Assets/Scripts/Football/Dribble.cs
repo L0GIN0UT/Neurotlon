@@ -39,7 +39,7 @@ namespace Neurotlon.Games.Football
         }
     }
 
-    // Способ управления мячом при ведении. Сигнал `emg` — напряжение мышц ноги 0…1 или null, если сигнала нет.
+    // Способ управления мячом при ведении. Сигнал `emg` — напряжение мышцы с датчиком 0…1 или null, если сигнала нет.
     public interface IDribble
     {
         float X { get; }
@@ -48,7 +48,7 @@ namespace Neurotlon.Games.Football
         void Step(float dt, float? emg);
     }
 
-    // Вариант «уровень»: мяч сам идёт вперёд, а напряжение ноги задаёт положение мяча поперёк полосы (как ракетка в понге).
+    // Вариант «уровень»: мяч сам идёт вперёд, а напряжение мышцы задаёт положение мяча поперёк полосы (как ракетка в понге).
     public sealed class LevelDribble : IDribble
     {
         readonly FootballTuning t;
@@ -109,14 +109,14 @@ namespace Neurotlon.Games.Football
         static float Clamp01(float v) { return v < 0f ? 0f : (v > 1f ? 1f : v); }
     }
 
-    // Вариант «ритм»: мяч идёт вперёд, только если нога напрягается в такт метроному. Сбитый ритм ухудшает контроль:
+    // Вариант «ритм»: мяч идёт вперёд, только если мышца напрягается в такт метроному. Сбитый ритм ухудшает контроль:
     // мяч начинает «гулять» поперёк и задевает конусы.
     public sealed class RhythmDribble : IDribble
     {
         readonly FootballTuning t;
         float time;
         float quality = 1f;                // 0 — контроль потерян, 1 — идеально
-        bool armed = true;                 // нога расслаблена и готова к новому касанию
+        bool armed = true;                 // мышца расслаблена и готова к новому касанию
         float glideLeft;                   // сколько ещё метров мяч «доезжает» после касания
         public float X { get; private set; }
         public float Y { get; private set; }

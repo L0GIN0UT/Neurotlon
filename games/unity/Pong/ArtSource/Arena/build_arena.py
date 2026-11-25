@@ -1,9 +1,12 @@
 # Турнирная арена для понга: пол, борта с надписями, задник, трибуны со зрителями.
 # Запуск: blender -b --python build_arena.py   (переменная NT_OUT — папка для FBX и .blend)
+# Логотип проекта на бортах: Assets/Art/Pong/logo.png (переменная NT_LOGO), слово «НЕЙРОТЛОН» вместо него не рисуется.
 # Шрифт — Inter (лицензия OFL), входит в поставку Blender. Системные шрифты не используются.
 import bpy, bmesh, math, os, random, mathutils
 
 OUT = os.environ["NT_OUT"]
+LOGO = os.environ.get("NT_LOGO", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "Assets", "Art", "Pong", "logo.png"))
+LOGO_ASPECT = 1000.0 / 310.0      # пропорции файла логотипа, не менять
 FONT = os.environ.get("NT_FONT", "C:/Program Files/Blender Foundation/Blender 5.2/5.2/datafiles/fonts/Inter.woff2")
 os.makedirs(OUT, exist_ok=True)
 random.seed(11)
@@ -126,13 +129,17 @@ for sy in (-1, 1):
 # ---------------- рекламные борта ----------------
 BH, BT = 0.78, 0.06
 BY = 3.55          # дальний борт
-board_texts = ["НЕЙРОТЛОН", "BCI SAMARA-2027"]
+board_texts = [None, "BCI SAMARA-2027"]     # None: на этом борту стоит логотип (в нём уже есть подпись проекта)
+logo_boards = []
 xs = [-4.0, -2.0, 0.0, 2.0, 4.0]
 for i, x in enumerate(xs):
     static.append(box((1.96, BT, BH), (x, BY, BH / 2), M_BOARD, 0.01))
     static.append(box((1.96, BT + 0.03, 0.035), (x, BY, BH + 0.0175), M_CAP, 0.008))
     led.append(box((1.8, 0.012, 0.025), (x, BY - BT / 2 - 0.008, 0.07), M_CYAN))
-    led.append(text(board_texts[i % 2], 1.7, 0.34, (x, BY - BT / 2 - 0.02, 0.43), M_WHITE if i % 2 else M_CYAN, 0.008))
+    if board_texts[i % 2] is None:
+        logo_boards.append((x, BY - BT / 2 - 0.012))
+    else:
+        led.append(text(board_texts[i % 2], 1.7, 0.34, (x, BY - BT / 2 - 0.02, 0.43), M_WHITE if i % 2 else M_CYAN, 0.008))
 for sx in (-1, 1):                      # боковые борта (вдоль площадки)
     for j, y in enumerate([-2.3, -0.3, 1.7]):
         static.append(box((BT, 1.96, BH), (sx * 5.3, y + 0.15, BH / 2), M_BOARD, 0.01))
@@ -385,6 +392,39 @@ led.append(box((11.0, 0.05, 0.05), (0, WY - 0.18, 2.75), M_CYAN))
 for sx in (-1, 1):
     led.append(box((0.05, 0.05, 2.45), (sx * 5.5, WY - 0.18, 3.95), M_CYAN))
 
+# ---------------- логотип на бортах: плоскость с текстурой, пропорции файла сохранены ----------------
+LOGO_H = 0.5
+LOGO_W = LOGO_H * LOGO_ASPECT          # 1,61 м при ширине борта 1,96 м
+logo_im = bpy.data.images.load(LOGO)
+m_logo = bpy.data.materials.new("AR_Logo")
+m_logo.use_nodes = True
+_nt = m_logo.node_tree
+_b = _nt.nodes["Principled BSDF"]
+_t = _nt.nodes.new("ShaderNodeTexImage")
+_t.image = logo_im
+_nt.links.new(_t.outputs["Color"], _b.inputs["Base Color"])
+_nt.links.new(_t.outputs["Alpha"], _b.inputs["Alpha"])
+_b.inputs["Roughness"].default_value = 0.5
+try:
+    m_logo.surface_render_method = "BLENDED"
+except Exception:
+    pass
+m_logo.diffuse_color = (0.9, 0.9, 0.95, 1)
+logo_planes = []
+for k, (lx, ly) in enumerate(logo_boards):
+    lz = 0.40
+    lm = bpy.data.meshes.new("logo%d" % k)
+    lm.from_pydata([(lx - LOGO_W / 2, ly, lz - LOGO_H / 2), (lx + LOGO_W / 2, ly, lz - LOGO_H / 2),
+                    (lx + LOGO_W / 2, ly, lz + LOGO_H / 2), (lx - LOGO_W / 2, ly, lz + LOGO_H / 2)], [], [(0, 1, 2, 3)])
+    lm.update()
+    luv = lm.uv_layers.new(name="UVMap")
+    for li, uv in enumerate([(0, 0), (1, 0), (1, 1), (0, 1)]):
+        luv.data[li].uv = uv
+    lo = bpy.data.objects.new("ArenaLogo%d" % k, lm)
+    bpy.context.collection.objects.link(lo)
+    lo.data.materials.append(m_logo)
+    logo_planes.append(lo)
+
 arena = join(static, "ArenaStatic")
 ledobj = join(led, "ArenaLed")
 for o in (arena, ledobj):
@@ -402,6 +442,13 @@ def export(obj, fname):
 
 export(arena, "ArenaStatic.fbx")
 export(ledobj, "ArenaLed.fbx")
+bpy.ops.object.select_all(action="DESELECT")
+for o in logo_planes:
+    o.select_set(True)
+bpy.context.view_layer.objects.active = logo_planes[0]
+bpy.ops.export_scene.fbx(filepath=os.path.join(OUT, "ArenaLogo.fbx"), use_selection=True, object_types={"MESH"},
+                         apply_scale_options="FBX_SCALE_ALL", axis_forward="-Z", axis_up="Y",
+                         bake_space_transform=True, path_mode="STRIP", embed_textures=False)
 bpy.ops.object.select_all(action="DESELECT")
 for o in crowd_rows:
     o.select_set(True)

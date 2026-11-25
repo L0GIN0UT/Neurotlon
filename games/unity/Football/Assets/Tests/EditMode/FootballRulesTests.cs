@@ -47,7 +47,7 @@ namespace Neurotlon.Games.Football.Tests
         public void LevelDribbleStraightThroughTheMiddleTouchesEveryCone()
         {
             var snake = new SnakeElement(Tuning(DribbleMode.Level));
-            Run(snake, () => 0.5f, time => 0.5f);                  // рука посередине: мяч по линии конусов
+            Run(snake, () => 0.5f, time => 0.5f);                  // мышца в середине диапазона: мяч по линии конусов
             Assert.IsTrue(snake.Finished);
             Assert.AreEqual(5, snake.Touches);
             Assert.AreEqual(1, snake.Points);
@@ -86,7 +86,7 @@ namespace Neurotlon.Games.Football.Tests
 
         // ---------- передача и удар: три попытки ----------
 
-        // Нога: полторы секунды расслаблена, полторы сжата — ровно одна попытка за период.
+        // Мышца: полторы секунды расслаблена, полторы напряжена — ровно одна попытка за период.
         static float? Pulse(float time)
         {
             return time % 3f < 1.5f ? 0f : 0.9f;
@@ -141,11 +141,11 @@ namespace Neurotlon.Games.Football.Tests
             for (float time = 0f; time < 0.3f; time += Dt) pass.Step(Dt, 1f, 0f);
             for (float time = 0f; time < 0.2f; time += Dt) pass.Step(Dt, 1f, 0.9f);
             Assert.AreEqual(AimedElement.PhaseKind.Flying, pass.Phase);
-            for (float time = 0f; time < 1.0f; time += Dt) pass.Step(Dt, 1f, 0.9f);        // полёт кончился, нога всё ещё сжата
+            for (float time = 0f; time < 1.0f; time += Dt) pass.Step(Dt, 1f, 0.9f);        // полёт кончился, мышца всё ещё напряжена
             Assert.IsFalse(pass.Finished);
             Assert.AreEqual(1, pass.Attempt);
             for (float time = 0f; time < 2f; time += Dt) pass.Step(Dt, 1f, 0.9f);
-            Assert.AreEqual(AimedElement.PhaseKind.Aiming, pass.Phase, "новая попытка только после расслабления ноги");
+            Assert.AreEqual(AimedElement.PhaseKind.Aiming, pass.Phase, "новая попытка только после расслабления мышцы");
         }
 
         [Test]
@@ -210,7 +210,7 @@ namespace Neurotlon.Games.Football.Tests
         public void KickIsOnlyFiredAfterTheLegWasRelaxed()
         {
             var kick = new KickElement(new FootballTuning(), () => 0.3f);
-            for (float time = 0f; time < 2f; time += Dt) kick.Step(Dt, 1f, 0.9f);     // нога сжата с самого начала
+            for (float time = 0f; time < 2f; time += Dt) kick.Step(Dt, 1f, 0.9f);     // мышца напряжена с самого начала
             Assert.AreEqual(AimedElement.PhaseKind.Aiming, kick.Phase);
             for (float time = 0f; time < 0.2f; time += Dt) kick.Step(Dt, 1f, 0.0f);
             for (float time = 0f; time < 0.2f; time += Dt) kick.Step(Dt, 1f, 0.9f);
@@ -294,9 +294,9 @@ namespace Neurotlon.Games.Football.Tests
         // ---------- вся игра ----------
 
         [Test]
-        public void ADemoCheckRunsASnakeToTheFirstConeAndOneKick()
+        public void ATutorialSandboxRunsASnakeToTheFirstConeAndOneKick()
         {
-            var tuning = new FootballTuning().CopyForCheck();
+            var tuning = new FootballTuning().CopyForTutorial(1, 1);
             var rules = new FootballRules(tuning, () => 0.3f, new[] { 0, 3 });
             var demo = new FootballDemo(true, tuning);
             for (float time = 0f; !rules.Over && time < 120f; time += 0.01f)
@@ -306,17 +306,29 @@ namespace Neurotlon.Games.Football.Tests
                 demo.Signals(rules, out eeg, out emg);
                 rules.Step(0.01f, eeg, emg);
             }
-            Assert.IsTrue(rules.Over, "проверка заканчивается");
+            Assert.IsTrue(rules.Over, "песочница заканчивается");
             Assert.AreEqual(2, rules.Count);
             Assert.GreaterOrEqual(rules.PointsOf(1), 1, "удар по мишени засчитан");
-            Assert.AreEqual(1, tuning.ConeY.Length, "в проверке один конус");
-            Assert.AreEqual(1, tuning.Attempts, "в проверке одна попытка");
+            Assert.AreEqual(1, tuning.ConeY.Length, "в песочнице один конус");
+            Assert.AreEqual(1, tuning.Attempts, "в песочнице одна попытка");
         }
 
         [Test]
-        public void ACheckKickThatMissesTheBoardDoesNotPass()
+        public void TutorialCopyKeepsTheFirstConesOfTheRealFieldAndLeavesTheOriginal()
         {
-            var tuning = new FootballTuning().CopyForCheck();
+            var real = new FootballTuning();
+            var copy = real.CopyForTutorial(2, 5);
+            CollectionAssert.AreEqual(new[] { real.ConeY[0], real.ConeY[1] }, copy.ConeY);
+            Assert.AreEqual(5, copy.Attempts);
+            Assert.AreEqual(5, real.ConeY.Length, "настоящее поле не тронуто");
+            Assert.AreEqual(3, real.Attempts);
+            Assert.GreaterOrEqual(copy.ElementSeconds, FootballTutorial.CheckTimeoutSeconds, "элемент не кончается раньше таймаута шага");
+        }
+
+        [Test]
+        public void ATutorialKickThatMissesTheBoardDoesNotPass()
+        {
+            var tuning = new FootballTuning().CopyForTutorial(1, 1);
             var rules = new FootballRules(tuning, () => 0.3f, new[] { 3 });
             var demo = new FootballDemo(false, tuning);
             for (float time = 0f; !rules.Over && time < 60f; time += 0.01f)
@@ -324,7 +336,7 @@ namespace Neurotlon.Games.Football.Tests
                 float eeg, emg;
                 demo.Step(0.01f);
                 demo.Signals(rules, out eeg, out emg);
-                rules.Step(0.01f, eeg, 0.9f);               // нога сжата сразу, без концентрации
+                rules.Step(0.01f, eeg, 0.9f);               // мышца напряжена сразу, без концентрации
             }
             Assert.LessOrEqual(rules.PointsOf(0), 2);
         }
@@ -352,7 +364,7 @@ namespace Neurotlon.Games.Football.Tests
                 {
                     case 0: emg = SnakePath.DesiredX(t, t.StartY + t.ForwardSpeed * elementTime) / (2f * t.LateralMax) + 0.5f; break;
                     case 2: emg = 0.30f; break;
-                    default: emg = Pulse(elementTime); break;                // передача и удар: расслабить, потом сжать, три раза
+                    default: emg = Pulse(elementTime); break;                // передача и удар: расслабить, потом напрячь, три раза
                 }
                 rules.Step(Dt, 1f, emg);
                 time += Dt;

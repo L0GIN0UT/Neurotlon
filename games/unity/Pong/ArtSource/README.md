@@ -5,7 +5,7 @@
 | Папка | Что делает | Запуск |
 |---|---|---|
 | `TableTennis/build_tt.py` | Стол (размеры ITTF), сетка, ракетка, мяч, текстуры дерева; экспорт FBX | `NT_PADDLE_REF=<фото> NT_OUT=<папка> blender -b --python build_tt.py` |
-| `Arena/build_arena.py` | Турнирная арена: пол, борта с надписями, трибуны, толпа, рамка на стене; экспорт FBX | `NT_OUT=<папка> blender -b --python build_arena.py` |
+| `Arena/build_arena.py` | Турнирная арена: пол, борта с надписью «BCI SAMARA-2027» и логотипом проекта (`ArenaLogo.fbx`, текстура `Assets/Art/Pong/logo.png`, копия `web/src/station/assets/logo.png`), трибуны, толпа, рамка на стене; экспорт FBX | `NT_OUT=<папка> blender -b --python build_arena.py` |
 | `Audio/make_sounds.py` | Синтез: отскок от края, очко (тихое), золотой мяч, победа | `python -I make_sounds.py <папка>` |
 | `Audio/prepare_real_sounds.py` | Удар ракетки и отскок от стола из настоящих записей (ускорение, обрезка, выравнивание); нужен ffmpeg | `python -I prepare_real_sounds.py <папка Kenney> <папка>` |
 

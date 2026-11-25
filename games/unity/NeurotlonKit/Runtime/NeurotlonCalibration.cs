@@ -3,7 +3,7 @@ using System.Collections.Generic;
 namespace Neurotlon
 {
     // Калибровка по протоколу моста. Те же шаги и тексты, что в Python-SDK (neurotlon_games.sdk.calibration):
-    //   ЭМГ: rest 5 с покоя, затем contract 12 с = 3 x (3 с сжать + 1 с пауза);
+    //   ЭМГ: rest 5 с покоя, затем contract 12 с = 3 x (3 с напрячь + 1 с пауза);
     //   ЭЭГ: baseline 8 с с закрытыми глазами.
     // В понге emg_left и emg_right калибруются одновременно.
     // Сбой шага: один повтор, потом State == Failed (игра пишет aborted с FailureReason).
@@ -18,9 +18,9 @@ namespace Neurotlon
         public const float TimeoutFactor = 2f;
         public const float TimeoutExtraSeconds = 5f;
 
-        public const string TextRest = "Расслабьте руку";
-        public const string TextSqueeze = "Сожмите кулак";
-        public const string TextRelease = "Отпустите";
+        public const string TextRest = NeurotlonTexts.Relax;
+        public const string TextSqueeze = NeurotlonTexts.Tense;
+        public const string TextRelease = NeurotlonTexts.RelaxShort;
         public const string TextBaseline = "Закройте глаза и расслабьтесь";
         public const string TextRetry = "Не получилось, повторяем шаг";
 
@@ -87,7 +87,7 @@ namespace Neurotlon
             };
         }
 
-        // Текст для игрока; ритм «сжать / отпустить» выводится из прогресса шага contract.
+        // Текст для игрока; ритм «напрячь / расслабить» выводится из прогресса шага contract.
         public static string Instruction(string step, float progress)
         {
             if (step == NeurotlonProtocol.StepBaseline) return TextBaseline;

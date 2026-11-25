@@ -75,7 +75,7 @@ namespace Neurotlon.Games.Football.Editor
             Tex("target_rings.png", false, TextureWrapMode.Clamp, 8, true);
             Tex("goal_tarp.png", false, TextureWrapMode.Clamp, 8, true);
             Tex("stop_net.png", false, TextureWrapMode.Repeat, 8, true);
-            Tex("board_text.png", false, TextureWrapMode.Clamp, 8, true);
+            Tex("logo.png", false, TextureWrapMode.Clamp, 8, true);
             var hdr = AssetImporter.GetAtPath(ArtDir + "orlando_stadium_2k.hdr") as TextureImporter;
             if (hdr != null)
             {
@@ -176,7 +176,7 @@ namespace Neurotlon.Games.Football.Editor
             d["Line"] = Lit("Line", Lin(0.93f, 0.93f, 0.92f), 0.1f, 0f);
             d["LineYellow"] = Lit("LineYellow", Lin(1.0f, 0.78f, 0.08f), 0.1f, 0f);
             d["Flag"] = Lit("Flag", Lin(1.0f, 0.78f, 0.05f), 0.2f, 0f);
-            d["FB_BoardText"] = Cutout("FB_BoardText", T("board_text.png"), 0.1f, true);
+            d["FB_BoardText"] = Cutout("FB_BoardText", T("logo.png"), 0.1f, true);
             d["FlagPole"] = Lit("FlagPole", Lin(0.95f, 0.95f, 0.95f), 0.5f, 0f);
             d["BoardBlue"] = Lit("BoardBlue", Lin(0.05f, 0.20f, 0.58f), 0.35f, 0f);
             d["BoardWhite"] = Lit("BoardWhite", Lin(0.92f, 0.92f, 0.94f), 0.35f, 0f);
@@ -414,12 +414,12 @@ namespace Neurotlon.Games.Football.Editor
                 Object.DestroyImmediate(board.GetComponent<Collider>());
                 if (blue)
                 {
-                    // надпись — плоскость с прозрачной текстурой и проверкой глубины: мяч перед щитком её закрывает
+                    // логотип проекта — плоскость с прозрачной текстурой и проверкой глубины: мяч перед щитком её закрывает
                     var label = GameObject.CreatePrimitive(PrimitiveType.Quad);
-                    label.name = "Надпись";
+                    label.name = "Логотип";
                     label.transform.SetParent(root, false);
                     label.transform.position = new Vector3(x, 0.55f, z - 0.045f);
-                    label.transform.localScale = new Vector3(2.0f, 0.5f, 1f);
+                    label.transform.localScale = new Vector3(1.6f, 0.496f, 1f);       // пропорции логотипа 1000:310
                     label.GetComponent<MeshRenderer>().sharedMaterial = mats["FB_BoardText"];
                     Object.DestroyImmediate(label.GetComponent<Collider>());
                 }
