@@ -1,12 +1,13 @@
-"""Относительная альфа по O1 и O2: расслабление 0…1 без библиотеки Emotions.
+"""Относительная альфа по O1 и O2: сосредоточение 0…1 без библиотеки Emotions.
 
 Способ перенесён из проекта neuro-biathlon. Поток фильтруется (1-40 Гц, режекция 50 Гц), из
 последних двух секунд берётся спектр Уэлча по каждому из каналов O1 и O2; мощность 8-13 Гц делится
 на мощность 4-30 Гц, результат усредняется по двум каналам. Чем больше доля альфа-ритма, тем
-спокойнее участник: значение растёт с расслаблением, как `rel_relaxation` у Emotions.
+спокойнее участник, поэтому сосредоточение это инверсия: низкая альфа даёт высокое значение.
 
 Калибровка идёт по числу отсчётов (а не по часам): за `duration_s` собирается столько значений
-относительной альфы, сколько успело посчитаться. 5-й перцентиль уходит в 0, медиана в 1.
+относительной альфы, сколько успело посчитаться. Медиана (покой с открытыми глазами) даёт
+сосредоточение 0, 5-й перцентиль (самая низкая альфа) даёт 1.
 Расчёт спектра, артефактов и шкалы — чистые функции, класс `AlphaEngine` только держит состояние.
 """
 
@@ -23,6 +24,7 @@ from scipy import signal as sps
 
 from ..source import Clock
 from .eeg import EegResult
+from .trace import TraceRow, TraceSink
 
 VOLTS_TO_MICROVOLTS = 1e6
 CHANNELS = 4  # O1, O2, T3, T4; считаются только O1 и O2
@@ -116,9 +118,9 @@ def calibration_bounds(values: list[float], cfg: AlphaConfig) -> tuple[float, fl
     return low, high
 
 
-def calm_value(rel_alpha: float, low: float, high: float) -> float:
-    """Шкала 0…1: `low` даёт 0, `high` даёт 1."""
-    return float(np.clip((rel_alpha - low) / (high - low), 0.0, 1.0))
+def concentration_value(rel_alpha: float, low: float, high: float) -> float:
+    """Сосредоточение 0…1: `high` (медиана покоя) даёт 0, `low` (5-й перцентиль) даёт 1."""
+    return float(np.clip((high - rel_alpha) / (high - low), 0.0, 1.0))
 
 
 @dataclass(frozen=True)
@@ -130,12 +132,15 @@ class _Window:
 class AlphaEngine:
     """Один поток ЭЭГ. Не потокобезопасен: вызывающий сериализует доступ (как `Pyem`)."""
 
-    def __init__(self, cfg: AlphaConfig, fs: float, clock: Clock) -> None:
+    def __init__(
+        self, cfg: AlphaConfig, fs: float, clock: Clock, trace: TraceSink | None = None
+    ) -> None:
         if cfg.band_high_hz >= fs / 2:
             raise ValueError("band_high_hz должна быть меньше половины частоты дискретизации")
         self._cfg = cfg
         self._fs = float(fs)
         self._clock = clock
+        self._trace = trace
         self._window_n = round(cfg.window_s * self._fs)
         self._step_n = max(1, round(cfg.step_s * self._fs))
         self._gap_s = cfg.gap_ms / 1000.0
@@ -224,7 +229,7 @@ class AlphaEngine:
             return EegResult(0.0, True, True)
         if not np.isfinite(latest.rel_alpha):
             return EegResult(0.0, False, False)
-        return EegResult(calm_value(latest.rel_alpha, *self._bounds), True, False)
+        return EegResult(concentration_value(latest.rel_alpha, *self._bounds), True, False)
 
     def close(self) -> None:
         """Нативных ресурсов нет."""
@@ -240,15 +245,40 @@ class AlphaEngine:
         calibrating = self._started and self._bounds is None and self._failure is None
         if len(self._buf) >= self._window_n:
             window = np.asarray(self._buf)
-            if window_artifact(window, self._cfg) is not None:
+            kind = window_artifact(window, self._cfg)
+            if kind is not None:
                 self._latest = _Window(float("nan"), True)
+                self._emit_trace(float("nan"), kind, calibrating)
             else:
                 rel = window_alpha(window, self._fs, self._cfg)
                 self._latest = _Window(rel, False)
+                self._emit_trace(rel, "ok" if np.isfinite(rel) else "no_value", calibrating)
                 if calibrating and np.isfinite(rel):
                     self._values.append(rel)
         if calibrating and self._seen_n >= self._target_n:
             self._finish_calibration()
+
+    def _emit_trace(self, rel: float, reason: str, calibrating: bool) -> None:
+        if self._trace is None:
+            return
+        nan = float("nan")
+        bounds = self._bounds
+        concentration = (
+            nan if bounds is None or not math.isfinite(rel) else concentration_value(rel, *bounds)
+        )
+        phase = "live" if bounds is not None else ("calibrating" if calibrating else "uncalibrated")
+        self._trace.write(
+            TraceRow(
+                t_s=self._clock(),
+                phase=phase,
+                rel_alpha=rel,
+                concentration=concentration,
+                valid=bounds is not None and reason == "ok",
+                reason=reason,
+                low=nan if bounds is None else bounds[0],
+                high=nan if bounds is None else bounds[1],
+            )
+        )
 
     def _finish_calibration(self) -> None:
         try:

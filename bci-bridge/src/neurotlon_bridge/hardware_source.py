@@ -30,6 +30,7 @@ from .devices.sdk_sensor import SdkSensor
 from .processing.alpha import AlphaEngine
 from .processing.eeg import EegEngine, EegProcessor
 from .processing.emg import EmgProcessor
+from .processing.trace import TraceSink
 from .source import (
     EEG_STEPS,
     EMG_STEPS,
@@ -325,26 +326,31 @@ class _EegChannel(_Channel):
 EngineFactory = Callable[[], EegEngine]
 
 
-def _make_alpha(config: BridgeConfig, clock: Clock) -> EegEngine:
-    return AlphaEngine(config.alpha, config.eeg.sampling_rate, clock)
+def _make_alpha(config: BridgeConfig, clock: Clock, trace: TraceSink | None) -> EegEngine:
+    return AlphaEngine(config.alpha, config.eeg.sampling_rate, clock, trace)
 
 
-def _make_emotions(config: BridgeConfig, clock: Clock) -> EegEngine:
+def _make_emotions(config: BridgeConfig, clock: Clock, trace: TraceSink | None) -> EegEngine:
     from .processing.emotions import Pyem  # библиотека нужна только этому методу
 
     return Pyem(config.eeg)
 
 
-_ENGINE_BUILDERS: dict[EegMethod, Callable[[BridgeConfig, Clock], EegEngine]] = {
+_ENGINE_BUILDERS: dict[EegMethod, Callable[[BridgeConfig, Clock, TraceSink | None], EegEngine]] = {
     "alpha": _make_alpha,
     "emotions": _make_emotions,
 }
 
 
-def make_engine_factory(method: EegMethod, config: BridgeConfig, clock: Clock) -> EngineFactory:
-    """Фабрика движка ЭЭГ выбранного метода; новый объект на каждую калибровку."""
+def make_engine_factory(
+    method: EegMethod, config: BridgeConfig, clock: Clock, trace: TraceSink | None = None
+) -> EngineFactory:
+    """Фабрика движка ЭЭГ выбранного метода; новый объект на каждую калибровку.
+
+    `trace` — отладочный журнал; пишет только метод `alpha` (у `emotions` сырой альфы нет).
+    """
     build = _ENGINE_BUILDERS[method]
-    return lambda: build(config, clock)
+    return lambda: build(config, clock, trace)
 
 
 class HardwareSource:
@@ -366,6 +372,7 @@ class HardwareSource:
         eeg_method: EegMethod = "alpha",
         store: CalibrationStore | None = None,
         wall_clock: Callable[[], float] = time.time,
+        eeg_trace: TraceSink | None = None,
     ) -> None:
         if profile not in PROFILES:
             raise ValueError(f"unknown profile: {profile}")
@@ -374,7 +381,7 @@ class HardwareSource:
         self._backend = backend
         self._threaded = threaded
         self._channels: dict[str, _Channel] = {}
-        factory = engine_factory or make_engine_factory(eeg_method, config, clock)
+        factory = engine_factory or make_engine_factory(eeg_method, config, clock, eeg_trace)
         for signal, ref in plan.items():
             if signal == "eeg":
                 sensor = SdkSensor(ref.serial, "brainbit", backend, clock, address=ref.address)

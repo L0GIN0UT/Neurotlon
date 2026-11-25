@@ -95,13 +95,13 @@ def test_cycle_is_wrong_for_eeg() -> None:
     assert status(src, "eeg").status == "failed"
 
 
-def test_baseline_takes_twelve_seconds_by_default() -> None:
+def test_baseline_takes_twenty_seconds_by_default() -> None:
     src, clock = make()
     src.start_calibration("eeg", "baseline")
-    clock.now += 11.0
+    clock.now += 19.0
     running = status(src, "eeg")
     assert running.status == "running"
-    assert running.progress == pytest.approx(11 / 12)
+    assert running.progress == pytest.approx(19 / 20)
     assert (running.segment, running.phase, running.phase_left_s) == (None, None, None)
     clock.now += 1.0
     assert status(src, "eeg").status == "done"

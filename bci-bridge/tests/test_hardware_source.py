@@ -570,10 +570,10 @@ def test_cycle_is_not_for_eeg() -> None:
 
 def test_baseline_duration_goes_to_the_engine() -> None:
     rig = Rig("darts", DARTS)
-    rig.src.start_calibration("eeg", "baseline", duration_s=20.0)
-    assert rig.engines[-1].duration_s == 20.0
+    rig.src.start_calibration("eeg", "baseline", duration_s=15.0)
+    assert rig.engines[-1].duration_s == 15.0
     rig.src.start_calibration("eeg", "baseline")
-    assert rig.engines[-1].duration_s == 12.0  # без запроса: из настроек, по умолчанию 12 с
+    assert rig.engines[-1].duration_s == 20.0  # без запроса: из настроек, по умолчанию 20 с
     rig.src.close()
 
 
@@ -946,7 +946,7 @@ def test_file_with_a_foreign_signal_is_ignored(tmp_path: Path) -> None:
     ],
 )
 def test_file_with_wrong_values_is_ignored(tmp_path: Path, scale: dict[str, Any]) -> None:
-    payload = {"schema_version": 1, "eeg_method": None, "signals": {"emg_left": scale}}
+    payload = {"schema_version": 2, "eeg_method": None, "signals": {"emg_left": scale}}
     (tmp_path / FILE_NAME).write_text(json.dumps(payload), encoding="utf-8")
     rig = Rig("pong", PONG, store=FileCalibrationStore(tmp_path), wall_clock=WallClock())
     assert not rig.src.is_calibrated("emg_left")
