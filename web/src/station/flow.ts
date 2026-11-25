@@ -18,6 +18,9 @@ export function commandForKey(state: StateView, key: string): Command | null {
     case 'confirm':
       if (enter) return { action: 'confirm' }
       return key === 'Escape' ? { action: 'cancel' } : null
+    case 'calibrating':
+      if (enter) return state.ready ? { action: 'calibration_continue' } : null
+      return key === 'Escape' ? { action: 'back' } : null
     case 'problem':
       return enter ? { action: 'retry' } : null // «Не пройдено» только кнопкой
     case 'rejected':

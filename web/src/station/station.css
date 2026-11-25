@@ -1541,3 +1541,584 @@ body:has(.station) {
   margin-top: 0;
   font-size: 2.4rem;
 }
+
+/* ---------- калибровка ---------- */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.calib {
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 1.4rem;
+}
+
+.calib-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2rem;
+  min-height: 3.6rem;
+}
+
+.calib-top h1 {
+  margin: 0;
+  font-size: 2.6rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.calib-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.8rem;
+  min-width: 0;
+}
+
+.calib-chips .chip {
+  font-size: 1.3rem;
+  padding: 0.4rem 1rem;
+}
+
+.calib-body {
+  display: grid;
+  grid-template-columns: 30rem minmax(0, 1fr);
+  gap: 2.4rem;
+  min-height: 0;
+}
+
+.calib-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.step-card {
+  display: grid;
+  grid-template-columns: 4rem minmax(0, 1fr);
+  align-items: center;
+  gap: 1.1rem;
+  padding: 1.2rem 1.4rem;
+  border-radius: 1.4rem;
+  border: 1px solid rgb(255 255 255 / 8%);
+  background: color-mix(in srgb, var(--surface) 80%, transparent);
+  color: var(--muted);
+  transition: background 0.25s, border-color 0.25s, color 0.25s;
+}
+
+.step-card-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.step-card-text strong {
+  font-size: 1.7rem;
+  line-height: 1.2;
+  color: var(--text);
+}
+
+.step-card-status {
+  font-size: 1.35rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.step-card-active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  color: var(--text);
+}
+
+.step-card-done .step-card-status {
+  color: var(--good);
+  font-weight: 700;
+}
+
+.step-card-failed {
+  border-color: var(--bad);
+  background: color-mix(in srgb, var(--bad) 16%, var(--surface));
+}
+
+.step-card-failed .step-card-status {
+  color: var(--bad);
+  font-weight: 700;
+}
+
+.step-card .mini-button {
+  grid-column: 1 / -1;
+}
+
+.mini-button {
+  height: 3.8rem;
+  padding: 0 1.6rem;
+  border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: 1rem;
+  background: var(--surface-hi);
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.ring {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 4rem;
+  height: 4rem;
+  border-radius: 50%;
+}
+
+.ring svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.ring-track,
+.ring-value {
+  fill: none;
+  stroke-width: 2.6;
+}
+
+.ring-track {
+  stroke: var(--border);
+}
+
+.ring-value {
+  stroke: var(--accent);
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.12s linear;
+}
+
+.ring-done,
+.ring-failed {
+  color: var(--bg);
+}
+
+.ring-done {
+  background: var(--good);
+}
+
+.ring-failed {
+  background: var(--bad);
+}
+
+.ring-done svg,
+.ring-failed svg {
+  width: 2.2rem;
+  height: 2.2rem;
+  transform: none;
+}
+
+.calib-main {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.calib-running {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.6rem;
+}
+
+/* активный шаг */
+
+.phase {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.4rem;
+  border-radius: 2.4rem;
+  border: 1px solid rgb(255 255 255 / 8%);
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  transition: background 0.3s, border-color 0.3s;
+}
+
+.phase-tense {
+  --phase: var(--bad);
+  border-color: color-mix(in srgb, var(--phase) 55%, transparent);
+  background: color-mix(in srgb, var(--phase) 13%, var(--surface));
+}
+
+.phase-relax {
+  --phase: var(--good);
+  border-color: color-mix(in srgb, var(--phase) 55%, transparent);
+  background: color-mix(in srgb, var(--phase) 13%, var(--surface));
+}
+
+.phase-wait,
+.phase-baseline {
+  --phase: var(--accent);
+}
+
+.phase-live {
+  text-align: center;
+}
+
+.phase-word {
+  margin: 0;
+  font-size: 8rem;
+  font-weight: 900;
+  line-height: 1.05;
+  letter-spacing: 0.02em;
+  color: var(--phase, var(--text));
+}
+
+.phase-word-baseline {
+  font-size: 4.4rem;
+  letter-spacing: 0;
+  color: var(--text);
+}
+
+.phase-wait .phase-word {
+  font-size: 5.6rem;
+  color: var(--muted);
+}
+
+.phase-hint {
+  margin: 0;
+  font-size: 2.2rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+.phase-count {
+  display: flex;
+  align-items: baseline;
+  gap: 0.8rem;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+.phase-count span {
+  font-size: 11rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.phase-count small {
+  font-size: 3rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.segments {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.8rem;
+  width: min(100% - 8rem, 56rem);
+}
+
+.segment {
+  position: relative;
+  height: 1.3rem;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgb(255 255 255 / 10%);
+}
+
+.segment i {
+  position: absolute;
+  inset: 0;
+  transform-origin: left center;
+  transition: transform 0.12s linear;
+}
+
+.segment-tense i {
+  background: var(--bad);
+}
+
+.segment-relax i {
+  background: var(--good);
+}
+
+.segment-current {
+  box-shadow: 0 0 0 2px rgb(255 255 255 / 35%);
+}
+
+.baseline-dot {
+  width: 9rem;
+  height: 9rem;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff, var(--accent) 70%);
+  box-shadow: 0 0 4rem color-mix(in srgb, var(--accent) 60%, transparent);
+  animation: calib-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes calib-pulse {
+  50% {
+    transform: scale(1.12);
+  }
+}
+
+.pong-lanes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  width: min(100% - 8rem, 70rem);
+}
+
+.pong-lane {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 1.2rem 1.8rem;
+  border-radius: 1.4rem;
+  min-width: 0;
+}
+
+.pong-lane strong {
+  font-size: 2.2rem;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pong-lane-side {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.pong-lane .chip {
+  font-size: 1.3rem;
+}
+
+/* кнопки экрана */
+
+.calib-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.2rem;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.calib-actions-end {
+  justify-content: flex-end;
+}
+
+.calib-actions-side {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.calib-actions .ghost {
+  height: 5.6rem;
+  min-width: 0;
+  padding: 0 2rem;
+  font-size: 1.7rem;
+  white-space: nowrap;
+}
+
+.calib-actions .ghost.slim {
+  height: 5rem;
+  padding: 0 1.4rem;
+  font-size: 1.5rem;
+}
+
+.go {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  height: 5.6rem;
+  min-width: 0;
+  padding: 0 2.4rem;
+  border: 0;
+  border-radius: 1.6rem;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--play) 100%, white 12%), var(--play));
+  color: #08130c;
+  font-size: 2.1rem;
+  font-weight: 800;
+  white-space: nowrap;
+  box-shadow: 0 0.6rem 1.8rem color-mix(in srgb, var(--play) 36%, transparent);
+}
+
+.go svg {
+  width: 2.2rem;
+  height: 2.2rem;
+}
+
+.go:focus-visible,
+.calib-actions .ghost:focus-visible,
+.mini-button:focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: 3px;
+}
+
+/* проверка сигнала */
+
+.check {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+}
+
+.check-head h2 {
+  margin: 0;
+  font-size: 2.6rem;
+  font-weight: 800;
+}
+
+.check-head p {
+  margin: 0.2rem 0 0;
+  font-size: 1.5rem;
+  color: var(--muted);
+}
+
+.check-chart {
+  flex: 1;
+  min-height: 0;
+  padding: 0.8rem;
+}
+
+.signal-chart {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.signal-chart canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.check-tips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 2.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 1.7rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.check-tips li::before {
+  content: "";
+  display: inline-block;
+  width: 0.8rem;
+  height: 0.8rem;
+  margin-right: 0.8rem;
+  border-radius: 50%;
+  background: var(--warn);
+  vertical-align: middle;
+}
+
+/* сбой и потеря моста */
+
+.calib-fail {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.6rem;
+}
+
+.calib-fail h2 {
+  margin: 0;
+  font-size: 3.6rem;
+  font-weight: 800;
+  text-align: center;
+}
+
+.calib-fail .badge {
+  width: 7rem;
+  height: 7rem;
+}
+
+.calib-fail-reason {
+  width: min(100%, 60rem);
+  margin: 0;
+  padding: 1.4rem 2rem;
+  border-color: var(--bad);
+  font-size: 1.9rem;
+  line-height: 1.35;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.calib-fail .calib-actions {
+  width: auto;
+  justify-content: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .baseline-dot {
+    animation: none;
+  }
+
+  .ring-value,
+  .segment i,
+  .phase,
+  .step-card {
+    transition: none;
+  }
+}
+
+.pong-lane-result {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.pong-lane-result.bad {
+  color: var(--bad);
+}
+
+.calib-fail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  width: min(100%, 60rem);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.calib-fail-list .calib-fail-reason {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  width: 100%;
+  text-align: left;
+}

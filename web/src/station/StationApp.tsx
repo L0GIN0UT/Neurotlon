@@ -2,10 +2,11 @@ import { AnimatePresence } from 'motion/react'
 import { useEffect, useMemo, useState } from 'react'
 import { readBridgeConfig } from './bridge.ts'
 import type { BridgeConfig } from './bridge.ts'
+import { CalibrationScreen } from './CalibrationScreen.tsx'
 import { ConfirmScreen } from './ConfirmScreen.tsx'
 import { Backdrop, BottomBar, TopBar } from './Frame.tsx'
 import { commandForKey, screenKey } from './flow.ts'
-import { accentFor, accentStyle, stepOf } from './model.ts'
+import { accentFor, accentStyle, RESULT_STEP, stepOf } from './model.ts'
 import { ScanScreen } from './ScanScreen.tsx'
 import { Screen } from './Screen.tsx'
 import { SetupScreen } from './SetupScreen.tsx'
@@ -23,7 +24,15 @@ import type { Command, Snapshot } from './types.ts'
 import { useStation } from './useStation.ts'
 import './station.css'
 
-function Body({ snapshot, send }: { snapshot: Snapshot; send: (command: Command) => void }) {
+function Body({
+  snapshot,
+  config,
+  send,
+}: {
+  snapshot: Snapshot
+  config: BridgeConfig
+  send: (command: Command) => void
+}) {
   const { state, discipline, players_needed: playersNeeded } = snapshot
   switch (state.kind) {
     case 'idle':
@@ -53,6 +62,8 @@ function Body({ snapshot, send }: { snapshot: Snapshot; send: (command: Command)
       )
     case 'starting':
       return <BusyScreen title={t.STARTING} hint={t.STARTING_HINT} players={state.players} send={send} />
+    case 'calibrating':
+      return <CalibrationScreen state={state} config={config} send={send} />
     case 'playing':
       return (
         <PlayingScreen
@@ -90,6 +101,15 @@ function Connected({ config }: { config: BridgeConfig }) {
     if (!snapshot) return
     const onKey = (event: KeyboardEvent) => {
       if (event.ctrlKey || event.altKey || event.metaKey) return
+      // Enter на сфокусированной второстепенной кнопке нажимает её, а не «Дальше».
+      if (
+        snapshot.state.kind === 'calibrating' &&
+        event.key === 'Enter' &&
+        event.target instanceof HTMLButtonElement &&
+        event.target.dataset.primary === undefined
+      ) {
+        return
+      }
       const command = commandForKey(snapshot.state, event.key)
       if (command) {
         event.preventDefault()
@@ -107,7 +127,7 @@ function Connected({ config }: { config: BridgeConfig }) {
     direction: 1,
   })
   if (step !== null && step !== nav.step) {
-    const back = nav.step !== null && nav.step !== 3 && step < nav.step
+    const back = nav.step !== null && nav.step !== RESULT_STEP && step < nav.step
     setNav({ step, direction: back ? -1 : 1 })
   }
   const direction = nav.direction
@@ -121,7 +141,7 @@ function Connected({ config }: { config: BridgeConfig }) {
         <AnimatePresence custom={direction}>
           {snapshot && (
             <Screen key={screenKey(snapshot.state)} direction={direction}>
-              <Body snapshot={snapshot} send={send} />
+              <Body snapshot={snapshot} config={config} send={send} />
             </Screen>
           )}
         </AnimatePresence>

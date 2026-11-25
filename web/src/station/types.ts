@@ -42,6 +42,37 @@ export interface SetupFields extends SetupFormView {
   token: string
 }
 
+export type CalibrationStatus = 'pending' | 'running' | 'done' | 'failed'
+export type CalibrationPhase = 'tense' | 'relax'
+
+export interface SensorView {
+  signal: string
+  state: string
+  battery: number | null
+}
+
+export interface CalibrationPartView {
+  signal: string
+  status: CalibrationStatus
+  progress: number
+  reason_text: string | null
+}
+
+export interface CalibrationStepView {
+  id: string
+  step: 'cycle' | 'baseline'
+  signals: string[]
+  status: CalibrationStatus
+  progress: number
+  segment: number
+  segments_total: number
+  phase: CalibrationPhase | null
+  phase_left_s: number | null
+  reason_text: string | null
+  /** Статус и причина по каждому сигналу шага (в понге по игроку). */
+  parts?: CalibrationPartView[]
+}
+
 export type StateView =
   | { kind: 'idle'; input: string; notice: string | null; taken: CandidateView[] }
   | { kind: 'checking'; code: string; taken: CandidateView[] }
@@ -53,6 +84,16 @@ export type StateView =
       is_last: boolean
     }
   | { kind: 'starting'; players: CandidateView[] }
+  | {
+      kind: 'calibrating'
+      players: CandidateView[]
+      link: 'connecting' | 'live' | 'lost'
+      sensors: SensorView[]
+      eeg_method: string | null
+      steps: CalibrationStepView[]
+      current: string | number | null
+      ready: boolean
+    }
   | { kind: 'playing'; players: CandidateView[]; offline: boolean; default_limit: boolean }
   | { kind: 'done'; lines: string[]; seconds_left: number; seconds_total: number }
   | { kind: 'problem'; reason: string; players: CandidateView[] }
@@ -94,7 +135,7 @@ export interface Snapshot {
 }
 
 export type Command =
-  | { action: 'type_char' | 'enter_code'; value: string }
+  | { action: 'type_char' | 'enter_code' | 'calibration_retry'; value: string }
   | { action: 'setup_check' | 'setup_save'; value: SetupFields }
   | { action: 'sensors_scan'; value?: undefined }
   | {
@@ -105,6 +146,8 @@ export type Command =
         | 'cancel'
         | 'retry'
         | 'back'
+        | 'calibration_continue'
+        | 'calibration_restart'
         | 'show_rejected'
         | 'close_rejected'
         | 'export_rejected'

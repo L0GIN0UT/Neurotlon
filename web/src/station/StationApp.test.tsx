@@ -444,8 +444,8 @@ describe('StationApp', () => {
       act(() => FakeEventSource.last?.emit(withSensors()))
       expect(await screen.findByText(/станция сообщит, какие датчики нужны/)).toBeTruthy()
       act(() => FakeEventSource.last?.emit(withSensors({ roles: ['emg_left', 'emg_right'], discipline: 'pong' })))
-      expect(await screen.findByText('Левая рука (Callibri)')).toBeTruthy()
-      expect(screen.getByText('Правая рука (Callibri)')).toBeTruthy()
+      expect(await screen.findByText('Датчик игрока 1 (Callibri)')).toBeTruthy()
+      expect(screen.getByText('Датчик игрока 2 (Callibri)')).toBeTruthy()
     })
 
     it('scans on request and lists the devices with their serials', async () => {
@@ -497,7 +497,7 @@ describe('StationApp', () => {
       vi.stubGlobal('fetch', fetchMock)
       render(<StationApp />)
       act(() => FakeEventSource.last?.emit(withSensors({ roles: ['emg_left', 'emg_right'], discipline: 'pong' })))
-      await screen.findByText('Левая рука (Callibri)')
+      await screen.findByText('Датчик игрока 1 (Callibri)')
       expect(screen.queryByTestId('eeg-method')).toBeNull()
 
       act(() => FakeEventSource.last?.emit(withSensors({ roles: ['eeg', 'emg'], discipline: 'darts' })))

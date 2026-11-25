@@ -11,7 +11,10 @@ const DEFAULT_ACCENT = '#5b8cff'
 
 export const accentFor = (discipline: string): string => ACCENTS[discipline] ?? DEFAULT_ACCENT
 
-/** Номер шага в полосе «Бейдж → Проверка → Игра → Результат»; null — полосы нет. */
+/** Номер шага «Результат» в полосе (последний): от него экран не считается «назад». */
+export const RESULT_STEP = 4
+
+/** Номер шага в полосе «Бейдж → Проверка → Калибровка → Игра → Результат»; null — полосы нет. */
 export function stepOf(kind: StateView['kind']): number | null {
   switch (kind) {
     case 'idle':
@@ -20,11 +23,13 @@ export function stepOf(kind: StateView['kind']): number | null {
     case 'confirm':
       return 1
     case 'starting':
+    case 'calibrating':
+      return 2
     case 'playing':
     case 'problem':
-      return 2
-    case 'done':
       return 3
+    case 'done':
+      return RESULT_STEP
     default:
       return null
   }
@@ -38,6 +43,10 @@ export function hintsFor(state: StateView): readonly Hint[] {
       return [['Enter', 'Далее'], ['Esc', 'Стереть'], ['F2', 'Отклонённые']]
     case 'confirm':
       return [['Enter', state.is_last ? 'Играть' : 'Дальше'], ['Esc', 'Это не я']]
+    case 'calibrating':
+      return state.ready
+        ? [['Enter', 'Дальше к игре'], ['Esc', 'Назад']]
+        : [['Esc', 'Назад']]
     case 'problem':
       return [['Enter', 'Повторить']]
     case 'rejected':
