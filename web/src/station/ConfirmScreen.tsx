@@ -1,6 +1,9 @@
 import { motion } from 'motion/react'
+import { useState } from 'react'
 import type { CSSProperties } from 'react'
 import { DisciplineIcon } from '../shared/icons/DisciplineIcon.tsx'
+import { photoSrc } from './bridge.ts'
+import type { BridgeConfig } from './bridge.ts'
 import { Chip } from './Frame.tsx'
 import { Icon } from './Icon.tsx'
 import type { IconName } from './Icon.tsx'
@@ -9,6 +12,7 @@ import * as t from './texts.ts'
 import type { CandidateView, Command } from './types.ts'
 
 interface Props {
+  config: BridgeConfig
   candidate: CandidateView
   taken: CandidateView[]
   notice: string | null
@@ -28,8 +32,30 @@ function warnings(candidate: CandidateView, notice: string | null) {
   return items.slice(0, 4)
 }
 
+/**
+ * Фото вместо буквы. Пока оно грузится (или не загрузилось) остаётся буква; ссылка с новой
+ * версией сбрасывает ошибку, потому что компонент перемонтируется по `key`.
+ */
+function AvatarPhoto({ src, code }: { src: string; code: string }) {
+  const [loaded, setLoaded] = useState(false)
+  const [failed, setFailed] = useState(false)
+  if (failed) return null
+  return (
+    <img
+      className={`avatar-photo ${loaded ? 'avatar-photo-ready' : ''}`}
+      src={src}
+      alt={t.photoAlt(code)}
+      draggable={false}
+      onLoad={() => setLoaded(true)}
+      onError={() => setFailed(true)}
+      data-testid="avatar-photo"
+    />
+  )
+}
+
 /** Страница участника, как страница установленной игры в библиотеке: баннер команды и «Играть». */
 export function ConfirmScreen({
+  config,
   candidate,
   taken,
   notice,
@@ -40,6 +66,7 @@ export function ConfirmScreen({
 }: Props) {
   const style = { '--team': teamColor(candidate) } as CSSProperties
   const items = warnings(candidate, notice)
+  const photo = photoSrc(config, candidate.photo_url)
   return (
     <div className="confirm" style={style}>
       <motion.div
@@ -57,7 +84,8 @@ export function ConfirmScreen({
           animate={{ scale: 1, rotate: 0 }}
           transition={{ type: 'spring', stiffness: 260, damping: 16, delay: 0.12 }}
         >
-          {initials(candidate.display_name, candidate.code)}
+          <span className="avatar-letter">{initials(candidate.display_name, candidate.code)}</span>
+          {photo && <AvatarPhoto key={photo} src={photo} code={candidate.code} />}
         </motion.div>
         <div className="banner-text">
           {playersNeeded === 2 && (

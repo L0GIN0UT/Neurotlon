@@ -7,6 +7,7 @@
 - `GET  /api/state`   — текущий снимок;
 - `GET  /api/events`  — поток Server-Sent Events, снимок при каждом изменении;
 - `GET  /api/signals` — SSE с живыми значениями датчиков, пока идёт калибровка (`signal_stream`);
+- `GET  /api/photo/<ID>` — фото игрока на экране из памяти (JPEG) или 404;
 - `POST /api/command` — `{"action": "...", "value": "..."}` из белого списка.
 """
 
@@ -22,7 +23,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
+from .codes import normalize_code
 from .machine import StationMachine
+from .photo_cache import PhotoCache
 from .sensors import BridgeStatus
 from .signal_stream import SignalCursor, next_frame
 from .snapshot import snapshot
@@ -36,6 +39,7 @@ SIGNALS_PERIOD_S = 0.1  # кадры значений датчиков 10 раз
 SIGNALS_KEEPALIVE_S = 5.0
 MAX_STREAMS = 4  # одновременных SSE-подписчиков на сервер (`/api/events` и `/api/signals`)
 MAX_BODY = 16384
+PHOTO_ROUTE = "/api/photo/"
 
 # Команды без аргумента и с одним строковым аргументом `value`.
 PLAIN_ACTIONS = frozenset(
@@ -100,6 +104,10 @@ class LiveState:
         """Следующий кадр значений датчиков для слушателя; по умолчанию их нет."""
         return None
 
+    def photo(self, code: str) -> bytes | None:
+        """Фото игрока, который сейчас на экране; по умолчанию фото нет."""
+        return None
+
 
 class Station(LiveState):
     """Машина под замком плюс последний снимок; будит слушателей при изменении."""
@@ -116,11 +124,14 @@ class Station(LiveState):
         self._machine = machine
         self._status = status
         self._camera = camera
+        self._photos = PhotoCache()
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
         self._refresh()
 
     def _refresh(self) -> None:
+        # Ушёл с экрана, сменился игрок, сброс: его фото больше не хранится.
+        self._photos.keep(self._machine.photo_codes())
         self.publish(snapshot(self._machine, self._status(), self._camera, self._sensors()))
 
     def start(self) -> None:
@@ -147,6 +158,26 @@ class Station(LiveState):
             found = self._machine.signal_link
         epoch, link = found if found is not None else (cursor.epoch, None)
         return next_frame(cursor, epoch, link)
+
+    def photo(self, code: str) -> bytes | None:
+        """Фото игрока с экрана: из памяти или с сервера (без замка: запрос идёт до 3 с)."""
+        with self._lock:
+            if code not in self._machine.photo_codes():
+                return None  # перечня нет: только те, кого станция сама отсканировала
+            cached = self._photos.get(code)
+            if cached is not None:
+                return cached
+            if self._photos.is_missing(code):
+                return None  # уже не вышло на этом экране: без серии 3-секундных запросов
+        data = self._machine.fetch_photo(code)
+        with self._lock:
+            if code not in self._machine.photo_codes():
+                return None  # пока ждали ответ, игрок ушёл с экрана
+            if data is None:
+                self._photos.put_missing(code)
+                return None
+            self._photos.put(code, data)
+        return data
 
     def command(self, action: str, value: Any) -> bool:
         """Выполнить команду из белого списка; `False` — команда неизвестна или без аргумента."""
@@ -213,6 +244,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._events()
         elif self._route() == "/api/signals":
             self._signals()
+        elif self._route().startswith(PHOTO_ROUTE):
+            self._photo()
         else:
             self._send(HTTPStatus.NOT_FOUND)
 
@@ -243,6 +276,21 @@ class _Handler(BaseHTTPRequestHandler):
         if not 0 < length <= MAX_BODY:
             return None
         return self.rfile.read(length)
+
+    def _photo(self) -> None:
+        code = normalize_code(self._route().removeprefix(PHOTO_ROUTE))
+        data = self.server.station.photo(code) if code else None
+        if data is None:
+            self._send(HTTPStatus.NOT_FOUND)
+            return
+        self.send_response(HTTPStatus.OK)  # без CORS: картинке в <img> он не нужен
+        self.send_header("Content-Type", "image/jpeg")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "private, no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Content-Security-Policy", "default-src 'none'; sandbox")
+        self.end_headers()
+        self.wfile.write(data)
 
     def _events(self) -> None:
         if not self.server.acquire_stream():

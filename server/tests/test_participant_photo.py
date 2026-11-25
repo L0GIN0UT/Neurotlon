@@ -200,14 +200,25 @@ def test_photo_absent_from_public_and_station_outputs(
     outputs = [
         client.get(f"{ROOT}/scoreboard"),
         client.get(f"{ROOT}/me/config", headers=headers),
-        client.get(
-            f"{ROOT}/participants/NT01/eligibility?discipline=darts&section=bci", headers=headers
-        ),
     ]
     for response in outputs:
         assert response.status_code == 200
         assert marker not in response.content
         assert b"photo" not in response.content.lower()
+
+    # The confirmation screen of a station knows only that a photo exists (decision 41).
+    eligibility = client.get(
+        f"{ROOT}/participants/NT01/eligibility?discipline=darts&section=bci", headers=headers
+    )
+    assert marker not in eligibility.content
+    assert set(eligibility.json()) == {
+        "code",
+        "display_name",
+        "team",
+        "issues",
+        "has_photo",
+        "photo_version",
+    }
 
     teams = admin.get(f"{ROOT}/teams")
     assert b"photo" not in teams.content.lower()

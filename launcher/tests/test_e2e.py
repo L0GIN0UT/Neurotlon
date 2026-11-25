@@ -25,7 +25,15 @@ from neurotlon_launcher.outbox import Outbox
 from neurotlon_launcher.sender import Sender
 from neurotlon_server.app import create_app
 from neurotlon_server.config import Settings
-from neurotlon_server.models import GameSession, Participant, SectionResult, Station
+from neurotlon_server.models import (
+    Duel,
+    GameSession,
+    Pair,
+    Participant,
+    SectionResult,
+    Station,
+    Team,
+)
 from neurotlon_server.security import hash_token, new_token
 
 SERVER_DIR = Path(__file__).resolve().parents[2] / "server"
@@ -53,10 +61,27 @@ class Rig:
         with app.state.session_factory() as db:
             station = Station(name=discipline, discipline=discipline, token_hash=hash_token(token))
             db.add(station)
-            db.add_all(
+            people = [
                 Participant(code=f"NT0{i}", category="general", checked_in_at=NOW)
                 for i in range(1, 5)
-            )
+            ]
+            teams = [Team(number=n, name=f"T{n}", color="#aa00bb", order=n) for n in (1, 2)]
+            db.add_all([*people, *teams])
+            db.flush()
+            duel = Duel(team_a_id=teams[0].id, team_b_id=teams[1].id, order=1)
+            db.add(duel)
+            db.flush()
+            # Pong pairs of the grid: NT01-NT02 and NT03-NT04.
+            for k, (a, b) in enumerate([(0, 1), (2, 3)], start=1):
+                db.add(
+                    Pair(
+                        duel_id=duel.id,
+                        k=k,
+                        participant_a_id=people[a].id,
+                        participant_b_id=people[b].id,
+                        zone_statuses={},
+                    )
+                )
             db.commit()
             self.station_id = station.id
         data_dir = tmp_path / "data"
@@ -196,4 +221,27 @@ def test_config_and_eligibility_from_real_server(
     eligibility = rig.api.eligibility("NT01", "darts", "bci")
     assert eligibility.code == "NT01"
     assert eligibility.team is None
-    assert "no_pair_assigned" in eligibility.issues
+    assert eligibility.issues == ()
+    assert eligibility.has_photo is False
+
+
+def test_photo_is_shown_after_eligibility_from_the_real_server(
+    tmp_path: Path, app: FastAPI, client: TestClient
+) -> None:
+    """The order of requests is kept: eligibility opens the photo for this station only."""
+    from neurotlon_server.models import ParticipantPhoto
+
+    rig = Rig(tmp_path, app, client, "darts")
+    jpeg = b"\xff\xd8\xff\xe0" + b"j" * 50 + b"\xff\xd9"
+    with app.state.session_factory() as db:
+        person = db.scalars(select(Participant).where(Participant.code == "NT01")).one()
+        db.add(ParticipantPhoto(participant_id=person.id, content=jpeg, updated_at=NOW))
+        db.commit()
+    assert rig.api.photo("NT01") is None  # not checked yet: the server refuses
+
+    rig.machine.enter_code("1")
+    rig._tick_until(Confirm)
+    assert isinstance(rig.machine.state, Confirm)
+    assert rig.machine.state.candidate.has_photo
+    assert rig.machine.photo_codes() == {"NT01"}
+    assert rig.machine.fetch_photo("NT01") == jpeg

@@ -53,6 +53,7 @@ function Body({
     case 'confirm':
       return (
         <ConfirmScreen
+          config={config}
           candidate={state.candidate}
           taken={state.taken}
           notice={state.notice}

@@ -46,7 +46,10 @@ export const ISSUES: Record<string, string> = {
   already_completed: 'Эту дисциплину уже проходил(а)',
   busy_on_other_station: 'Играет на другом стенде',
   no_pair_assigned: 'Не назначена пара',
+  not_opponents: 'Не соперник по сетке',
 }
+
+export const photoAlt = (code: string): string => `Фото участника ${code}`
 
 export const DONE = 'Готово!'
 export const POINTS_UNIT = 'очк.'

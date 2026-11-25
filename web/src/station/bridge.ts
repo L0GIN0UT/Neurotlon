@@ -56,6 +56,15 @@ export async function sendCommand(config: BridgeConfig, command: Command): Promi
   return (await postCommand(config, command)).ok
 }
 
+const PHOTO_PREFIX = '/api/photo/'
+
+/** Адрес фото для `<img>`: ссылка из снимка плюс токен окна; чужие ссылки не принимаем. */
+export function photoSrc(config: BridgeConfig, photoUrl: string | null | undefined): string | null {
+  if (!photoUrl?.startsWith(PHOTO_PREFIX)) return null
+  const joint = photoUrl.includes('?') ? '&' : '?'
+  return `${config.url}${photoUrl}${joint}token=${encodeURIComponent(config.token)}`
+}
+
 export type Connection = 'connecting' | 'live' | 'lost'
 
 /**

@@ -25,8 +25,17 @@ from neurotlon_launcher.outbox import ActiveSession, OutboxItem
 _T = TypeVar("_T")
 
 
-def eligibility(code: str, *issues: str, name: str | None = None) -> Eligibility:
-    return Eligibility(code, name, Team(1, "Alpha", "#aa00bb"), tuple(issues))
+def eligibility(
+    code: str, *issues: str, name: str | None = None, photo_version: int | None = None
+) -> Eligibility:
+    return Eligibility(
+        code,
+        name,
+        Team(1, "Alpha", "#aa00bb"),
+        tuple(issues),
+        has_photo=photo_version is not None,
+        photo_version=photo_version,
+    )
 
 
 class FakeApi:
@@ -35,6 +44,9 @@ class FakeApi:
         self.config: DisciplineConfig | Exception = DisciplineConfig("darts", "bci", 90)
         self.start_error: Exception | None = None
         self.eligibility_calls: list[str] = []
+        self.opponents: list[str | None] = []
+        self.photos: dict[str, bytes] = {}
+        self.photo_calls: list[str] = []
         self.started: list[tuple[uuid.UUID, str, list[str]]] = []
 
     def get_config(self) -> DisciplineConfig:
@@ -42,12 +54,19 @@ class FakeApi:
             raise self.config
         return self.config
 
-    def eligibility(self, code: str, discipline: str, section: str) -> Eligibility:
+    def eligibility(
+        self, code: str, discipline: str, section: str, opponent: str | None = None
+    ) -> Eligibility:
         self.eligibility_calls.append(code)
+        self.opponents.append(opponent)
         found = self.people.get(code) or eligibility(code)
         if isinstance(found, Exception):
             raise found
         return found
+
+    def photo(self, code: str) -> bytes | None:
+        self.photo_calls.append(code)
+        return self.photos.get(code)
 
     def start_session(
         self, session_id: uuid.UUID, discipline: str, participant_codes: list[str]

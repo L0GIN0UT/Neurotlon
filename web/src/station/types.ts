@@ -13,6 +13,8 @@ export interface CandidateView {
   issues: string[]
   offline: boolean
   warned: boolean
+  /** Относительная ссылка на фото в ядре (`/api/photo/NT03?v=…`), без токена; нет фото: `null`. */
+  photo_url?: string | null
 }
 
 export interface RejectedItem {

@@ -31,7 +31,11 @@ ParticipantCode = Annotated[str, StringConstraints(pattern=r"^NT(0[1-9]|[1-9][0-
 DisciplineName = Literal["darts", "football", "pong"]
 SectionName = Literal["bci", "physical"]
 IssueCode = Literal[
-    "not_checked_in", "already_completed", "busy_on_other_station", "no_pair_assigned"
+    "not_checked_in",
+    "already_completed",
+    "busy_on_other_station",
+    "no_pair_assigned",
+    "not_opponents",
 ]
 Reason = Literal["participant_refused", "health", "equipment", "no_show", "other"]
 
@@ -133,6 +137,24 @@ def pair_of(db: Session, participant: Participant) -> Pair | None:
         )
         .order_by(Pair.id)
     ).first()
+
+
+def are_opponents(db: Session, first: Participant, second: Participant) -> bool:
+    """True when the two stand in the same pair of the grid (k-th of team 1 vs k-th of team 2)."""
+    pair = pair_of(db, first)
+    return pair is not None and {pair.participant_a_id, pair.participant_b_id} == {
+        first.id,
+        second.id,
+    }
+
+
+def not_opponents() -> ProblemError:
+    return ProblemError(
+        409,
+        "not_opponents",
+        "Not opponents",
+        "In pong both players must be a pair from the grid",
+    )
 
 
 def is_busy(
@@ -329,6 +351,10 @@ def submit_result(
             db, person, body.discipline, body.section, now, caller.station_id, session_id
         )
     ]
+    if body.discipline == "pong" and len(people) == 2:
+        first, second = people.values()
+        if not are_opponents(db, first, second):  # a warning only: offline results are kept
+            warnings.extend({"participant_code": code, "code": "not_opponents"} for code in people)
     # Station results: the game counts points and the participant confirmed «Это я».
     # Volunteer results: pressing «Записать» is the confirmation (decisions 9, 19).
     status = "confirmed"

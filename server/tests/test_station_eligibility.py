@@ -26,6 +26,8 @@ def test_clean_participant_has_no_issues_and_team(client: TestClient, db: Sessio
         "display_name": "Name 1",
         "team": {"number": 1, "name": "Alpha", "color": "#aa00bb"},
         "issues": [],
+        "has_photo": False,
+        "photo_version": None,
     }
 
 

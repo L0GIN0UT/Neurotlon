@@ -7,4 +7,5 @@ export const ISSUE_TEXTS: Record<IssueCode, string> = {
   already_completed: 'Эту секцию участник уже проходил',
   busy_on_other_station: 'Участник сейчас играет на другом стенде',
   no_pair_assigned: 'Участнику не назначена пара',
+  not_opponents: 'Игроки не стоят в одной паре сетки',
 }
