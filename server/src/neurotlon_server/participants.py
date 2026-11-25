@@ -65,7 +65,7 @@ def _get_participant(db: Session, raw_code: str) -> Participant:
     return participant
 
 
-def _photo_version(updated_at: datetime) -> int:
+def photo_version(updated_at: datetime) -> int:
     """Cache-busting stamp: milliseconds, so a quick replacement still changes it."""
     return int(updated_at.timestamp() * 1000)
 
@@ -85,7 +85,7 @@ def _out(
         if team is None
         else {"number": team.number, "name": team.name, "color": team.color},
         "has_photo": photo_updated_at is not None,
-        "photo_version": None if photo_updated_at is None else _photo_version(photo_updated_at),
+        "photo_version": None if photo_updated_at is None else photo_version(photo_updated_at),
     }
     if with_category:
         out["category"] = participant.category
@@ -330,9 +330,8 @@ def clear_photo(code: str, db: Db, actor: Manager) -> Response:
     return Response(status_code=204, headers=_photo_headers())
 
 
-@router.get("/{code}/photo")
-def get_photo(code: str, db: Db, actor: Manager) -> Response:
-    participant = _get_participant(db, code)
+def photo_response(db: Session, participant: Participant) -> Response:
+    """The stored JPEG with the hardened headers; shared by the admin and the station routes."""
     photo = db.get(ParticipantPhoto, participant.id)
     if photo is None:
         raise ProblemError(404, "no_photo", "The participant has no photo")
@@ -342,3 +341,8 @@ def get_photo(code: str, db: Db, actor: Manager) -> Response:
         "Content-Disposition": f'inline; filename="{participant.code}.jpg"',
     }
     return Response(photo.content, media_type="image/jpeg", headers=headers)
+
+
+@router.get("/{code}/photo")
+def get_photo(code: str, db: Db, actor: Manager) -> Response:
+    return photo_response(db, _get_participant(db, code))

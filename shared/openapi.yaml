@@ -58,6 +58,15 @@ paths:
           required: true
           schema:
             $ref: "#/components/schemas/Section"
+        - name: with
+          in: query
+          required: false
+          schema:
+            type: string
+          description: |
+            Код второго игрока матча. Только для понга: если `{code, with}` не стоят в одной паре
+            сетки (или `with` не существует), в `issues` добавляется `not_opponents`.
+            Лаунчер не пускает такую пару к игре.
       responses:
         "200":
           description: Участник найден
@@ -68,6 +77,39 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
+          $ref: "#/components/responses/Problem"
+
+  /station/participants/{code}/photo:
+    get:
+      operationId: getStationParticipantPhoto
+      summary: Фото участника для экрана «Это вы?» на станции
+      security:
+        - stationToken: []
+      description: |
+        Только станция (токен станции). Фото — персональные данные: отдаётся по коду, который
+        станция уже знает из сканирования, перечня нет. Лаунчер держит его только в памяти на
+        время экрана. Заголовки как у админского: `Content-Type: image/jpeg`,
+        `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`,
+        `Cache-Control: private, no-store`, `Content-Disposition: inline`.
+        Фото отдаётся только в течение 120 с после запроса eligibility этого участника с этой
+        же станции (иначе 404), не больше 20 запросов в минуту на станцию (сверх `429`).
+      parameters:
+        - $ref: "#/components/parameters/ParticipantCodePath"
+      responses:
+        "200":
+          description: JPEG
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Problem"
+        "404":
+          $ref: "#/components/responses/Problem"
+        "429":
           $ref: "#/components/responses/Problem"
 
   /participants/qr:
@@ -223,6 +265,8 @@ paths:
         Помечает участников занятыми на этой станции до прихода результата или
         до потери heartbeat. Без связи лаунчер начинает игру без этого вызова и
         передаёт результат позже. Повтор с тем же `session_id` безопасен.
+        В понге оба игрока должны стоять в одной паре сетки, иначе `409 not_opponents`
+        (защита от обхода лаунчера); дартс и футбол не ограничены.
       security:
         - stationToken: []
       requestBody:
@@ -1183,10 +1227,11 @@ components:
         - already_completed
         - busy_on_other_station
         - no_pair_assigned
+        - not_opponents
 
     Eligibility:
       type: object
-      required: [code, team, issues]
+      required: [code, team, issues, has_photo, photo_version]
       additionalProperties: false
       properties:
         code:
@@ -1194,6 +1239,12 @@ components:
         display_name:
           type: [string, "null"]
           description: Имя для табло, необязательно.
+        has_photo:
+          type: boolean
+          description: У участника есть фото; станция покажет его на экране «Это вы?».
+        photo_version:
+          type: [integer, "null"]
+          description: Метка версии фото, `null` без фото.
         team:
           oneOf:
             - $ref: "#/components/schemas/Team"
