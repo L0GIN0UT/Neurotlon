@@ -1,6 +1,6 @@
 """Обёртка библиотеки Emotions (pyem-st-artifacts 1.0.5). Библиотека импортируется лениво.
 
-Биполярный режим: Left = T3 - O1, Right = T4 - O2 (вольты); calm = rel_relaxation / 100.
+Биполярный режим: Left = T3 - O1, Right = T4 - O2 (вольты); сосредоточение = rel_attention / 100.
 Пригодность — только по флагам артефактов: при артефактах библиотека повторяет последние числа.
 """
 
@@ -82,8 +82,8 @@ class Pyem:
         if not self.calibrated or em.read_mental_data_arr_size() == 0:
             return EegResult(0.0, False, False)
         data = em.read_average_mental_data(1)
-        calm = min(1.0, max(0.0, float(data.rel_relaxation) / 100.0))
-        return EegResult(calm, True, bool(em.is_both_sides_artifacted()))
+        concentration = min(1.0, max(0.0, float(data.rel_attention) / 100.0))
+        return EegResult(concentration, True, bool(em.is_both_sides_artifacted()))
 
     def close(self) -> None:
         with contextlib.suppress(Exception):

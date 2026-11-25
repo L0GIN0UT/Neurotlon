@@ -75,10 +75,15 @@ export type SetupFields = Omit<SetupFormView, 'devices'> & {
 }
 
 export type CalibrationStatus = 'pending' | 'running' | 'done' | 'failed'
-export type CalibrationPhase = 'tense' | 'relax'
+/** `tense`/`relax` у идущего шага ЭМГ; `countdown`/`waiting` ядро ставит до старта: читать только при `running`. */
+export type CalibrationPhase = 'tense' | 'relax' | 'countdown' | 'waiting'
 
 export interface SensorView {
   signal: string
+  /** Готовое название («ЭМГ», «ЭЭГ», «ЭМГ игрока 1 (слева)»); у старого ядра нет. */
+  title?: string
+  /** Подключение: `connected` | `connecting` | `missing` («не найден»); у старого ядра нет. */
+  status?: string
   state: string
   battery: number | null
 }
@@ -90,8 +95,17 @@ export interface CalibrationPartView {
   reason_text: string | null
 }
 
+export type CalibrationStage = 'connecting' | 'countdown' | 'running' | 'review'
+
 export interface CalibrationStepView {
+  /** `emg` | `eeg`; старое ядро присылает `muscle` | `brain` (понимаются как алиасы). */
   id: string
+  /** Готовое название («Калибровка ЭМГ»); у старого ядра нет, тогда подставляется по сигналу. */
+  title?: string
+  /** `waiting` | `countdown` | `running` | `done` | `failed`; у старого ядра нет. */
+  stage?: string
+  /** Целая секунда отсчёта 5…1 перед стартом шага. */
+  countdown_s?: number | null
   step: 'cycle' | 'baseline'
   signals: string[]
   status: CalibrationStatus
@@ -125,6 +139,12 @@ export type StateView =
       steps: CalibrationStepView[]
       current: string | number | null
       ready: boolean
+      /** Общая стадия; у старого ядра нет: тогда по `ready` и шагам. */
+      stage?: CalibrationStage
+      /** Запасной вариант: сейчас отсчёт лежит в `steps[].countdown_s` текущего шага. */
+      countdown_s?: number | null
+      /** Текст ошибки подключения (через 30 с на `connecting`); null — ошибки нет. */
+      connect_error?: string | null
     }
   | { kind: 'playing'; players: CandidateView[]; offline: boolean; default_limit: boolean }
   | { kind: 'done'; lines: string[]; seconds_left: number; seconds_total: number }
@@ -143,6 +163,8 @@ export type StateView =
       game: string
       sensors_available: boolean
       roles: string[]
+      /** Роли определены (токен проверен); у старого ядра поля нет, тогда по непустому `roles`. */
+      roles_known?: boolean
       /** Живой поиск датчиков; у старого ядра поля нет. */
       sensors?: SensorsView
       scan: {
@@ -170,7 +192,7 @@ export interface Snapshot {
 
 export type Command =
   | { action: 'type_char' | 'enter_code' | 'calibration_retry'; value: string }
-  | { action: 'setup_check' | 'setup_save'; value: SetupFields }
+  | { action: 'setup_check' | 'setup_save' | 'setup_form'; value: SetupFields }
   | { action: 'sensors_scan_start' | 'sensors_scan_stop'; value?: undefined }
   | { action: 'sensors_assign'; value: { role: string; id: string } }
   | { action: 'sensors_unassign'; value: { role: string } }

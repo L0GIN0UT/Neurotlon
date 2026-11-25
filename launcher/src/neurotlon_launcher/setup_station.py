@@ -3,6 +3,8 @@
 Работает вместо обычной станции, пока настроек нет (или админ вызвал настройку сам).
 Снимок состояния — `kind: "setup"`; команды:
 - `setup_check`, `setup_save` с полями формы;
+- `setup_form` с полями формы: окно шлёт её при вводе токена и адреса, ядро через 0,7 с само
+  узнаёт дисциплину станции (роли датчиков); при открытии с сохранённым токеном то же;
 - `sensors_scan_start`, `sensors_scan_stop` — фоновый поиск датчиков (`SensorSession`);
 - `sensors_assign` `{role, id}`, `sensors_unassign` `{role}` — назначение датчика роли;
 - `sensors_scan` — прежний блокирующий поиск (останется до обновления окна).
@@ -16,6 +18,8 @@ from __future__ import annotations
 import dataclasses
 import logging
 import threading
+import time
+from collections.abc import Callable
 from typing import Any
 
 from . import texts
@@ -23,12 +27,14 @@ from .config import DEFAULT_EEG_METHOD, ConfigError
 from .game import bridge_listening
 from .sensor_session import MAX_ID, SensorSession
 from .sensors import SCAN_SECONDS, SensorDevice, roles_for
-from .setup import CheckResult, SetupForm, SetupService
-from .web_bridge import LiveState
+from .setup import OFFLINE, CheckResult, SetupForm, SetupService
+from .web_bridge import CommandRejected, LiveState
 
 log = logging.getLogger(__name__)
 
-SETUP_ACTIONS = frozenset({"setup_check", "setup_save", "sensors_scan"})
+SETUP_ACTIONS = frozenset({"setup_check", "setup_save", "sensors_scan", "setup_form"})
+PROBE_RETRY_S = 5.0  # повтор пробы после сетевой ошибки
+AUTO_CHECK_DELAY_S = 0.7  # пауза после ввода токена: проверка не бежит на каждую букву
 SENSOR_ACTIONS = frozenset(
     {"sensors_scan_start", "sensors_scan_stop", "sensors_assign", "sensors_unassign"}
 )
@@ -54,6 +60,10 @@ def form_from(value: Any) -> SetupForm | None:
         return None
     fields["eeg_method"] = method
     return SetupForm(**fields)
+
+
+def _probe_key(form: SetupForm) -> tuple[str, str, str]:
+    return form.server_url.strip().rstrip("/"), form.token.strip(), form.ca_file.strip()
 
 
 def _same_fields(a: SetupForm, b: SetupForm) -> bool:
@@ -83,9 +93,11 @@ class SetupStation(LiveState):
         error: str | None = None,
         *,
         session: SensorSession | None = None,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         super().__init__()
         self._service = service
+        self._clock = clock
         self._lock = threading.Lock()
         self._phase = "form"  # form → checking → ok → saved
         self._error = error
@@ -96,6 +108,12 @@ class SetupStation(LiveState):
         self._scan_phase = "idle"  # прежний поиск: idle → scanning → done
         self._scan_devices: list[SensorDevice] = []
         self._scan_error: str | None = None
+        self._probe_form: SetupForm | None = None  # форма, по которой роли ждут проверки
+        self._probe_key: tuple[str, str, str] | None = None  # адрес, токен, сертификат
+        self._probe_due: float | None = None
+        self._probing = False
+        self._probe_retried = False  # после сетевой ошибки одна повторная проба
+        self._probe_error = False  # `error` пришла из автопроверки: при правке формы уходит
         self._defaults = service.defaults()
         self._session = session or self._make_session()
         self._session.load_assigned(service.sensors.saved_devices())
@@ -142,6 +160,7 @@ class SetupStation(LiveState):
                     "game": self._game,
                     "sensors_available": self._service.sensors.available,
                     "roles": list(roles_for(self._discipline)),
+                    "roles_known": self._discipline is not None,
                     "sensors": self._session.view(),
                     "scan": {
                         "seconds": SCAN_SECONDS,
@@ -159,6 +178,12 @@ class SetupStation(LiveState):
         """Поиск стартует сам при входе в настройку в режиме «настоящие датчики»."""
         if self._service.sensors.available and self._defaults["sensors"] == "hardware":
             self._session.scan_start()
+        saved = self._defaults
+        if saved["has_token"] and saved["server_url"]:
+            with self._lock:  # открыли с сохранённым токеном: роли узнаются сами
+                self._plan_probe(
+                    SetupForm(server_url=saved["server_url"], ca_file=saved["ca_file"])
+                )
         self._ticker = threading.Thread(target=self._run, name="setup-ticker", daemon=True)
         self._ticker.start()
 
@@ -171,11 +196,28 @@ class SetupStation(LiveState):
     def _run(self) -> None:
         while not self._stop.wait(TICK_S):
             try:
-                self._session.tick()
-                with self._lock:
-                    self._publish()
+                self.tick()
             except Exception:
                 log.exception("setup tick failed")
+
+    def tick(self) -> None:
+        """Шаг фоновой работы: поиск датчиков, автопроверка токена, свежий снимок."""
+        self._session.tick()
+        form: SetupForm | None = None
+        with self._lock:
+            due = self._probe_due
+            if (
+                due is not None
+                and self._clock() >= due
+                and not self._probing
+                and self._phase not in {"checking", "saved"}
+            ):
+                form, self._probe_due, self._probing = self._probe_form, None, True
+            self._publish()
+        if form is not None:
+            threading.Thread(
+                target=self._probe, args=(form,), name="setup-probe", daemon=True
+            ).start()
 
     # --- команды --------------------------------------------------------------------------
 
@@ -189,6 +231,13 @@ class SetupStation(LiveState):
         form = form_from(value)
         if form is None:
             return False
+        if action == "setup_form":
+            with self._lock:
+                if self._phase in {"checking", "saved"}:
+                    return True  # поздняя форма из окна: тихо игнорируем
+                self._plan_probe(form)
+                self._publish()
+            return True
         with self._lock:
             if self._phase in {"checking", "saved"}:
                 return False
@@ -199,8 +248,11 @@ class SetupStation(LiveState):
             if action == "setup_check":
                 self._phase, self._error, self._discipline = "checking", None, None
                 self._game = ""
+                self._probe_key, self._probe_due = _probe_key(form), None
+                self._probe_form = None  # ответ прежней пробы не затрёт полную проверку
+                self._probe_error = False
                 threading.Thread(
-                    target=self._check, args=(form, version), name="setup-check"
+                    target=self._check, args=(form, version), name="setup-check", daemon=True
                 ).start()
                 self._publish()
                 return True
@@ -211,11 +263,50 @@ class SetupStation(LiveState):
             self.saved.set()
         return True
 
+    def _plan_probe(self, form: SetupForm) -> None:
+        """Токен или адрес сменились: роли неизвестны, проверка через паузу. Под замком."""
+        key = _probe_key(form)
+        if key == self._probe_key:
+            return  # то же самое уже проверено или проверяется
+        self._probe_key = key
+        self._discipline, self._game, self._probe_due = None, "", None
+        if self._probe_error:
+            self._error, self._probe_error = None, False
+        if self._phase == "ok":
+            self._phase, self._checked = "form", None
+        ready = self._service.probe_ready(form)
+        self._probe_form = form if ready else None
+        self._probe_retried = False
+        if ready:
+            self._probe_due = self._clock() + AUTO_CHECK_DELAY_S
+
+    def _probe(self, form: SetupForm) -> None:
+        try:
+            result = self._service.probe(form)
+        except Exception:
+            log.exception("setup probe failed")
+            result = CheckResult(None, texts.SETUP_FAILED)
+        with self._lock:
+            self._probing = False
+            if self._probe_form is not form or self._phase in {"checking", "saved"}:
+                return  # форму успели поменять или запустили полную проверку: результат устарел
+            if result.error == OFFLINE and not self._probe_retried:
+                self._probe_retried = True
+                self._probe_due = self._clock() + PROBE_RETRY_S  # сеть могла моргнуть
+                return
+            self._discipline = result.discipline
+            if result.discipline is not None:
+                self._session.keep_roles(roles_for(result.discipline))
+            self._error, self._probe_error = result.error, result.error is not None
+            self._publish()
+
     def _sensor_command(self, action: str, value: Any) -> bool:
         with self._lock:
             allowed = roles_for(self._discipline)
             if self._phase == "saved":
                 return False  # датчики уже отпущены для рабочего моста
+            if self._discipline is None and action == "sensors_assign":
+                raise CommandRejected(texts.ENTER_TOKEN)
         if not self._service.sensors.available:
             return False
         if action == "sensors_scan_start":
@@ -224,7 +315,8 @@ class SetupStation(LiveState):
             ok = self._session.scan_stop()
         else:
             args = _sensor_args(action, value)
-            if args is None or args[0] not in allowed:
+            unknown_roles = self._discipline is None and action == "sensors_unassign"
+            if args is None or (args[0] not in allowed and not unknown_roles):
                 return False
             before = self._session.version
             if action == "sensors_assign":

@@ -1,6 +1,6 @@
 // Модель экрана «Калибровка»: чистые функции и буфер сигналов. Без React и без DOM.
 import * as t from './texts.ts'
-import type { CalibrationPartView, CalibrationStepView, SensorView, StateView } from './types.ts'
+import type { CalibrationPartView, CalibrationStage, CalibrationStepView, SensorView, StateView } from './types.ts'
 
 export type CalibratingState = Extract<StateView, { kind: 'calibrating' }>
 
@@ -9,7 +9,7 @@ export const WINDOW_MS = 10_000
 /** Сколько мс после последнего кадра линия «едет» сама, пока не пришёл следующий (кадр раз в 100 мс). */
 export const EXTRAPOLATE_MS = 250
 /** Длительность взгляда на точку, с: если лаунчер не прислал остаток. */
-export const BASELINE_S = 12
+export const BASELINE_S = 20
 /** Горизонтальные линии сетки шкалы 0…1. */
 export const GRID = [0, 0.25, 0.5, 0.75, 1] as const
 
@@ -35,12 +35,52 @@ export function activeStep(state: CalibratingState): CalibrationStepView | null 
 export const isPong = (steps: readonly CalibrationStepView[]): boolean =>
   steps.some((s) => s.signals.length > 1 || s.signals.includes('emg_left'))
 
-/** Название карточки: «Мышца (ЭМГ)», «Мозг (ЭЭГ)», в понге — «Мышцы игроков». */
+const ID_ALIASES: Record<string, 'emg' | 'eeg'> = { muscle: 'emg', brain: 'eeg' }
+
+/** Вид шага: `emg` или `eeg`; прежние `muscle`/`brain` понимаются как алиасы, иначе по сигналам. */
+export function stepKind(step: CalibrationStepView): 'emg' | 'eeg' | null {
+  const byId = ID_ALIASES[step.id] ?? (step.id === 'emg' || step.id === 'eeg' ? step.id : null)
+  if (byId) return byId
+  if (step.signals.includes('eeg')) return 'eeg'
+  if (step.signals.some((s) => s.startsWith('emg'))) return 'emg'
+  return null
+}
+
+/** Название карточки: «Калибровка ЭМГ» или «Калибровка ЭЭГ» (в понге ЭМГ одна, оба игрока сразу). */
 export function stepTitle(step: CalibrationStepView): string {
-  if (step.signals.length > 1) return t.CALIB.stepBoth
+  const given = step.title?.trim()
+  if (given) return given
+  const kind = stepKind(step)
+  if (kind) return t.CALIB.stepNames[kind] as string
   const [first] = step.signals
   return (first && t.CALIB.stepNames[first]) || first || step.id
 }
+
+/** Общая стадия: прежнее ядро её не шлёт, тогда по `ready` и шагам. */
+export function calibrationStage(state: CalibratingState): CalibrationStage {
+  if (state.stage) return state.stage
+  if (state.ready) return 'review'
+  return state.steps.length === 0 ? 'connecting' : 'running'
+}
+
+/** Целые секунды отсчёта перед шагом (не меньше 0); без числа — null. */
+export function countdownDigit(state: CalibratingState): number | null {
+  const n = activeStep(state)?.countdown_s ?? state.countdown_s
+  return typeof n === 'number' && Number.isFinite(n) ? Math.max(0, Math.ceil(n)) : null
+}
+
+/** Подпись датчика для списка подключения: «Датчик ЭМГ». */
+export const sensorName = (sensor: SensorView): string =>
+  sensor.title?.trim()
+    ? `${t.CALIB.sensorWord} ${sensor.title.trim()}`
+    : (t.CALIB.sensorNames[sensor.signal] ?? trackLabel(sensor.signal))
+
+/** Ключ состояния для подписи: `status` нового ядра, иначе `state`. */
+const sensorKey = (sensor: SensorView): string => sensor.status ?? sensor.state
+
+/** Подпись состояния датчика: «подключён», «подключаем», «не найден». */
+export const sensorStateText = (sensor: SensorView): string =>
+  t.CALIB.sensorState[sensorKey(sensor)] ?? sensorKey(sensor)
 
 export const stepSubtitle = (step: CalibrationStepView): string =>
   step.step === 'baseline' ? t.CALIB.stepBaseline : t.CALIB.stepCycle
@@ -60,16 +100,24 @@ export function statusText(step: CalibrationStepView): string {
 
 export const clamp01 = (x: number): number => (Number.isFinite(x) ? Math.min(1, Math.max(0, x)) : 0)
 
+/** Фаза цикла ЭМГ только у идущего шага: `countdown`/`waiting` — это не «напрягите/расслабьте». */
+export function livePhase(step: CalibrationStepView): 'tense' | 'relax' | null {
+  if (step.status !== 'running') return null
+  return step.phase === 'tense' || step.phase === 'relax' ? step.phase : null
+}
+
 /** Подпись фазы цикла: что делать участнику прямо сейчас. */
 export function phaseWord(step: CalibrationStepView): string {
-  if (step.phase === 'tense') return t.CALIB.tense
-  if (step.phase === 'relax') return t.CALIB.relax
+  const phase = livePhase(step)
+  if (phase === 'tense') return t.CALIB.tense
+  if (phase === 'relax') return t.CALIB.relax
   return t.CALIB.getReady
 }
 
 export function phaseHint(step: CalibrationStepView): string {
-  if (step.phase === 'tense') return t.CALIB.tenseHint
-  if (step.phase === 'relax') return t.CALIB.relaxHint
+  const phase = livePhase(step)
+  if (phase === 'tense') return t.CALIB.tenseHint
+  if (phase === 'relax') return t.CALIB.relaxHint
   return t.CALIB.readyHint
 }
 
@@ -124,7 +172,7 @@ export const stepFor = (
 export type SensorTone = 'good' | 'warn' | 'bad' | 'muted'
 
 export function sensorTone(sensor: SensorView): SensorTone {
-  switch (sensor.state) {
+  switch (sensorKey(sensor)) {
     case 'connected':
     case 'ok':
     case 'live':
@@ -134,6 +182,7 @@ export function sensorTone(sensor: SensorView): SensorTone {
       return 'warn'
     case 'disconnected':
     case 'lost':
+    case 'missing':
       return 'bad'
     default:
       return 'muted'
@@ -142,8 +191,8 @@ export function sensorTone(sensor: SensorView): SensorTone {
 
 /** «Датчик мышцы: подключён, 85 %» */
 export function sensorText(sensor: SensorView): string {
-  const name = t.CALIB.sensorNames[sensor.signal] ?? trackLabel(sensor.signal)
-  const state = t.CALIB.sensorState[sensor.state] ?? sensor.state
+  const name = sensorName(sensor)
+  const state = sensorStateText(sensor)
   const battery =
     sensor.battery !== null && Number.isFinite(sensor.battery) ? `, ${Math.round(sensor.battery)} %` : ''
   return `${name}: ${state}${battery}`

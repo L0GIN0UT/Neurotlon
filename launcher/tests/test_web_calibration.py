@@ -13,6 +13,7 @@ import pytest
 
 from neurotlon_launcher import web_bridge
 from neurotlon_launcher.bridge_link import BridgeLink, BurstRecord, Reading, SampleRecord
+from neurotlon_launcher.calibration import COUNTDOWN_S
 from neurotlon_launcher.machine import Calibrating, StationMachine
 from neurotlon_launcher.signal_stream import FRAME_SAMPLES, SignalCursor, next_frame
 from neurotlon_launcher.snapshot import snapshot
@@ -132,21 +133,47 @@ def test_snapshot_of_the_calibrating_screen() -> None:
     view = snapshot(rig.machine, StationStatus())["state"]
     assert view["kind"] == "calibrating"
     assert view["link"] == "connecting"
-    assert view["sensors"] == [] and view["eeg_method"] is None
-    assert [s["id"] for s in view["steps"]] == ["muscle", "brain"]
-    assert (view["current"], view["ready"]) == ("muscle", False)
+    assert view["eeg_method"] is None and view["stage"] == "connecting"
+    assert [(s["signal"], s["status"]) for s in view["sensors"]] == [
+        ("emg", "connecting"),
+        ("eeg", "connecting"),
+    ]
+    assert [s["id"] for s in view["steps"]] == ["emg", "eeg"]
+    assert [s["title"] for s in view["steps"]] == ["Калибровка ЭМГ", "Калибровка ЭЭГ"]
+    assert (view["current"], view["ready"]) == ("emg", False)
     rig.link.go_live({**DARTS_STATES, "eeg": "connecting"}, eeg_method="alpha")
     rig.link.batteries["emg"] = 64
+    rig.machine.tick()
+    view = snapshot(rig.machine, StationStatus())["state"]
+    assert (view["stage"], view["connect_error"]) == ("connecting", None)
+    assert [(s["signal"], s["status"]) for s in view["sensors"]] == [
+        ("emg", "connected"),
+        ("eeg", "connecting"),
+    ]
+    rig.link.states["eeg"] = "connected"
+    rig.machine.tick()
+    view = snapshot(rig.machine, StationStatus())["state"]
+    assert view["stage"] == "countdown" and view["current"] == "emg"
+    assert (view["steps"][0]["countdown_s"], view["steps"][0]["stage"]) == (5, "countdown")
+    assert view["steps"][1]["countdown_s"] is None
+    rig.time.mono += COUNTDOWN_S
     rig.machine.tick()
     rig.link.running("emg", "cycle", 0.31234, segment=2, phase="relax", phase_left_s=3.46)
     view = snapshot(rig.machine, StationStatus())["state"]
     assert view["link"] == "live" and view["eeg_method"] == "alpha"
-    assert view["sensors"] == [
-        {"signal": "eeg", "state": "connecting", "battery": None},
-        {"signal": "emg", "state": "connected", "battery": 64},
-    ]
+    assert view["stage"] == "running"
+    assert view["sensors"][0] == {
+        "signal": "emg",
+        "title": "ЭМГ",
+        "status": "connected",
+        "state": "connected",
+        "battery": 64,
+    }
     assert view["steps"][0] == {
-        "id": "muscle",
+        "id": "emg",
+        "title": "Калибровка ЭМГ",
+        "stage": "running",
+        "countdown_s": None,
         "step": "cycle",
         "signals": ["emg"],
         "status": "running",
@@ -260,9 +287,16 @@ def test_calibration_commands_drive_the_machine(rig: tuple[Rig, BridgeServer]) -
     r.link.go_live(DARTS_STATES)
     r.machine.tick()
     assert command(server, "calibration_restart") == 204
-    assert r.link.calls[-2:] == [("reset",), ("calibrate", "emg", "cycle")]
+    assert r.link.calls[-1] == ("reset",)
+    r.time.mono += COUNTDOWN_S
+    r.machine.tick()
+    assert list(r.link.calls[-1]) == ["calibrate", "emg", "cycle"]
     assert command(server, "calibration_retry", "eeg") == 204
-    assert r.link.calls[-1] == ("calibrate", "eeg", "baseline")
+    r.link.finish("emg", "cycle")  # ЭЭГ идёт после ЭМГ и со своим отсчётом
+    r.machine.tick()
+    r.time.mono += COUNTDOWN_S
+    r.machine.tick()
+    assert list(r.link.calls[-1]) == ["calibrate", "eeg", "baseline"]
     assert command(server, "calibration_continue") == 204
     assert isinstance(r.machine.state, Calibrating)  # ещё не готово
     r.link.finish("emg", "cycle")

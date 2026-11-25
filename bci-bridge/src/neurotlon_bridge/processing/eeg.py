@@ -1,4 +1,4 @@
-"""Обработка ЭЭГ (BrainBit): расслабление 0…1 одним из двух методов.
+"""Обработка ЭЭГ (BrainBit): сосредоточение 0…1 одним из двух методов.
 
 Метод спрятан за `EegEngine`: `processing/emotions.py` (библиотека Emotions) и
 `processing/alpha.py` (относительная альфа). Логика тестируется с подделкой.
@@ -24,19 +24,19 @@ class EegConfig:
     n_first_sec_skipped: int = 4
     num_wins_for_quality_avg: int = 125
     ampl_art_extremum_border: int = 25
-    calibration_s: int = 12
+    calibration_s: int = 20
     skip_wins_after_artifact: int = 10
 
 
 @dataclass(frozen=True)
 class EegResult:
-    calm: float  # 0..1
+    concentration: float  # 0..1, высокое значение - сосредоточен
     has_data: bool  # есть актуальное значение после калибровки (нет: окно не набрано, обрыв)
     artifact: bool  # артефакты: значение использовать нельзя
 
 
 class EegEngine(Protocol):
-    """Метод расчёта расслабления. Калибровка делается один раз на объект."""
+    """Метод расчёта сосредоточения. Калибровка делается один раз на объект."""
 
     @property
     def calibrated(self) -> bool: ...
@@ -75,7 +75,7 @@ class PersistentEngine(Protocol):
 class EegProcessor:
     """Один канал ЭЭГ. Не потокобезопасен: вызывающий сериализует доступ."""
 
-    def __init__(self, factory: Callable[[], EegEngine], calibration_s: float = 12.0) -> None:
+    def __init__(self, factory: Callable[[], EegEngine], calibration_s: float = 20.0) -> None:
         self._factory = factory
         self._calibration_s = calibration_s
         self._engine: EegEngine | None = None
@@ -155,8 +155,8 @@ class EegProcessor:
         if res is None or not res.has_data:
             return Reading(0.0, False, "stale")
         if res.artifact:
-            return Reading(res.calm, False, "artifact")
-        return Reading(res.calm)
+            return Reading(res.concentration, False, "artifact")
+        return Reading(res.concentration)
 
     def reset(self) -> None:
         self._close_engine()

@@ -27,7 +27,7 @@ STEADY_PHASE_S = 12.0
 RAMP_PHASE_S = 6.0
 RAMP_PWM_PERIOD_S = 0.1
 CYCLE_S = PULSE_PHASE_S + STEADY_PHASE_S + RAMP_PHASE_S
-EEG_PERIOD_S = 6.0  # половину периода расслабление растёт, потом падает
+EEG_PERIOD_S = 6.0  # половину периода сосредоточение растёт, потом падает
 PONG_PERIOD_S = 1.6
 
 

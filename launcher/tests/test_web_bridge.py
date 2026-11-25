@@ -21,7 +21,7 @@ from neurotlon_launcher.testing import (
     Time,
     eligibility,
 )
-from neurotlon_launcher.web_bridge import BridgeServer, Station
+from neurotlon_launcher.web_bridge import BridgeServer, CommandRejected, LiveState, Station
 
 TOKEN = "t" * 32
 
@@ -193,6 +193,22 @@ def test_snapshot_done_counts_down_and_has_no_secrets() -> None:
     assert snapshot(machine, StationStatus())["state"]["seconds_left"] == 3.0
     text = json.dumps(snapshot(machine, StationStatus()), ensure_ascii=False)
     assert "ОВЗ" not in text and "token" not in text.lower()  # noqa: RUF001
+
+
+class Refusing(LiveState):
+    def command(self, action: str, value: Any) -> bool:
+        raise CommandRejected("Введите токен станции")
+
+
+def test_rejected_command_answers_400_with_the_reason() -> None:
+    server = BridgeServer(Refusing(), TOKEN)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        status, body = call(server, "/api/command", method="POST", body={"action": "x"})
+    finally:
+        server.close()
+    assert status == 400
+    assert json.loads(body) == {"error": "Введите токен станции"}
 
 
 JPEG = b"\xff\xd8\xff\xe0" + b"p" * 64 + b"\xff\xd9"

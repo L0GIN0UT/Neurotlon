@@ -60,6 +60,10 @@ PLAIN_ACTIONS = frozenset(
 VALUE_ACTIONS = frozenset({"type_char", "enter_code", "calibration_retry"})
 
 
+class CommandRejected(Exception):
+    """Команда отклонена с понятным текстом: HTTP 400 с телом `{"error": "..."}`."""
+
+
 class LiveState:
     """Последний снимок и рассылка слушателям: общая часть рабочего и настроечного режимов."""
 
@@ -256,6 +260,10 @@ class _Handler(BaseHTTPRequestHandler):
                 data = json.loads(raw or b"")
                 action, value = data["action"], data.get("value")
                 ok = isinstance(action, str) and self.server.station.command(action, value)
+            except CommandRejected as exc:
+                body = json.dumps({"error": str(exc)}, ensure_ascii=False).encode()
+                self._send(HTTPStatus.BAD_REQUEST, body)
+                return
             except (ValueError, KeyError, TypeError):
                 ok = False
             self._send(HTTPStatus.NO_CONTENT if ok else HTTPStatus.BAD_REQUEST)

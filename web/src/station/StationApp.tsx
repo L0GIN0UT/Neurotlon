@@ -28,10 +28,12 @@ function Body({
   snapshot,
   config,
   send,
+  commandError,
 }: {
   snapshot: Snapshot
   config: BridgeConfig
   send: (command: Command) => void
+  commandError: string | null
 }) {
   const { state, discipline, players_needed: playersNeeded } = snapshot
   switch (state.kind) {
@@ -90,12 +92,12 @@ function Body({
     case 'rejected':
       return <RejectedScreen items={state.items} exportedTo={state.exported_to} send={send} />
     case 'setup':
-      return <SetupScreen state={state} send={send} />
+      return <SetupScreen state={state} send={send} commandError={commandError} />
   }
 }
 
 function Connected({ config }: { config: BridgeConfig }) {
-  const { snapshot, connection, send } = useStation(config)
+  const { snapshot, connection, send, commandError } = useStation(config)
   const kind = snapshot?.state.kind
 
   useEffect(() => {
@@ -142,7 +144,7 @@ function Connected({ config }: { config: BridgeConfig }) {
         <AnimatePresence custom={direction}>
           {snapshot && (
             <Screen key={screenKey(snapshot.state)} direction={direction}>
-              <Body snapshot={snapshot} config={config} send={send} />
+              <Body snapshot={snapshot} config={config} send={send} commandError={commandError} />
             </Screen>
           )}
         </AnimatePresence>

@@ -579,8 +579,8 @@ class StationMachine:
             match command:
                 case ResetCommand():
                     sent = link.reset()
-                case Calibrate(signal=signal, step=step):
-                    sent = link.calibrate(signal, step)
+                case Calibrate(signal=signal, step=step, duration_s=duration):
+                    sent = link.calibrate(signal, step, duration)
             if not sent:  # связь оборвалась между проверкой и отправкой
                 run.command_failed(command)
 
@@ -600,12 +600,14 @@ class StationMachine:
         link, run = self._link, self._run
         if isinstance(self.state, Calibrating) and link is not None and run is not None:
             self._apply(link, run, run.restart(link.view(), self._monotonic()))
+            self._calibrate(self.state)
 
     def calibration_retry(self, key: str) -> None:
         """Повтор шага (по id) или одного сигнала."""
         link, run = self._link, self._run
         if isinstance(self.state, Calibrating) and link is not None and run is not None:
             self._apply(link, run, run.retry(key, link.view(), self._monotonic()))
+            self._calibrate(self.state)  # отсчёт повторённого шага начинается сразу
 
     def calibration_screen(self) -> CalibrationScreen | None:
         link, run = self._link, self._run

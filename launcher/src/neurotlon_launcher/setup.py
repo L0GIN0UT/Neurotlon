@@ -220,10 +220,36 @@ class SetupService:
             return url, token, ca_file, CERT_MISSING
         return url, token, ca_file, None
 
-    def check(self, form: SetupForm) -> CheckResult:
-        url, token, ca_file, error = self._validate(form)
+    def probe_ready(self, form: SetupForm) -> bool:
+        """Достаточно ли формы, чтобы узнать дисциплину: адрес, токен и сертификат на месте."""
+        return self._probe_args(form)[3] is None
+
+    def _probe_args(self, form: SetupForm) -> tuple[str, str, Path | None, str | None]:
+        """(адрес, токен, сертификат, ошибка): только то, что нужно для запроса дисциплины."""
+        url = form.server_url.strip().rstrip("/")
+        if not url:
+            return url, "", None, URL_REQUIRED
+        if not url.startswith("https://"):
+            return url, "", None, URL_SCHEME
+        token = form.token.strip() or self.saved_token()
+        if not token:
+            return url, token, None, TOKEN_REQUIRED
+        if len(token) < MIN_TOKEN_LENGTH:
+            return url, token, None, TOKEN_SHORT
+        ca_text = _clean_path(form.ca_file)
+        ca_file = Path(ca_text) if ca_text else None
+        if ca_file is not None and not ca_file.is_file():
+            return url, token, ca_file, CERT_MISSING
+        return url, token, ca_file, None
+
+    def probe(self, form: SetupForm) -> CheckResult:
+        """Дисциплина станции по токену, без остальных проверок (игра, датчики)."""
+        url, token, ca_file, error = self._probe_args(form)
         if error:
             return CheckResult(None, error)
+        return self._fetch_discipline(url, token, ca_file)
+
+    def _fetch_discipline(self, url: str, token: str, ca_file: Path | None) -> CheckResult:
         try:
             client = self._client_factory(url, token, ca_file)
         except (ssl.SSLError, OSError):
@@ -239,11 +265,20 @@ class SetupService:
             return CheckResult(None, f"Сервер ответил ошибкой: {exc}")
         finally:
             client.close()
-        game = self.resolve_game(form.game_path, config.discipline)
+        return CheckResult(config.discipline, None)
+
+    def check(self, form: SetupForm) -> CheckResult:
+        url, token, ca_file, error = self._validate(form)
+        if error:
+            return CheckResult(None, error)
+        found = self._fetch_discipline(url, token, ca_file)
+        if found.discipline is None:
+            return found
+        discipline = found.discipline
+        game = self.resolve_game(form.game_path, discipline)
         if not game:
-            return CheckResult(config.discipline, GAME_NOT_BUNDLED)
-        problem = self._sensor_problem(form, config.discipline)
-        return CheckResult(config.discipline, problem, game)
+            return CheckResult(discipline, GAME_NOT_BUNDLED)
+        return CheckResult(discipline, self._sensor_problem(form, discipline), game)
 
     def _sensor_problem(self, form: SetupForm, discipline: str) -> str | None:
         if form.sensors not in ("", "hardware", "emulate"):

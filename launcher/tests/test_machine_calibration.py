@@ -7,7 +7,7 @@ import uuid
 from neurotlon_launcher import texts
 from neurotlon_launcher.api import Busy
 from neurotlon_launcher.bridge_link import BridgeLink
-from neurotlon_launcher.calibration import BRIDGE_SILENT, LINK_DROPPED
+from neurotlon_launcher.calibration import BRIDGE_SILENT, COUNTDOWN_S, LINK_DROPPED
 from neurotlon_launcher.game import Aborted, Finished, GameEntry, GameOutcome, GameRequest
 from neurotlon_launcher.machine import (
     Calibrating,
@@ -105,8 +105,10 @@ class Rig:
 def calibrate_darts(rig: Rig) -> None:
     rig.link.go_live(DARTS_STATES, eeg_method="alpha")
     rig.tick()
+    rig.tick(COUNTDOWN_S)
     rig.link.finish("emg", "cycle")
     rig.tick(1)
+    rig.tick(COUNTDOWN_S)
     rig.link.finish("eeg", "baseline")
     rig.tick(1)
 
@@ -146,13 +148,19 @@ def test_full_darts_flow_resets_calibrates_and_launches_after_closing_the_link()
     assert rig.link.calls == []
     rig.link.go_live(DARTS_STATES, calibrated=("emg",), eeg_method="alpha")  # остатки прошлого
     rig.tick()
+    assert rig.link.calls == [("reset",)]  # подключение пройдено, идёт отсчёт «Приготовьтесь»
+    rig.tick(COUNTDOWN_S - 1)
+    assert rig.link.calls == [("reset",)]  # `calibrate` не уходит, пока отсчёт не кончился
+    rig.tick(1)
     assert rig.link.calls == [("reset",), ("calibrate", "emg", "cycle")]
     rig.link.running("emg", "cycle", 0.5, segment=3, phase="tense", phase_left_s=2.0)
     rig.tick()
     rig.link.finish("emg", "cycle")
     rig.tick()
+    assert rig.link.calls[-1] == ("calibrate", "emg", "cycle")  # у ЭЭГ свой отсчёт
+    rig.tick(COUNTDOWN_S)
     assert rig.link.calls[-1] == ("calibrate", "eeg", "baseline")
-    rig.machine.calibration_continue()  # мозг ещё не готов
+    rig.machine.calibration_continue()  # ЭЭГ ещё не готова
     assert isinstance(rig.state, Calibrating)
     rig.link.finish("eeg", "baseline")
     rig.tick()
@@ -248,6 +256,7 @@ def test_silent_bridge_fails_the_step_with_a_reason_and_retry_restarts_it() -> N
     rig.to_calibrating()
     rig.link.go_live(DARTS_STATES)
     rig.tick()
+    rig.tick(COUNTDOWN_S)
     rig.tick(46)
     screen = rig.machine.calibration_screen()
     assert screen is not None
@@ -255,7 +264,10 @@ def test_silent_bridge_fails_the_step_with_a_reason_and_retry_restarts_it() -> N
         "failed",
         BRIDGE_SILENT,
     )
-    rig.machine.calibration_retry("muscle")
+    rig.machine.calibration_retry("muscle")  # прежнее имя шага тоже понимается
+    screen = rig.machine.calibration_screen()
+    assert screen is not None and screen.run.stage == "countdown"
+    rig.tick(COUNTDOWN_S)
     assert rig.link.calls[-1] == ("calibrate", "emg", "cycle")
     screen = rig.machine.calibration_screen()
     assert screen is not None and screen.run.steps[0].status == "running"
@@ -266,6 +278,7 @@ def test_lost_link_fails_the_running_step() -> None:
     rig.to_calibrating()
     rig.link.go_live(DARTS_STATES)
     rig.tick()
+    rig.tick(COUNTDOWN_S)
     rig.link.drop()
     rig.tick()
     screen = rig.machine.calibration_screen()
@@ -280,12 +293,14 @@ def test_restart_resets_and_starts_over() -> None:
     rig.to_calibrating()
     calibrate_darts(rig)
     rig.machine.calibration_restart()
-    assert rig.link.calls[-2:] == [("reset",), ("calibrate", "emg", "cycle")]
+    assert rig.link.calls[-1] == ("reset",)
     screen = rig.machine.calibration_screen()
-    assert screen is not None and not screen.run.ready
+    assert screen is not None and not screen.run.ready and screen.run.stage == "countdown"
+    rig.tick(COUNTDOWN_S)
+    assert list(rig.link.calls[-1]) == ["calibrate", "emg", "cycle"]
 
 
-def test_pong_calibrates_both_hands_together() -> None:
+def test_pong_calibrates_both_players_together() -> None:
     rig = Rig(
         "pong",
         Finished((GameEntry("NT03", "completed", 5, 1), GameEntry("NT14", "completed", 3, 0))),
@@ -293,6 +308,8 @@ def test_pong_calibrates_both_hands_together() -> None:
     rig.pong_to_calibrating()
     rig.link.go_live(PONG_STATES)
     rig.tick()
+    assert rig.link.calls == [("reset",)]
+    rig.tick(COUNTDOWN_S)
     assert rig.link.calls == [
         ("reset",),
         ("calibrate", "emg_left", "cycle"),
@@ -304,6 +321,9 @@ def test_pong_calibrates_both_hands_together() -> None:
     rig.machine.calibration_continue()
     assert isinstance(rig.state, Calibrating)
     rig.machine.calibration_retry("emg_right")
+    assert rig.link.calls[-1] == ("calibrate", "emg_right", "cycle")  # старая, до повтора
+    assert len(rig.link.calls) == 3
+    rig.tick(COUNTDOWN_S)
     assert rig.link.calls[-1] == ("calibrate", "emg_right", "cycle")
     rig.link.finish("emg_right", "cycle")
     rig.tick()

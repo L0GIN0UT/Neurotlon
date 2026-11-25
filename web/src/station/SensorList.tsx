@@ -191,12 +191,14 @@ function AssignedRow({ role, d, send }: { role: string; d: SensorEntry | undefin
 function FoundRow({
   d,
   roles,
+  rolesKnown,
   assignedRoles,
   send,
   onAssigned,
 }: {
   d: SensorEntry
   roles: string[]
+  rolesKnown: boolean
   assignedRoles: Set<string>
   send: (c: Command) => void
   onAssigned: (role: string) => void
@@ -209,7 +211,7 @@ function FoundRow({
     send({ action: 'sensors_assign', value: { role, id: d.id } })
     onAssigned(role)
   }
-  const needCheck = roles.length === 0
+  const needCheck = !rolesKnown
   return (
     <li className={`sensor-row found${d.in_range ? '' : ' stale'}`} data-testid="sensor-found">
       <span className="sensor-kind" title={t.SETUP.sensorsDeviceKind[d.kind] ?? d.kind}>
@@ -256,11 +258,16 @@ function FoundRow({
 export function SensorList({
   sensors,
   roles,
+  rolesKnown = roles.length > 0,
   send,
+  notice = null,
 }: {
   sensors: SensorsView | undefined
   roles: string[]
+  /** Роли станции определены; без поля (старое ядро) считаем известными, если список не пуст. */
+  rolesKnown?: boolean
   send: (command: Command) => void
+  notice?: string | null
 }) {
   const view = sensors ?? IDLE
   const scanning = view.phase === 'scanning'
@@ -314,8 +321,9 @@ export function SensorList({
         )}
       </div>
       {view.phase === 'error' && view.error && <Notice tone="bad">{view.error}</Notice>}
+      {notice && <Notice tone="bad" testId="sensors-notice">{notice}</Notice>}
 
-      {roles.length === 0 ? (
+      {!rolesKnown ? (
         <p className="setup-hint">{t.SETUP.sensorsNeedCheck}</p>
       ) : (
         <section aria-labelledby="sensors-assigned-title">
@@ -338,7 +346,7 @@ export function SensorList({
         {free.length > 0 ? (
           <ul className="sensor-rows" data-testid="sensors-found">
             {free.map((d) => (
-              <FoundRow key={d.id} d={d} roles={roles} assignedRoles={assignedRoles} send={send} onAssigned={setPending} />
+              <FoundRow key={d.id} d={d} roles={roles} rolesKnown={rolesKnown} assignedRoles={assignedRoles} send={send} onAssigned={setPending} />
             ))}
           </ul>
         ) : view.phase === 'stopped' ? (

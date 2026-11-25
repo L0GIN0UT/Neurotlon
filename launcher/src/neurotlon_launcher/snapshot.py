@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .calibration import StepView, sensors_view
+from .calibration import SensorStatus, StepView
 from .machine import (
     DONE_SECONDS,
     Blocked,
@@ -52,9 +52,22 @@ def _candidates(items: tuple[Candidate, ...]) -> list[dict[str, Any]]:
     return [candidate_view(c) for c in items]
 
 
+def _sensor_view(sensor: SensorStatus) -> dict[str, Any]:
+    return {
+        "signal": sensor.signal,
+        "title": sensor.title,
+        "status": sensor.status,
+        "state": sensor.state,
+        "battery": sensor.battery,
+    }
+
+
 def _step_view(step: StepView) -> dict[str, Any]:
     return {
         "id": step.id,
+        "title": step.title,
+        "stage": step.stage,
+        "countdown_s": step.countdown_s,
         "step": step.step,
         "signals": list(step.signals),
         "status": step.status,
@@ -83,6 +96,8 @@ def calibrating_view(machine: StationMachine, players: tuple[Candidate, ...]) ->
             "kind": "calibrating",
             "players": _candidates(players),
             "link": "connecting",
+            "stage": "connecting",
+            "connect_error": None,
             "sensors": [],
             "eeg_method": None,
             "steps": [],
@@ -94,7 +109,9 @@ def calibrating_view(machine: StationMachine, players: tuple[Candidate, ...]) ->
         "kind": "calibrating",
         "players": _candidates(players),
         "link": link.link,
-        "sensors": sensors_view(link),
+        "stage": screen.run.stage,
+        "connect_error": screen.run.connect_error,
+        "sensors": [_sensor_view(s) for s in screen.run.sensors],
         "eeg_method": link.hello.eeg_method if link.hello else None,
         "steps": [_step_view(step) for step in screen.run.steps],
         "current": screen.run.current,

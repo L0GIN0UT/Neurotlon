@@ -43,6 +43,18 @@ class CalibrationConfig:
 
 
 @dataclass(frozen=True)
+class DebugConfig:
+    """Раздел `[debug]`: отладка на стенде, по умолчанию всё выключено."""
+
+    eeg_trace: bool = False  # писать eeg-trace.csv (сырая альфа, concentration, причина, границы)
+    eeg_trace_max_kb: int = 2048  # предел файла; старый уходит в eeg-trace.old.csv
+
+    def __post_init__(self) -> None:
+        if self.eeg_trace_max_kb < 1:
+            raise ValueError("eeg_trace_max_kb: нужно целое число не меньше 1")
+
+
+@dataclass(frozen=True)
 class BridgeConfig:
     devices: dict[str, DeviceRef] = field(default_factory=dict)
     scan_s: float = DEFAULT_SCAN_S
@@ -51,6 +63,7 @@ class BridgeConfig:
     burst: BurstConfig = field(default_factory=BurstConfig)
     alpha: AlphaConfig = field(default_factory=AlphaConfig)
     calibration: CalibrationConfig = field(default_factory=CalibrationConfig)
+    debug: DebugConfig = field(default_factory=DebugConfig)
 
 
 def default_config_path() -> Path | None:
@@ -82,7 +95,7 @@ def load_config(path: Path | None) -> BridgeConfig:
 
 
 def parse_config(data: dict[str, Any]) -> BridgeConfig:
-    unknown = set(data) - {"devices", "emg", "eeg", "burst", "alpha", "calibration"}
+    unknown = set(data) - {"devices", "emg", "eeg", "burst", "alpha", "calibration", "debug"}
     if unknown:
         raise ConfigError(f"неизвестные разделы: {', '.join(sorted(unknown))}")
     devices_raw = dict(data.get("devices", {}))
@@ -101,10 +114,28 @@ def parse_config(data: dict[str, Any]) -> BridgeConfig:
         burst=_section(BurstConfig, data.get("burst", {}), "burst"),
         alpha=_section(AlphaConfig, data.get("alpha", {}), "alpha"),
         calibration=_section(CalibrationConfig, data.get("calibration", {}), "calibration"),
+        debug=_debug_section(data.get("debug", {})),
     )
     if config.alpha.band_high_hz >= config.eeg.sampling_rate / 2:
         raise ConfigError("[alpha] band_high_hz должна быть меньше половины [eeg] sampling_rate")
     return config
+
+
+def _debug_section(raw: dict[str, Any]) -> DebugConfig:
+    """`[debug]`: `eeg_trace` — true/false, `eeg_trace_max_kb` — целое число килобайт."""
+    unknown = set(raw) - {"eeg_trace", "eeg_trace_max_kb"}
+    if unknown:
+        raise ConfigError(f"[debug] неизвестный ключ: {', '.join(sorted(unknown))}")
+    flag = raw.get("eeg_trace", False)
+    if not isinstance(flag, bool):
+        raise ConfigError("[debug] eeg_trace: нужно true или false")
+    limit = raw.get("eeg_trace_max_kb", DebugConfig.eeg_trace_max_kb)
+    if isinstance(limit, bool) or not isinstance(limit, int):
+        raise ConfigError("[debug] eeg_trace_max_kb: нужно целое число")
+    try:
+        return DebugConfig(eeg_trace=flag, eeg_trace_max_kb=limit)
+    except ValueError as exc:
+        raise ConfigError(f"[debug] {exc}") from exc
 
 
 def _section[T](cls: type[T], raw: dict[str, Any], name: str) -> T:
