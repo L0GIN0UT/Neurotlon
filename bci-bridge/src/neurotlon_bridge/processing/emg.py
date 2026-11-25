@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import math
 from collections import deque
 from dataclasses import dataclass
 
@@ -180,6 +181,21 @@ class EmgProcessor:
     @property
     def calibrated(self) -> bool:
         return self.rest is not None and self.peak is not None
+
+    def export_calibration(self) -> tuple[float, float] | None:
+        """(rest, peak) готовой шкалы для сохранения на диск; нет калибровки - None."""
+        if self.rest is None or self.peak is None:
+            return None
+        return self.rest, self.peak
+
+    def restore_calibration(self, rest: float, peak: float) -> None:
+        """Применить шкалу, прочитанную с диска; значения должны быть проверены (`peak > rest`)."""
+        if not (math.isfinite(rest) and math.isfinite(peak) and 0 <= rest < peak):
+            raise ValueError("шкала ЭМГ: нужны конечные числа и 0 <= rest < peak")
+        self.rest = rest
+        self.peak = peak
+        self._run = None
+        self._status = None
 
     def set_fs(self, fs: float) -> None:
         """Фактическая частота устройства отличается от номинальной: пересобрать фильтры."""

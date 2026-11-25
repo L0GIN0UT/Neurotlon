@@ -34,7 +34,7 @@
       "enum": ["emotions", "alpha"]
     },
     "Feature": {
-      "enum": ["burst", "emg_cycle", "baseline_duration"]
+      "enum": ["burst", "emg_cycle", "baseline_duration", "calibration_state"]
     },
     "Segment": {
       "type": "object",
@@ -67,7 +67,12 @@
           "uniqueItems": true,
           "items": { "$ref": "#/$defs/Feature" }
         },
-        "eeg_method": { "$ref": "#/$defs/EegMethod" }
+        "eeg_method": { "$ref": "#/$defs/EegMethod" },
+        "calibrated": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/SignalName" }
+        }
       },
       "dependentSchemas": {
         "eeg_method": {

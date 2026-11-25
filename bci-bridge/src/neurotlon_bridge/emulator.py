@@ -208,6 +208,10 @@ class EmulatedSource:
                 step, "running", max(0.0, progress), None, pos.segment, pos.phase, pos.phase_left_s
             )
 
+    def is_calibrated(self, signal: str) -> bool:
+        self._check(signal)
+        return False  # калибровка не нужна: сигналы эмулятора действительны всегда
+
     def reset(self) -> None:
         with self._lock:
             self._runs.clear()

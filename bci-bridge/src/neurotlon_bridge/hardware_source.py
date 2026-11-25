@@ -14,6 +14,16 @@ from collections.abc import Callable
 
 import numpy as np
 
+from .calibration_store import (
+    CalibrationRecord,
+    CalibrationStore,
+    EegScale,
+    EmgScale,
+    Scale,
+    Stamped,
+    record_problem,
+    same_scale,
+)
 from .config import BridgeConfig, required_devices
 from .devices.base import DeviceBackend, DeviceKind
 from .devices.sdk_sensor import SdkSensor
@@ -43,6 +53,10 @@ EEG_PERIOD_S = 0.04
 CLOSE_TIMEOUT_S = 30.0
 
 
+def _nothing() -> None:
+    """Без действия."""
+
+
 class _Channel:
     """Датчик + обработчик + рабочий поток одного сигнала."""
 
@@ -53,6 +67,7 @@ class _Channel:
         self.name = name
         self.sensor = sensor
         self._clock = clock
+        self.on_change: Callable[[], None] = _nothing  # шаг мог изменить калибровку
         self._lock = threading.Lock()
         self._updated: float | None = None
         self._seen_reconnects = 0
@@ -106,6 +121,7 @@ class _Channel:
             self._tick(now)
             if batches:
                 self._updated = batches[-1][0]
+        self.on_change()  # вне замка: источник сам берёт замки каналов
 
     def _on_reconnect(self) -> None:
         raise NotImplementedError
@@ -152,6 +168,17 @@ class _Channel:
         return []
 
     def reset(self) -> None:
+        raise NotImplementedError
+
+    def is_calibrated(self) -> bool:
+        raise NotImplementedError
+
+    def export_scale(self) -> Scale | None:
+        """Шкала для сохранения на диск; нет готовой или метод не умеет - None."""
+        raise NotImplementedError
+
+    def restore_scale(self, scale: Scale) -> bool:
+        """Применить шкалу с диска; False, если канал её не принял."""
         raise NotImplementedError
 
 
@@ -209,14 +236,38 @@ class _EmgChannel(_Channel):
         with self._lock:
             self._proc.reset()
 
+    def is_calibrated(self) -> bool:
+        with self._lock:
+            return self._proc.calibrated
+
+    def export_scale(self) -> Scale | None:
+        with self._lock:
+            bounds = self._proc.export_calibration()
+            return None if bounds is None else EmgScale(bounds[0], bounds[1], self._proc.fs)
+
+    def restore_scale(self, scale: Scale) -> bool:
+        if not isinstance(scale, EmgScale):
+            return False
+        with self._lock:
+            self._proc.restore_calibration(scale.rest, scale.peak)
+        return True
+
 
 class _EegChannel(_Channel):
     kind: DeviceKind = "brainbit"
     period_s = EEG_PERIOD_S
 
-    def __init__(self, name: str, sensor: SdkSensor, clock: Clock, processor: EegProcessor) -> None:
+    def __init__(
+        self,
+        name: str,
+        sensor: SdkSensor,
+        clock: Clock,
+        processor: EegProcessor,
+        sampling_hz: float,
+    ) -> None:
         super().__init__(name, sensor, clock)
         self._proc = processor
+        self._sampling_hz = sampling_hz
 
     def _on_reconnect(self) -> None:
         self._proc.abort_calibration("связь с датчиком прервалась")
@@ -254,6 +305,21 @@ class _EegChannel(_Channel):
     def reset(self) -> None:
         with self._lock:
             self._proc.reset()
+
+    def is_calibrated(self) -> bool:
+        with self._lock:
+            return self._proc.calibrated
+
+    def export_scale(self) -> Scale | None:
+        with self._lock:
+            bounds = self._proc.export_calibration()
+        return None if bounds is None else EegScale(bounds[0], bounds[1], self._sampling_hz)
+
+    def restore_scale(self, scale: Scale) -> bool:
+        if not isinstance(scale, EegScale):
+            return False
+        with self._lock:
+            return self._proc.restore_calibration(scale.low, scale.high)
 
 
 EngineFactory = Callable[[], EegEngine]
@@ -298,6 +364,8 @@ class HardwareSource:
         threaded: bool = True,
         engine_factory: EngineFactory | None = None,
         eeg_method: EegMethod = "alpha",
+        store: CalibrationStore | None = None,
+        wall_clock: Callable[[], float] = time.time,
     ) -> None:
         if profile not in PROFILES:
             raise ValueError(f"unknown profile: {profile}")
@@ -311,13 +379,95 @@ class HardwareSource:
             if signal == "eeg":
                 sensor = SdkSensor(serial, "brainbit", backend, clock)
                 self._channels[signal] = _EegChannel(
-                    signal, sensor, clock, EegProcessor(factory, config.eeg.calibration_s)
+                    signal,
+                    sensor,
+                    clock,
+                    EegProcessor(factory, config.eeg.calibration_s),
+                    config.eeg.sampling_rate,
                 )
             else:
                 sensor = SdkSensor(serial, "callibri", backend, clock)
                 processor = EmgProcessor(config.emg, burst=config.burst)
                 self._channels[signal] = _EmgChannel(signal, sensor, clock, processor)
         self._started = False
+        self._eeg_method: EegMethod | None = eeg_method if "eeg" in self._channels else None
+        self._eeg_fs = float(config.eeg.sampling_rate)
+        self._emg_fs = float(config.emg.fs_nominal)
+        self._ttl_s = config.calibration.ttl_s
+        self._store = store
+        self._wall_clock = wall_clock
+        self._store_lock = threading.Lock()
+        self._saved: dict[str, Stamped] = {}  # что сейчас лежит в хранилище
+        try:
+            self._restore()
+        except Exception:  # битый файл не должен мешать запуску моста
+            log.warning("восстановление калибровки не удалось, начинаем с нуля", exc_info=True)
+            self._saved = {}
+        for channel in self._channels.values():
+            channel.on_change = self._sync_store
+
+    # --- сохранение калибровки ---
+    def _restore(self) -> None:
+        """Применить сохранённую калибровку, если ей можно верить; иначе стереть файл."""
+        if self._store is None:
+            return
+        try:
+            record = self._store.load()
+        except OSError:
+            log.warning("калибровку не прочитать с диска, начинаем с нуля", exc_info=True)
+            return
+        if record is None:
+            return
+        problem = record_problem(
+            record,
+            now=self._wall_clock(),
+            ttl_s=self._ttl_s,
+            signals=self._channels.keys(),
+            eeg_method=self._eeg_method,
+            eeg_fs=self._eeg_fs,
+            emg_fs=self._emg_fs,
+        )
+        if problem is not None:
+            log.info("сохранённая калибровка не подходит (%s), стёрта", problem)
+            self._saved = {}
+            self._write_store()
+            return
+        for name, stamped in record.signals.items():
+            if self._channels[name].restore_scale(stamped.scale):
+                self._saved[name] = stamped
+                log.info("калибровка %s восстановлена с диска", name)
+        if self._saved != record.signals:  # часть не восстановилась (метод emotions)
+            self._write_store()
+
+    def _sync_store(self) -> None:
+        """Привести файл в соответствие с калибровкой каналов (пишет только при изменении)."""
+        if self._store is None:
+            return
+        with self._store_lock:
+            now = self._wall_clock()
+            current: dict[str, Stamped] = {}
+            for name, channel in self._channels.items():
+                scale = channel.export_scale()
+                if scale is None:
+                    continue
+                prev = self._saved.get(name)
+                # метка времени обновляется только при смене самой шкалы, не частоты
+                same = prev is not None and same_scale(prev.scale, scale)
+                current[name] = Stamped(scale, prev.at if same and prev is not None else now)
+            if current != self._saved:
+                self._saved = current
+                self._write_store()
+
+    def _write_store(self) -> None:
+        """Записать `self._saved` (пусто - стереть). Сбой диска не должен ронять мост."""
+        assert self._store is not None
+        try:
+            if self._saved:
+                self._store.save(CalibrationRecord(self._eeg_method, dict(self._saved)))
+            else:
+                self._store.clear()
+        except OSError:
+            log.warning("калибровку не записать на диск", exc_info=True)
 
     def start(self) -> None:
         if self._started:
@@ -367,6 +517,7 @@ class HardwareSource:
         duration_s: float | None = None,
     ) -> None:
         self._channel(signal).start_calibration(step, segments, duration_s)
+        self._sync_store()  # новый шаг делает прежнюю шкалу сигнала недействительной
 
     def calibration_status(self, signal: str) -> CalibrationProgress | None:
         return self._channel(signal).calibration_status()
@@ -377,6 +528,10 @@ class HardwareSource:
     def reset(self) -> None:
         for channel in self._channels.values():
             channel.reset()
+        self._sync_store()
+
+    def is_calibrated(self, signal: str) -> bool:
+        return self._channel(signal).is_calibrated()
 
     # --- для окна ---
     def battery(self, signal: str) -> int | None:

@@ -23,7 +23,7 @@ from .source import (
 
 log = logging.getLogger(__name__)
 
-FEATURES: tuple[Feature, ...] = ("burst", "emg_cycle", "baseline_duration")
+FEATURES: tuple[Feature, ...] = ("burst", "emg_cycle", "baseline_duration", "calibration_state")
 
 
 @dataclass
@@ -118,6 +118,7 @@ class BridgeServer:
                 tuple((n, self._source.state(n)) for n in names),
                 features=FEATURES,
                 eeg_method=self._eeg_method if "eeg" in names else None,
+                calibrated=await asyncio.to_thread(self._calibrated_signals, names),
             )
             await self._write(writer, protocol.encode(hello))
             tracking = _Tracking(
@@ -144,6 +145,10 @@ class BridgeServer:
             writer.close()
             with contextlib.suppress(ConnectionError, OSError):
                 await writer.wait_closed()
+
+    def _calibrated_signals(self, names: tuple[str, ...]) -> tuple[str, ...]:
+        """Сигналы с готовой шкалой; блокирует (замки обработчиков): не в цикле событий."""
+        return tuple(n for n in names if self._source.is_calibrated(n))
 
     async def _receive_loop(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter, tracking: _Tracking

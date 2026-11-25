@@ -52,6 +52,14 @@ RELAX = {"phase": "relax", "s": 5}
             "eeg_method": "alpha",
         },
         {"type": "hello", "protocol": 1, "signals": [EEG_HELLO], "eeg_method": "emotions"},
+        {
+            "type": "hello",
+            "protocol": 1,
+            "signals": [EEG_HELLO, EMG_HELLO],
+            "features": ["calibration_state"],
+            "calibrated": ["emg"],
+        },
+        {"type": "hello", "protocol": 1, "signals": [EMG_HELLO], "calibrated": []},
         {"type": "calibrate", "signal": "emg", "step": "cycle"},
         {"type": "calibrate", "signal": "emg", "step": "cycle", "segments": [TENSE, RELAX]},
         {
@@ -86,6 +94,9 @@ def test_valid_messages_accepted(message: dict[str, Any]) -> None:
     [
         {"type": "hello", "protocol": 1, "signals": [EEG_HELLO], "features": ["telepathy"]},
         {"type": "hello", "protocol": 1, "signals": [EEG_HELLO, EMG_HELLO], "eeg_method": "fft"},
+        {"type": "hello", "protocol": 1, "signals": [EMG_HELLO], "calibrated": ["emg", "emg"]},
+        {"type": "hello", "protocol": 1, "signals": [EMG_HELLO], "calibrated": ["gaze"]},
+        {"type": "hello", "protocol": 1, "signals": [EMG_HELLO], "calibrated": "emg"},
         # eeg_method только если в профиле есть eeg
         {"type": "hello", "protocol": 1, "signals": [EMG_HELLO], "eeg_method": "alpha"},
         {"type": "calibrate", "signal": "emg", "step": "cycle", "segments": [TENSE]},
