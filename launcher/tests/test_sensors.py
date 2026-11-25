@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 
+from neurotlon_contracts.sensor_devices import DeviceRef
 from neurotlon_launcher import sensors
 from neurotlon_launcher.api import DisciplineConfig
 from neurotlon_launcher.config import ConfigError, parse_config
@@ -104,7 +105,10 @@ def test_bridge_toml_roundtrip_matches_the_bridge_config(tmp_path: Path) -> None
     from neurotlon_bridge.config import load_config as bridge_load
 
     config = bridge_load(service.toml_path)  # тот самый разбор, который сделает мост
-    assert config.devices == {"eeg": "BB-1", "emg": 'CA "2"'}
+    assert config.devices == {
+        "eeg": DeviceRef(serial="BB-1"),
+        "emg": DeviceRef(serial='CA "2"'),
+    }
     assert SensorService(tmp_path / "none", "x").saved_devices() == {}
 
 

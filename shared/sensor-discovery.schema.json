@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "neurotlon/sensor-discovery/1",
+  "title": "Sensor discovery: bridge <-> launcher",
+  "$defs": {
+    "DeviceKind": {
+      "enum": ["brainbit", "callibri"]
+    },
+    "LinkState": {
+      "enum": ["connecting", "connected", "failed", "lost"]
+    },
+    "DeviceId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "Item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "name", "serial", "address", "rssi", "age_ms"],
+      "properties": {
+        "id": { "$ref": "#/$defs/DeviceId" },
+        "kind": { "$ref": "#/$defs/DeviceKind" },
+        "name": { "type": "string", "maxLength": 128 },
+        "serial": { "type": "string", "maxLength": 128 },
+        "address": { "$ref": "#/$defs/DeviceId" },
+        "rssi": { "type": ["integer", "null"], "minimum": -127, "maximum": 0 },
+        "age_ms": { "type": "integer", "minimum": 0, "maximum": 3600000 }
+      }
+    },
+    "Hello": {
+      "type": "object",
+      "required": ["type", "v"],
+      "properties": {
+        "type": { "const": "hello" },
+        "v": { "const": 1 }
+      }
+    },
+    "Devices": {
+      "type": "object",
+      "required": ["type", "scanning", "items"],
+      "properties": {
+        "type": { "const": "devices" },
+        "scanning": { "type": "boolean" },
+        "items": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/Item" } }
+      }
+    },
+    "Link": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id", "state", "serial", "battery", "contact", "signal", "level"],
+      "properties": {
+        "type": { "const": "link" },
+        "id": { "$ref": "#/$defs/DeviceId" },
+        "state": { "$ref": "#/$defs/LinkState" },
+        "serial": { "type": "string", "maxLength": 128 },
+        "battery": { "type": ["integer", "null"], "minimum": 0, "maximum": 100 },
+        "contact": { "type": ["boolean", "null"] },
+        "signal": { "type": "boolean" },
+        "level": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "error": { "type": "string", "maxLength": 300 }
+      }
+    },
+    "Error": {
+      "type": "object",
+      "required": ["type", "message"],
+      "properties": {
+        "type": { "const": "error" },
+        "message": { "type": "string", "minLength": 1, "maxLength": 300 }
+      }
+    },
+    "BridgeMessage": {
+      "oneOf": [
+        { "$ref": "#/$defs/Hello" },
+        { "$ref": "#/$defs/Devices" },
+        { "$ref": "#/$defs/Link" },
+        { "$ref": "#/$defs/Error" }
+      ]
+    },
+    "ScanCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cmd", "on"],
+      "properties": {
+        "cmd": { "const": "scan" },
+        "on": { "type": "boolean" }
+      }
+    },
+    "ConnectCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cmd", "id", "kind"],
+      "properties": {
+        "cmd": { "const": "connect" },
+        "id": { "$ref": "#/$defs/DeviceId" },
+        "kind": { "$ref": "#/$defs/DeviceKind" }
+      }
+    },
+    "ReleaseCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cmd", "id"],
+      "properties": {
+        "cmd": { "const": "release" },
+        "id": { "$ref": "#/$defs/DeviceId" }
+      }
+    },
+    "QuitCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cmd"],
+      "properties": {
+        "cmd": { "const": "quit" }
+      }
+    },
+    "LauncherCommand": {
+      "oneOf": [
+        { "$ref": "#/$defs/ScanCommand" },
+        { "$ref": "#/$defs/ConnectCommand" },
+        { "$ref": "#/$defs/ReleaseCommand" },
+        { "$ref": "#/$defs/QuitCommand" }
+      ]
+    }
+  }
+}

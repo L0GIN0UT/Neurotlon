@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from neurotlon_contracts.sensor_devices import DeviceRef, DevicesFormatError, parse_devices
+
 from .calibration_store import DEFAULT_TTL_H
 from .processing.alpha import AlphaConfig
 from .processing.burst import BurstConfig
@@ -17,7 +19,6 @@ from .processing.emg import EmgConfig
 from .source import PROFILES
 
 CONFIG_NAME = "bridge.toml"
-DEVICE_KEYS = ("eeg", "emg", "emg_left", "emg_right")
 DEFAULT_SCAN_S = 12.0
 MAX_TTL_H = 24.0 * 7
 
@@ -43,7 +44,7 @@ class CalibrationConfig:
 
 @dataclass(frozen=True)
 class BridgeConfig:
-    devices: dict[str, str] = field(default_factory=dict)
+    devices: dict[str, DeviceRef] = field(default_factory=dict)
     scan_s: float = DEFAULT_SCAN_S
     emg: EmgConfig = field(default_factory=EmgConfig)
     eeg: EegConfig = field(default_factory=EegConfig)
@@ -68,7 +69,8 @@ def load_config(path: Path | None) -> BridgeConfig:
         if path is None:
             raise ConfigError(
                 f"не найден {CONFIG_NAME}: скопируйте bridge.example.toml в {CONFIG_NAME} "
-                "и впишите серийные номера датчиков (список: neurotlon-bridge --scan)"
+                "и назначьте датчики на экране настройки стенда "
+                "(или впишите их вручную, список: neurotlon-bridge --scan)"
             )
     elif not path.is_file():
         raise ConfigError(f"файл настроек не найден: {path}")
@@ -87,14 +89,10 @@ def parse_config(data: dict[str, Any]) -> BridgeConfig:
     scan_s = devices_raw.pop("scan_s", DEFAULT_SCAN_S)
     if isinstance(scan_s, bool) or not isinstance(scan_s, int | float) or scan_s <= 0:
         raise ConfigError("[devices] scan_s: нужно положительное число")
-    devices: dict[str, str] = {}
-    for key, value in devices_raw.items():
-        if key not in DEVICE_KEYS:
-            raise ConfigError(f"[devices] неизвестный ключ: {key}")
-        if isinstance(value, bool) or not isinstance(value, str | int):
-            raise ConfigError(f"[devices] {key}: нужна строка с серийным номером")
-        if str(value).strip():
-            devices[key] = str(value).strip()
+    try:
+        devices = parse_devices(devices_raw)
+    except DevicesFormatError as exc:
+        raise ConfigError(str(exc)) from exc
     config = BridgeConfig(
         devices=devices,
         scan_s=float(scan_s),
@@ -133,17 +131,17 @@ def _section[T](cls: type[T], raw: dict[str, Any], name: str) -> T:
         raise ConfigError(f"[{name}] {exc}") from exc
 
 
-def required_devices(profile: str, config: BridgeConfig) -> dict[str, str]:
-    """Сигнал -> серийный номер для профиля; не задан или повторяется — `ConfigError`."""
-    result: dict[str, str] = {}
+def required_devices(profile: str, config: BridgeConfig) -> dict[str, DeviceRef]:
+    """Сигнал -> датчик для профиля; не задан или повторяется — `ConfigError`."""
+    result: dict[str, DeviceRef] = {}
     for signal in PROFILES[profile]:
-        serial = config.devices.get(signal)
-        if not serial:
+        ref = config.devices.get(signal)
+        if ref is None:
             raise ConfigError(
-                f"для профиля {profile} в {CONFIG_NAME} не задан серийный номер: [devices] {signal}"
+                f"для профиля {profile} в {CONFIG_NAME} не назначен датчик: [devices] {signal}"
             )
-        result[signal] = serial
-    folded = [s.lower() for s in result.values()]
-    if len(set(folded)) != len(folded):
-        raise ConfigError("один и тот же серийный номер указан для двух сигналов")
+        result[signal] = ref
+    refs = list(result.values())
+    if any(a.same_device(b) for i, a in enumerate(refs) for b in refs[i + 1 :]):
+        raise ConfigError("один и тот же датчик указан для двух сигналов")
     return result

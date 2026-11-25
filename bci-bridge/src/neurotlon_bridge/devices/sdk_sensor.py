@@ -42,8 +42,10 @@ class SdkSensor:
         silence_restart_s: float = SILENCE_RESTART_S,
         restart_interval_s: float = RESTART_INTERVAL_S,
         retry_interval_s: float = RETRY_INTERVAL_S,
+        address: str = "",
     ) -> None:
         self.serial = serial
+        self.address = address
         self.kind: DeviceKind = kind
         self._backend = backend
         self._clock = clock
@@ -98,7 +100,7 @@ class SdkSensor:
         self._state = "connecting"
         self._last_attempt = self._clock()
         self._connect_thread = threading.Thread(
-            target=self.connect, name=f"connect-{self.serial}", daemon=True
+            target=self.connect, name=f"connect-{self.serial or self.address}", daemon=True
         )
         self._connect_thread.start()
 
@@ -114,7 +116,7 @@ class SdkSensor:
         self._battery_from_callback = False
         self._electrode_ok = None  # контакт новой связи ещё неизвестен
         try:
-            raw = self._backend.open_sensor(self.serial, self.kind, self._handlers())
+            raw = self._backend.open_sensor(self.serial, self.kind, self._handlers(), self.address)
             with self._life:
                 if self._closing:
                     raw.close()

@@ -34,7 +34,6 @@ ROLES: dict[str, tuple[str, ...]] = {
     "football": ("eeg", "emg"),
     "pong": ("emg_left", "emg_right"),
 }
-ROLE_KIND = {"eeg": "brainbit", "emg": "callibri", "emg_left": "callibri", "emg_right": "callibri"}
 MODES = ("external", "hardware", "emulate")
 
 NO_BRIDGE = "Мост датчиков не входит в эту установку"

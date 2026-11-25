@@ -91,7 +91,10 @@ if (-not $SkipCore) {
         Push-Location $repo
         try {
             uv run --with pyinstaller pyinstaller --noconfirm --onedir --name neurotlon-bridge `
-                --paths bci-bridge\src --collect-all neurosdk --collect-all em_st_artifacts `
+                --paths bci-bridge\src --paths shared\python\src `
+                --add-data "$repo\shared\sensor-discovery.schema.json;shared" `
+                --collect-data jsonschema_specifications --collect-data jsonschema `
+                --collect-all neurosdk --collect-all em_st_artifacts `
                 --distpath "$work\out" --workpath "$work\work" --specpath "$work\spec" `
                 bci-bridge\station_bridge.py
         } finally { Pop-Location }
@@ -105,6 +108,7 @@ foreach ($schema in 'game-launch', 'bridge-protocol') {
     if (-not (Test-Path (Join-Path $stage "core\_internal\shared\$schema.schema.json"))) { throw "В ядре лаунчера нет shared\$schema.schema.json: проверьте --add-data в сборке ядра" }
 }
 if (-not (Test-Path (Join-Path $stage 'bridge\neurotlon-bridge.exe'))) { throw 'Нет моста датчиков (stage\bridge): соберите без -SkipCore' }
+if (-not (Test-Path (Join-Path $stage 'bridge\_internal\shared\sensor-discovery.schema.json'))) { throw 'В мосте нет shared\sensor-discovery.schema.json: проверьте --add-data в сборке моста' }
 
 Invoke-Step 'Зависимости оболочки Electron' {
     Push-Location $electron

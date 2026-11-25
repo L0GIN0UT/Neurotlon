@@ -10,6 +10,7 @@ from neurotlon_bridge.config import (
     parse_config,
     required_devices,
 )
+from neurotlon_contracts.sensor_devices import DeviceRef
 
 EXAMPLE = Path(__file__).parents[1] / "bridge.example.toml"
 
@@ -31,7 +32,7 @@ def test_devices_and_overrides() -> None:
             "eeg": {"calibration_s": 10},
         }
     )
-    assert config.devices == {"eeg": "BB1", "emg": "123456"}
+    assert config.devices == {"eeg": DeviceRef(serial="BB1"), "emg": DeviceRef(serial="123456")}
     assert config.scan_s == 5.0
     assert config.emg.settle_s == 2.0
     assert config.emg.band_high_hz == 400.0
@@ -80,9 +81,20 @@ def test_invalid_config_rejected(data: dict[str, object]) -> None:
 
 
 def test_required_devices_per_profile() -> None:
-    config = BridgeConfig(devices={"eeg": "A", "emg": "B", "emg_left": "L", "emg_right": "R"})
-    assert required_devices("darts", config) == {"eeg": "A", "emg": "B"}
-    assert required_devices("pong", config) == {"emg_left": "L", "emg_right": "R"}
+    config = BridgeConfig(
+        devices={
+            role: DeviceRef(serial=serial)
+            for role, serial in {"eeg": "A", "emg": "B", "emg_left": "L", "emg_right": "R"}.items()
+        }
+    )
+    assert required_devices("darts", config) == {
+        "eeg": DeviceRef(serial="A"),
+        "emg": DeviceRef(serial="B"),
+    }
+    assert required_devices("pong", config) == {
+        "emg_left": DeviceRef(serial="L"),
+        "emg_right": DeviceRef(serial="R"),
+    }
 
 
 def test_missing_file_explicit_path(tmp_path: Path) -> None:
@@ -104,7 +116,7 @@ def test_default_path_prefers_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         load_config(None)
     (tmp_path / "bridge.toml").write_text('[devices]\nemg = "Z"\n', encoding="utf-8")
     assert default_config_path() == tmp_path / "bridge.toml"
-    assert load_config(None).devices == {"emg": "Z"}
+    assert load_config(None).devices == {"emg": DeviceRef(serial="Z")}
 
 
 def test_burst_defaults_and_overrides() -> None:
@@ -162,3 +174,101 @@ def test_emg_cycle_keys_reject_bad_values(emg: dict[str, object]) -> None:
 
 def test_baseline_default_is_twelve_seconds() -> None:
     assert BridgeConfig().eeg.calibration_s == 12
+
+
+# --- два вида записи [devices] ---
+
+NEW_FORM = """
+[devices]
+scan_s = 7
+eeg = "BB-100200"
+
+[devices.emg_left]
+address = "D8:AA:00:00:00:02"
+serial = "CA-204816"
+name = "Callibri_Red"
+kind = "callibri"
+
+[devices.emg_right]
+address = "D8:AA:00:00:00:03"
+"""
+
+
+def test_both_forms_in_one_file(tmp_path: Path) -> None:
+    path = tmp_path / "bridge.toml"
+    path.write_text(NEW_FORM, encoding="utf-8")
+    config = load_config(path)
+    assert config.scan_s == 7.0
+    assert config.devices == {
+        "eeg": DeviceRef(serial="BB-100200"),
+        "emg_left": DeviceRef("D8:AA:00:00:00:02", "CA-204816", "Callibri_Red", "callibri"),
+        "emg_right": DeviceRef(address="D8:AA:00:00:00:03"),
+    }
+
+
+def test_launcher_writer_output_is_read_back_by_the_bridge(tmp_path: Path) -> None:
+    from neurotlon_contracts.sensor_devices import render_devices
+
+    devices = {
+        "emg_left": DeviceRef("A1", "CA-1", "Callibri", "callibri"),
+        "emg_right": DeviceRef("A2", "", "Callibri", "callibri"),
+    }
+    path = tmp_path / "bridge.toml"
+    path.write_text(render_devices(devices), encoding="utf-8")
+    assert load_config(path).devices == devices
+    assert required_devices("pong", load_config(path)) == devices
+
+
+@pytest.mark.parametrize(
+    ("devices", "match"),
+    [
+        ({"emg_left": {"address": "A1", "kind": "brainbit"}}, "kind"),
+        ({"emg_left": {"address": "A1", "colour": "red"}}, "неизвестные ключи"),
+        ({"emg_left": {"address": 5}}, "address"),
+        ({"emg_left": [1]}, "emg_left"),
+    ],
+)
+def test_bad_device_tables_are_config_errors(devices: dict[str, object], match: str) -> None:
+    with pytest.raises(ConfigError, match=match):
+        parse_config({"devices": devices})
+
+
+@pytest.mark.parametrize(
+    "devices",
+    [
+        {"emg_left": {"address": "A1"}, "emg_right": {"address": "a1", "serial": "X"}},
+        {
+            "emg_left": {"address": "A1", "serial": "CA"},
+            "emg_right": {"address": "A2", "serial": "ca"},
+        },
+        {"emg_left": "CA-1", "emg_right": {"address": "A2", "serial": "ca-1"}},
+    ],
+)
+def test_same_sensor_in_two_roles_by_address_or_serial(devices: dict[str, object]) -> None:
+    config = parse_config({"devices": devices})
+    with pytest.raises(ConfigError, match="один и тот же датчик"):
+        required_devices("pong", config)
+
+
+def test_two_sensors_without_serials_but_with_addresses_are_fine() -> None:
+    config = parse_config(
+        {"devices": {"emg_left": {"address": "A1"}, "emg_right": {"address": "A2"}}}
+    )
+    assert set(required_devices("pong", config)) == {"emg_left", "emg_right"}
+
+
+def test_missing_role_message_asks_to_assign_a_sensor() -> None:
+    config = parse_config({"devices": {"emg_left": {"address": "A1"}}})
+    with pytest.raises(ConfigError, match=r"не назначен датчик.*emg_right"):
+        required_devices("pong", config)
+
+
+def test_example_documents_both_forms() -> None:
+    import tomllib
+
+    lines = EXAMPLE.read_text(encoding="utf-8").splitlines()
+    examples = ('# eeg = "', "# [devices.", "# address", "# serial", "# name", "# kind")
+    uncommented = [line.removeprefix("# ") if line.startswith(examples) else line for line in lines]
+    parsed = parse_config(tomllib.loads(chr(10).join(uncommented)))
+    assert parsed.devices["eeg"] == DeviceRef(serial="BB-100200")
+    assert parsed.devices["emg_left"].address == "D8:AA:00:00:00:02"

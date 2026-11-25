@@ -24,6 +24,7 @@ from neurotlon_bridge.processing.eeg import EegResult
 from neurotlon_bridge.processing.emg import EmgConfig
 from neurotlon_bridge.server import BridgeServer
 from neurotlon_bridge.source import EegMethod, Segment
+from neurotlon_contracts.sensor_devices import DeviceRef
 
 FAST_EMG = EmgConfig(
     settle_s=0.0,
@@ -93,7 +94,7 @@ class Rig:
         self.clock = FakeClock(10.0)
         self.engines: list[FakeEngine] = []
         config = BridgeConfig(
-            devices=serials, emg=FAST_EMG, calibration=calibration or CalibrationConfig()
+            devices=refs(serials), emg=FAST_EMG, calibration=calibration or CalibrationConfig()
         )
         self.src = HardwareSource(
             profile,
@@ -138,6 +139,10 @@ class Rig:
         self.run(0.2, {signal: REST})
 
 
+def refs(serials: dict[str, str]) -> dict[str, DeviceRef]:
+    return {role: DeviceRef(serial=serial) for role, serial in serials.items()}
+
+
 PONG = {"emg_left": "CAL-L", "emg_right": "CAL-R"}
 DARTS = {"eeg": "BB-1", "emg": "CAL-1"}
 
@@ -175,12 +180,12 @@ def test_missing_serial_is_config_error(
 ) -> None:
     backend = FakeBackend()
     with pytest.raises(ConfigError, match=missing):
-        HardwareSource(profile, BridgeConfig(devices=devices), backend, threaded=False)
+        HardwareSource(profile, BridgeConfig(devices=refs(devices)), backend, threaded=False)
     assert backend.open_calls == []
 
 
 def test_same_serial_twice_is_config_error() -> None:
-    config = BridgeConfig(devices={"emg_left": "X", "emg_right": "x"})
+    config = BridgeConfig(devices=refs({"emg_left": "X", "emg_right": "x"}))
     with pytest.raises(ConfigError, match="один и тот же"):
         HardwareSource("pong", config, FakeBackend(), threaded=False)
 
@@ -205,7 +210,7 @@ def test_device_not_found_keeps_other_channel_alive() -> None:
     rig = Rig("pong", PONG)
     rig.src.close()
     backend = FakeBackend([FakeRawSensor("callibri", "CAL-L")])
-    config = BridgeConfig(devices=PONG, emg=FAST_EMG)
+    config = BridgeConfig(devices=refs(PONG), emg=FAST_EMG)
     src = HardwareSource("pong", config, backend, FakeClock(), threaded=False)
     src.start()
     deadline = time.monotonic() + 3
@@ -372,7 +377,7 @@ def test_close_releases_sensors_and_backend() -> None:
 
 def test_threaded_source_produces_readings() -> None:
     raw = FakeRawSensor("callibri", "T-1")
-    config = BridgeConfig(devices={"emg": "T-1", "eeg": "B-1"}, emg=FAST_EMG)
+    config = BridgeConfig(devices=refs({"emg": "T-1", "eeg": "B-1"}), emg=FAST_EMG)
     bb = FakeRawSensor("brainbit", "B-1")
     src = HardwareSource("darts", config, FakeBackend([raw, bb]), engine_factory=FakeEngine)
     src.start()
@@ -604,7 +609,7 @@ def test_factory_builds_emotions_engine(monkeypatch: pytest.MonkeyPatch) -> None
 def test_source_uses_selected_method(monkeypatch: pytest.MonkeyPatch, method: EegMethod) -> None:
     monkeypatch.setattr("neurotlon_bridge.processing.emotions.Pyem", lambda cfg: FakeEngine())
     raw = FakeRawSensor("brainbit", "B-1")
-    config = BridgeConfig(devices={"eeg": "B-1", "emg": "C-1"}, emg=FAST_EMG)
+    config = BridgeConfig(devices=refs({"eeg": "B-1", "emg": "C-1"}), emg=FAST_EMG)
     backend = FakeBackend([raw, FakeRawSensor("callibri", "C-1")])
     src = HardwareSource(
         "darts", config, backend, FakeClock(10.0), threaded=False, eeg_method=method
@@ -985,7 +990,7 @@ def test_broken_disk_does_not_stop_the_bridge() -> None:
 def test_threaded_steps_save_without_deadlock(tmp_path: Path) -> None:
     raw = FakeRawSensor("callibri", "T-1")
     bb = FakeRawSensor("brainbit", "B-1")
-    config = BridgeConfig(devices={"emg": "T-1", "eeg": "B-1"}, emg=FAST_EMG)
+    config = BridgeConfig(devices=refs({"emg": "T-1", "eeg": "B-1"}), emg=FAST_EMG)
     store = FileCalibrationStore(tmp_path)
     src = HardwareSource(
         "darts", config, FakeBackend([raw, bb]), engine_factory=PersistentFakeEngine, store=store

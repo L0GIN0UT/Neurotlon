@@ -12,6 +12,7 @@ import pytest
 
 from neurotlon_bridge.devices.base import (
     BluetoothUnavailableError,
+    DeviceError,
     DeviceNotFoundError,
     SdkUnavailableError,
     SensorHandlers,
@@ -35,11 +36,12 @@ Freq = _enum("SensorSamplingFrequency", "FrequencyHz500", "FrequencyHz1000")
 
 
 class SdkInfo:
-    def __init__(self, family: Any, name: str, serial: str, address: str) -> None:
+    def __init__(self, family: Any, name: str, serial: str, address: str, rssi: int = 0) -> None:
         self.SensFamily = family
         self.Name = name
         self.SerialNumber = serial
         self.Address = address
+        self.RSSI = rssi
 
 
 class Packet:
@@ -87,6 +89,7 @@ class SdkScanner:
     sensors_by_address: ClassVar[dict[str, SdkSensor]] = {}
     start_error: Exception | None = None
     start_calls: ClassVar[int] = 0
+    stop_calls: ClassVar[int] = 0
 
     def __init__(self, families: list[Any]) -> None:
         self.families = families
@@ -97,7 +100,7 @@ class SdkScanner:
             raise self.start_error
 
     def stop(self) -> None:
-        pass
+        SdkScanner.stop_calls += 1
 
     def sensors(self) -> list[SdkInfo]:
         return self.infos
@@ -112,6 +115,7 @@ def sdk(monkeypatch: pytest.MonkeyPatch) -> type[SdkScanner]:
     SdkScanner.sensors_by_address = {}
     SdkScanner.start_error = None
     SdkScanner.start_calls = 0
+    SdkScanner.stop_calls = 0
     pkg = types.ModuleType("neurosdk")
     types_mod = types.ModuleType("neurosdk.cmn_types")
     for enum_cls in (Family, State, Command, SignalType, AdcInput, SwitchInput, Parameter, Freq):
@@ -353,3 +357,177 @@ def test_missing_device_search_does_not_block_other_connect(sdk: type[SdkScanner
     gate.set()
     thread.join(5)
     assert len(errors) == 1
+
+
+# --- фоновый поиск (ScannerPort) ---
+
+
+def test_sensors_returns_what_is_visible_now_with_rssi(sdk: type[SdkScanner]) -> None:
+    sdk.infos = [
+        SdkInfo(Family.LEBrainBit, "BrainBit", "BB1", "A1", rssi=-55),
+        SdkInfo(Family.LECallibri, "Callibri", "", "A2"),  # RSSI 0: неизвестен
+        SdkInfo(Family.LEOther, "Other", "OT", "A3"),
+        SdkInfo(Family.LECallibri, "Callibri", "", "A2"),  # повтор
+    ]
+    backend = make_backend()
+    found = backend.sensors()
+    assert [(d.address, d.rssi) for d in found] == [("A1", -55), ("A2", None)]
+    sdk.infos = [SdkInfo(Family.LECallibri, "Callibri", "", "A2", rssi=-70)]
+    assert [(d.address, d.rssi) for d in backend.sensors()] == [("A2", -70)]
+
+
+def test_start_and_stop_are_idempotent_and_do_not_scan_by_themselves(
+    sdk: type[SdkScanner],
+) -> None:
+    backend = make_backend()
+    backend.stop()  # ещё не запускали
+    assert sdk.stop_calls == 0
+    backend.start()
+    backend.start()
+    assert sdk.start_calls == 1
+    backend.stop()
+    backend.stop()
+    assert sdk.stop_calls == 1
+    backend.start()  # после паузы поиск включается снова
+    assert sdk.start_calls == 2
+
+
+def test_start_without_adapter_is_a_bluetooth_error(sdk: type[SdkScanner]) -> None:
+    sdk.start_error = RuntimeError("Bluetooth adapter not found")
+    with pytest.raises(BluetoothUnavailableError):
+        make_backend().start()
+
+
+def test_connect_by_address_does_not_touch_other_unnamed_devices(sdk: type[SdkScanner]) -> None:
+    sdk.infos = [
+        SdkInfo(Family.LECallibri, "Callibri", "", "A1"),
+        SdkInfo(Family.LECallibri, "Callibri", "", "A2"),
+    ]
+    first, second = SdkSensor("CA-1"), SdkSensor("CA-2")
+    sdk.sensors_by_address = {"A1": first, "A2": second}
+    backend = make_backend()
+    backend.sensors()
+    raw = backend.connect("A2", "callibri", Collector().handlers())
+    assert raw.serial_number() == "CA-2"  # номер, который SDK отдаёт после подключения
+    assert first.log == []  # к первому Callibri даже не подключались
+    assert "signal_type" in second.log  # Callibri настроен в режим ЭМГ
+
+
+def test_connect_rejects_unknown_wrong_kind_and_busy_devices(sdk: type[SdkScanner]) -> None:
+    sdk.infos = [SdkInfo(Family.LECallibri, "Callibri", "", "A1")]
+    sdk.sensors_by_address = {"A1": SdkSensor("CA-1")}
+    backend = make_backend()
+    backend.sensors()
+    handlers = Collector().handlers()
+    with pytest.raises(DeviceNotFoundError, match="не найдено"):
+        backend.connect("ZZ", "callibri", handlers)
+    with pytest.raises(DeviceNotFoundError):
+        backend.connect("A1", "brainbit", handlers)
+    first = backend.connect("A1", "callibri", handlers)
+    with pytest.raises(DeviceError, match="уже подключён"):
+        backend.connect("A1", "callibri", handlers)
+    first.close()
+    assert backend.connect("A1", "callibri", handlers) is not None
+
+
+def test_open_sensor_prefers_the_address_and_skips_probing(sdk: type[SdkScanner]) -> None:
+    sdk.infos = [
+        SdkInfo(Family.LECallibri, "Callibri", "", "A1"),
+        SdkInfo(Family.LECallibri, "Callibri", "", "A2"),
+    ]
+    first, second = SdkSensor("CA-1"), SdkSensor("CA-2")
+    sdk.sensors_by_address = {"A1": first, "A2": second}
+    backend = make_backend()
+    backend.scan(0.0)
+    raw = backend.open_sensor("CA-1", "callibri", Collector().handlers(), address="A2")
+    assert raw.serial_number() == "CA-2"  # адрес важнее серийного номера
+    assert first.log == []
+
+
+def test_open_sensor_by_address_alone_without_serial(sdk: type[SdkScanner]) -> None:
+    sdk.infos = [SdkInfo(Family.LECallibri, "Callibri", "", "A1")]
+    sdk.sensors_by_address = {"A1": SdkSensor("CA-1")}
+    raw = make_backend().open_sensor("", "callibri", Collector().handlers(), address="A1")
+    assert raw.serial_number() == "CA-1"
+
+
+def test_changed_address_falls_back_to_the_serial_number(sdk: type[SdkScanner]) -> None:
+    sdk.infos = [SdkInfo(Family.LECallibri, "Callibri", "CA-1", "NEW")]
+    sdk.sensors_by_address = {"NEW": SdkSensor("CA-1")}
+    raw = make_backend().open_sensor("CA-1", "callibri", Collector().handlers(), address="OLD")
+    assert raw.serial_number() == "CA-1"
+
+
+def test_changed_address_falls_back_to_probing_when_advertised_serial_is_empty(
+    sdk: type[SdkScanner],
+) -> None:
+    sdk.infos = [
+        SdkInfo(Family.LECallibri, "Callibri", "", "N1"),
+        SdkInfo(Family.LECallibri, "Callibri", "", "N2"),
+    ]
+    first, second = SdkSensor("CA-1"), SdkSensor("CA-2")
+    sdk.sensors_by_address = {"N1": first, "N2": second}
+    raw = make_backend().open_sensor("CA-2", "callibri", Collector().handlers(), address="OLD")
+    assert raw.serial_number() == "CA-2"
+    assert "disconnect" in first.log  # пробный чужой освобождён
+
+
+def test_address_only_not_found_says_so(sdk: type[SdkScanner]) -> None:
+    with pytest.raises(DeviceNotFoundError, match="адресом OLD"):
+        make_backend().open_sensor("", "callibri", Collector().handlers(), address="OLD")
+
+
+def test_search_ends_early_when_the_device_appears(sdk: type[SdkScanner]) -> None:
+    info = SdkInfo(Family.LECallibri, "Callibri", "", "A1")
+    sdk.sensors_by_address = {"A1": SdkSensor("CA-1")}
+    sleeps: list[float] = []
+
+    def sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+        if len(sleeps) == 2:  # устройство появилось в эфире на третьем опросе
+            sdk.infos = [info]
+
+    backend = NeuroSdkBackend(30.0, sleep=sleep)  # по часам до конца поиска 30 с
+    started = time.monotonic()
+    raw = backend.open_sensor("", "callibri", Collector().handlers(), address="A1")
+    assert raw.serial_number() == "CA-1"
+    assert len(sleeps) == 2  # не ждали все 30 с
+    assert time.monotonic() - started < 5
+    assert sdk.stop_calls == 1  # поиск остановлен
+
+
+def test_search_by_serial_also_ends_early(sdk: type[SdkScanner]) -> None:
+    sdk.sensors_by_address = {"A1": SdkSensor("BB1")}
+    calls: list[float] = []
+
+    def sleep(seconds: float) -> None:
+        calls.append(seconds)
+        sdk.infos = [SdkInfo(Family.LEBrainBit, "BrainBit", "BB1", "A1")]
+
+    backend = NeuroSdkBackend(30.0, sleep=sleep)
+    assert backend.open_sensor("bb1", "brainbit", Collector().handlers()) is not None
+    assert len(calls) == 1
+
+
+def test_names_and_serials_from_the_air_are_cleaned_and_limited(sdk: type[SdkScanner]) -> None:
+    sdk.infos = [
+        SdkInfo(Family.LECallibri, "Call\x7fibri\u202e\ud800", "CA\x00-1", "A1"),
+        SdkInfo(Family.LECallibri, "\x7f\x00", "", "A2"),  # после чистки имя пустое
+        SdkInfo(Family.LECallibri, "n" * 500, "s" * 500, "A3"),
+        SdkInfo(Family.LECallibri, "Callibri", "", "A" * 65),  # адрес длиннее схемы
+        SdkInfo(Family.LECallibri, "Callibri", "", "B\x7f4"),  # в адресе управляющий знак
+        SdkInfo(Family.LECallibri, "Callibri", "", ""),
+    ]
+    found = {d.address: d for d in make_backend().sensors()}
+    assert set(found) == {"A1", "A2", "A3"}
+    assert (found["A1"].name, found["A1"].serial) == ("Callibri", "CA-1")
+    assert found["A2"].name == "callibri"  # пустое имя заменено видом
+    assert len(found["A3"].name) == 128 and len(found["A3"].serial) == 128
+
+
+def test_serial_after_connect_is_cleaned(sdk: type[SdkScanner]) -> None:
+    sdk.infos = [SdkInfo(Family.LECallibri, "Callibri", "", "A1")]
+    sdk.sensors_by_address = {"A1": SdkSensor("CA\x7f\u202e-1")}
+    backend = make_backend()
+    backend.sensors()
+    assert backend.connect("A1", "callibri", Collector().handlers()).serial_number() == "CA-1"
